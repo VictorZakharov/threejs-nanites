@@ -112,6 +112,8 @@ export class NaniteForest {
       name,
       planes: uniformArray(Array.from({ length: 6 }, () => new THREE.Vector4()), 'vec4'),
       tauMul: uniform(tauMul),
+      lodPos: uniform(new THREE.Vector3()), // where LOD is measured from: the camera (+ a debug shift)
+      lodShift: new THREE.Vector3(),
       itemsAttr: sb(new Uint32Array(MAX_ITEMS * 2), 2),
       dispatchAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4),
       barkArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
@@ -155,7 +157,7 @@ export class NaniteForest {
       const s = a.w;
       const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
       const r = ti.z.mul(s);
-      const dCam = length(center.sub(u.camPos));
+      const dCam = length(center.sub(v.lodPos));
       If(sphereVisible(center, r).and(dCam.sub(r).lessThan(u.maxDist)), () => {
         // clusters whose parent error (local units) is below this can never be selected for this tree
         const thr = tau.mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
@@ -207,7 +209,7 @@ export class NaniteForest {
         const cs = this.cData.element(c.mul(4).add(2)), e = this.cData.element(c.mul(4).add(3));
         const projErr = (sph, err) => {
           const w = a.xyz.add(rotY(sph.xyz, b.x, b.y).mul(s));
-          const dist = max(length(w.sub(u.camPos)).sub(sph.w.mul(s)), 0.05);
+          const dist = max(length(w.sub(v.lodPos)).sub(sph.w.mul(s)), 0.05);
           return err.mul(s).mul(u.projScale).div(dist);
         };
         // DAG cut: fine enough itself, but the parent group is too coarse
@@ -297,6 +299,14 @@ export class NaniteForest {
       return select(valid, world, vec3(0));
     })();
 
+    // coverage-preserving alpha: scale by the precomputed factor of the mip level being sampled
+    const levels = textures.leaf.userData.levels;
+    const scaleArr = uniformArray(textures.leaf.userData.alphaScales, 'float');
+    const leafAlpha = (a, layer) => {
+      const lod = clamp(log2(max(length(dFdx(vUv)), length(dFdy(vUv))).mul(textures.leaf.image.width)), 0, levels - 1.001);
+      const i0 = uint(layer).mul(levels).add(uint(lod.floor()));
+      return a.mul(mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract()));
+    };
     // the layer index must be exact: an interpolated 2.9999 truncates to the wrong texture (aspen speckles on pines,
     // shimmering from frame to frame)
     const layerI = vLayer.round();
@@ -304,7 +314,7 @@ export class NaniteForest {
     if (shadowOnly) {
       // depth-only caster: just the alpha cut-out for leaves
       mat = new THREE.MeshBasicNodeMaterial({ side: kind === 1 ? THREE.DoubleSide : THREE.FrontSide, alphaTest: kind === 1 ? 0.5 : 0 });
-      if (kind === 1) mat.colorNode = vec4(1, 1, 1, texture(textures.leaf, vUv).depth(layerI).a);
+      if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).a, layerI));
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
       const col = texture(textures.bark, vUv).depth(layerI).rgb.mul(vec3(0.9, 0.86, 0.8));
@@ -314,9 +324,7 @@ export class NaniteForest {
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
       const tex = texture(textures.leaf, vUv).depth(layerI);
-      // alpha-tested foliage thins out in the smaller mips; boost alpha with the mip level to keep coverage
-      const texel = max(length(dFdx(vUv)), length(dFdy(vUv))).mul(1024);
-      const alpha = tex.a.mul(max(log2(texel), 0).mul(0.35).add(1));
+      const alpha = leafAlpha(tex.a, layerI);
       // per-tree hue variation; darker towards the bottom of the crown
       const inner = smoothstep(-0.6, 0.8, normalLocal.y).mul(0.4).add(0.6);
       // per-texture tint (layer 2 = aspen, an autumn-yellow texture: pull it back to summer green)
@@ -366,6 +374,8 @@ export class NaniteForest {
     u.time.value = time;
     if (this.frozen) return;
     u.camPos.value.copy(camera.position);
+    // both views measure LOD from the camera (the shadow view too, so casters match what's seen)
+    for (const v of [this.main, this.shadow]) v.lodPos.value.copy(camera.position).add(v.lodShift);
     u.projScale.value = viewportHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     this._cull(this.main, camera);
     if (shadowCamera) this._cull(this.shadow, shadowCamera);

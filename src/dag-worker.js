@@ -218,7 +218,7 @@ function buildBark(pos, attr, idx, out) {
       }
       const target = Math.floor(tris / 2) * 3;
       const [res, err] = MeshoptSimplifier.simplifyWithAttributes(
-        local, lpos, 3, lattr, 5, [0.3, 0.3, 0.3, 0.05, 0.05], lock, target, 1e9, ['ErrorAbsolute'],
+        local, lpos, 3, lattr, 5, [0.5, 0.5, 0.5, 0.08, 0.08], lock, target, 1e9, ['ErrorAbsolute'],
       );
       if (res.length / 3 > tris * 0.85) {
         next.push(...g); // could not reduce enough: retry with different neighbours next level
@@ -309,9 +309,15 @@ function buildLeaves(lv, vpl, out) {
       for (let k = 0; k < keepN; k++) {
         const src = ls[lorder[Math.floor((k * ls.length) / keepN)]];
         const first = P.length / 3;
+        // grow around the card's centre: growing from the stem base pushed coarse crowns outward (bigger, brighter)
+        const ctr = [0, 1, 2].map((a) => {
+          let c = 0;
+          for (let v = 0; v < vpl; v++) c += P[(src.first + v) * 3 + a];
+          return c / vpl;
+        });
         for (let v = 0; v < vpl; v++) {
           const s = src.first + v;
-          for (let a = 0; a < 3; a++) P.push(src.base[a] + (P[s * 3 + a] - src.base[a]) * scale);
+          for (let a = 0; a < 3; a++) P.push(ctr[a] + (P[s * 3 + a] - ctr[a]) * scale);
           lv.nrm.push(lv.nrm[s * 3], lv.nrm[s * 3 + 1], lv.nrm[s * 3 + 2]);
           lv.uv.push(lv.uv[s * 2], lv.uv[s * 2 + 1]);
         }

@@ -1,6 +1,6 @@
 # Nanite Forest
 
-A three.js (WebGPU) tech demo: a ~10k-tree forest rendered with a Nanite-style, GPU-driven cluster LOD system.
+A three.js (WebGPU) tech demo: a 1M-tree forest rendered with a Nanite-style, GPU-driven cluster LOD system.
 Trees are generated with [ez-tree](https://github.com/dgreenheck/ez-tree).
 
 Needs a WebGPU browser (Chrome / Edge).
@@ -20,7 +20,7 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | Q | auto quality on/off (keeps GPU time under budget) |
 | P / G / H | shadows / wind / help |
 
-URL params: `trees=10000`, `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
+URL params: `trees=1000000`, `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
 
 ## How it works
 

@@ -1,6 +1,6 @@
 # AGENTS.md
 
-Guide for coding agents working on **Nanite Forest**, a three.js WebGPU tech demo: a ~10k-tree forest (ez-tree) drawn
+Guide for coding agents working on **Nanite Forest**, a three.js WebGPU tech demo: a 1M-tree forest (ez-tree) drawn
 with a Nanite-style GPU-driven cluster LOD system. `README.md` is the overview and controls; this file covers the
 things that aren't obvious from the code.
 
@@ -43,6 +43,10 @@ npm run harness -- --eval="__demo.autoTest(5000, 8)"      # runs the real loop w
 npm run harness -- --eval-file=tools/tmp/probe.js           # any page-side probe (window.__demo exposes the scene)
 ```
 
+`--sweep=lod,shadowlod,shadow` holds the view still and moves only the LOD reference point (or the shadow-caster
+LOD reference, or the shadow-map centre), then reports and heat-maps tiles whose brightness jumps from one step to
+the next: the way to measure LOD popping. Run sweeps with `--query=wind=0` (the harness also freezes the clouds).
+
 Don't time frames by awaiting `onSubmittedWorkDone` after each one: that adds ~4 ms of latency per frame and made
 an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame time the harness reports.
 
@@ -57,6 +61,12 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.js`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms).
+- Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
+  keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
+  mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.
+- Bark simplification weights normals/UVs (`simplifyWithAttributes`). meshopt folds attribute error into the error
+  it returns, which drives LOD selection: heavier weights mean less texture popping but many more triangles
+  (UVs run to ~10 along a branch).
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
