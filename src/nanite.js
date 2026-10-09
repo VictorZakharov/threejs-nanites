@@ -491,10 +491,9 @@ export class NaniteForest {
     u.projScale.value = viewportHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
     // a zoomed view (narrow fov) wants more detail on screen, but the shadow map's resolution doesn't change:
     // keep the shadow casters' LOD where it is unzoomed
-    // the main view gets only part of the zoom's extra detail back (sqrt): a 5x zoom at full detail costs ~4x
-    const zoom = camera.userData.zoom ?? 1;
-    this.shadow.tauMul.value = SHADOW_TAU_MUL * zoom;
-    this.main.tauMul.value = Math.sqrt(zoom);
+    // (the main view gets full zoomed detail, as if 5x closer: the narrow view culls most of the forest, and the
+    // auto quality trims tau if it's still too much)
+    this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1);
     this._cull(this.main, camera);
     if (shadowCamera) this._cull(this.shadow, shadowCamera);
   }

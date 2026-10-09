@@ -81,5 +81,6 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
   (`forestDensity`, `?groundshade=`, `?crown=`), and impostors scaled by `?impshade=`. Fading to fully sunlit made
   distant forest brighter, with a line where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs
   the real map on `topdown700`, comparing mean image colour.
-- Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale, but the main view's tau is multiplied by
-  sqrt(zoom) and the shadow view's by zoom (shadow-map resolution doesn't change), else 5x zoom costs ~4x.
+- Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
+  shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
+  to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.
