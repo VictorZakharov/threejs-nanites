@@ -4,9 +4,10 @@
 // draws. Trees whose projected height is under the impostor threshold are instead appended (by the GPU instance
 // pass) to an impostor list and drawn as 2 triangles each, which is what makes a horizon of ~1M trees cheap.
 //
-// The atlases have two 256x512 tiles per tree variant (half float): tiles 0..n-1 from the side, tiles n..2n-1 from
-// straight above (crown centred in the tile). The quad cross-fades between them by viewing elevation, so trees seen
-// from the air don't turn into edge-on slivers.
+// The atlases have three 256x512 tiles per tree variant (half float), one per viewing elevation (ELEVATIONS): tiles
+// 0..n-1 from the side, n..2n-1 from 45 degrees up, 2n..3n-1 from straight above. The quad cross-fades between them
+// by viewing elevation, so trees seen from the air don't turn into edge-on slivers. (With only side and top views, a
+// pine seen from 45 degrees was the top view's dark splat: "piles of poop" instead of slanted cones.)
 //
 // The tiles are baked from the cluster DAG cut the real tree has at the switch (see dagCut), not from the full
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
@@ -18,6 +19,8 @@ export const TILE_W = 256;
 export const TILE_H = 512;
 /** Alpha-test cut-off of the impostor material. */
 export const IMPOSTOR_CUT = 0.35;
+/** The baked viewing elevations (degrees), one atlas column block each. */
+export const ELEVATIONS = [0, 45, 90];
 
 /**
  * The triangles of one tree at a uniform DAG cut: every cluster whose own error is within `err` (object space,
@@ -66,7 +69,7 @@ function fullDetail({ bark, leaves }) {
 export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
   const n = trees.length;
   const makeRT = () =>
-    new THREE.RenderTarget(TILE_W * 2 * n, TILE_H, {
+    new THREE.RenderTarget(TILE_W * ELEVATIONS.length * n, TILE_H, {
       type: THREE.HalfFloatType,
       samples: 4,
       generateMipmaps: true,
@@ -144,32 +147,32 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
     const fw = Math.max(2 * r, h / 2) * 1.04;
     const fh = fw * 2;
     frames.push({ w: fw, h: fh });
-    const side = new THREE.OrthographicCamera(-fw / 2, fw / 2, fh, 0, -200, 200);
-    side.position.set(0, 0, 50);
-    side.lookAt(0, 0, 0);
-    // top view: same frame size, centred on the trunk axis (screen right = +x, screen up = -z)
-    const top = new THREE.OrthographicCamera(-fw / 2, fw / 2, fh / 2, -fh / 2, 0, 400);
-    top.position.set(0, 200, 0);
-    top.up.set(0, 0, -1);
-    top.lookAt(0, 0, 0);
-    for (const [cam, col] of [[side, i], [top, n + i]]) {
+    // every view is centred on the trunk axis at half the frame height (the runtime quad's pivot), looking from +z
+    // tilted up by the elevation: screen right = +x, screen up = (0, cos e, -sin e) (from above: -z)
+    ELEVATIONS.forEach((deg, k) => {
+      const e = THREE.MathUtils.degToRad(deg);
+      const cam = new THREE.OrthographicCamera(-fw / 2, fw / 2, fh / 2, -fh / 2, 0, 400);
+      cam.position.set(0, fh / 2 + 200 * Math.sin(e), 200 * Math.cos(e));
+      cam.up.set(0, Math.cos(e), -Math.sin(e));
+      cam.lookAt(0, fh / 2, 0);
+      const col = k * n + i;
       cam.updateMatrixWorld();
-      [rt, rtN].forEach((target, k) => {
+      [rt, rtN].forEach((target, j) => {
         renderer.setRenderTarget(target);
         target.viewport.set(col * TILE_W, 0, TILE_W, TILE_H);
         target.scissor.set(col * TILE_W, 0, TILE_W, TILE_H);
         target.scissorTest = true;
         renderer.clearDepth();
-        renderer.render(scenes[k], cam);
+        renderer.render(scenes[j], cam);
       });
-    }
+    });
 
     scenes.forEach((sc) => sc.traverse((o) => o.isMesh && o.geometry.dispose()));
   });
 
   for (const target of [rt, rtN]) {
     target.scissorTest = false;
-    target.viewport.set(0, 0, TILE_W * 2 * n, TILE_H);
+    target.viewport.set(0, 0, TILE_W * ELEVATIONS.length * n, TILE_H);
   }
   renderer.autoClear = prevAutoClear;
   renderer.toneMapping = prevTone;

@@ -29,6 +29,8 @@ export const VIEWS = {
   d800: { x: 400, z: 600, agl: 800, yaw: 0, pitch: -89 },
   d550: { x: 400, z: 600, agl: 550, yaw: 0, pitch: -89 },
   d350: { x: 400, z: 600, agl: 350, yaw: 0, pitch: -89 },
+  // looking down at 40 degrees: trees ~12 px tall (impostors), ~60 px through the 5x zoom (user: "piles of poop")
+  slope: { x: 400, z: 600, agl: 450, yaw: 0, pitch: -40 },
 };
 
 /** The views run when --views isn't given: the everyday set, not every special-purpose one. */

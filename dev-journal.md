@@ -21,12 +21,14 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   (leaf error 0.35 x card size keeps ~3 px cards). Next: software-raster the shadow map (7-14M hardware tris, depth
   only, one pass); put software pixels in the HZB; one raster pass instead of two; zoomed views (`zoomref`
   `--zoom=5`: 71M sw tris, 24 ms).
-- **Billboard -> tree swap too visible** (user, on the live site). Swap moved from 40 px to 20 px tall (geometry
-  stays twice as far). At `d550` trees are now geometry. Colours recalibrated after the page-background fix (the
-  canvas showed the page through alpha-to-coverage leaves: everything was paler and bluer). Still different: real trees at coarse LOD are round fluffy blobs (big leaf cards, alpha to
-  coverage speckle), impostors are crisp cut-out crowns. Baking from the matching DAG cut changed little. Ideas:
-  bake with the runtime's alpha-to-coverage look, soften the impostor alpha edge, a time-based cross-fade when the
-  zoom changes; and the leaf simplification itself (cards grown sqrt2 per level make crowns fatter than the tree).
+- **Billboard -> tree swap too visible** (user, on the live site; then "shadows also change" and "piles of poop"
+  for trees seen from ~45 degrees). Done so far: swap at 20 px (was 40); impostors cast shadows into the map (the
+  ground and trees around impostors used to get an average shade, which changed at the switch and with the zoom); a
+  45 degree atlas tile (the top tile's dark splats were what read as poop). Check: `slope` view, unzoomed vs
+  `--zoom=5`, and `--ab="imppx=0|imppx=100000"` mean colours (54.9,71,39.8 vs 54.5,70,38.7). Still different up
+  close: real trees at coarse LOD are speckled (alpha-to-coverage, dark trunks), impostors smooth. Ideas left: a
+  time-based cross-fade when the zoom changes; the leaf simplification (cards grown sqrt2 per level).
+- **Refactor (user): no file over 300-400 lines.** `nanite.js` (~1000) and `main.js` (~700) to split.
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
   screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
   perf report).

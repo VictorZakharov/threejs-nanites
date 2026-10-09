@@ -275,15 +275,13 @@ async function start() {
   const farShadowOn = uniform(1); // 0 when shadows are switched off
   const farEverywhere = uniform(params.get('farall') === '1' ? 1 : 0); // (debug: calibrate against the real map)
   const treeFarShadow = uniform(Number(params.get('treeshade') ?? 0.35));
-  // The same goes where the trees are impostors (which cast no shadow): judged by the screen height of a typical
-  // tree at the receiver's distance, against the impostor threshold. (Called once the forest exists.)
+  // (Impostors cast their shadow too, so the real map is used wherever it reaches: an average shadow where the trees
+  // turned impostor changed visibly at the switch and with the zoom.)
   // (`pos`: the receiver's world position, for materials that compute their own, see softraster.js)
   const makeFadeShadow = (far, pos = positionWorld) => Fn(([shadow]) => {
     const c = shadowMatrix.mul(vec4(pos, 1)).xy;
     const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
-    const typicalPx = float(20).mul(forest.u.projScale).div(max(length(pos.sub(cameraPosition)), 1));
-    const impostors = smoothstep(forest.u.impostorPx.mul(1.1), forest.u.impostorPx.mul(0.7), typicalPx);
-    const fade = max(max(smoothstep(0.75, 0.97, edge), impostors), farEverywhere);
+    const fade = max(smoothstep(0.75, 0.97, edge), farEverywhere);
     return mix(shadow, mix(float(1), far, farShadowOn), fade);
   });
   sun.shadow.bias = -0.0004;
@@ -357,12 +355,17 @@ async function start() {
   atlas.coverage = await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
   const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
   impostorMesh.receiveShadow = true;
-  impostorMesh.material.receivedShadowNode = makeFadeShadow(treeFarShadow);
+  // an impostor looks the map up on its sun side (the neighbours' shadows), its own crown's shade is the average
+  const impFade = makeFadeShadow(treeFarShadow);
+  impostorMesh.material.receivedShadowNode = Fn(([shadow]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))));
   demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
   demo.renderer = renderer;
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
+  const impostorShadow = forest.buildImpostorShadowMesh(atlas);
+  impostorShadow.visible = impostorMesh.visible;
+  forest.group.add(impostorShadow);
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
 
   // camera + controls

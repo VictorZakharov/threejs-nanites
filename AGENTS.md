@@ -61,17 +61,23 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
-- Impostors (`src/impostors.js`): the atlas has a side tile and a top-down tile per variant; the quad faces the camera
-  and cross-fades side → top by elevation as the *union* of both silhouettes (mixing alphas thins the forest). A
-  cylindrical billboard is edge-on from above and leaves a bald patch under the camera. The top view is enlarged
-  (`TOP_GROW`, `?topgrow=`) to match the coarse cluster LODs it replaces; compare with `?imppx=100000` (all
-  impostors) vs `?imppx=0` (all geometry) on the `topdown700` harness view. Alpha is coverage-preserving per mip
-  (`impostorCoverage` reads the atlas back once).
+- Impostors (`src/impostors.js`): the atlas has three tiles per variant, baked from 0, 45 and 90 degrees up
+  (`ELEVATIONS`); the quad faces the camera and cross-fades between them by elevation as the *union* of the
+  silhouettes (mixing alphas thins the forest). With only side and top tiles, trees seen from ~45 degrees were the
+  top tile's dark splats (the user: "piles of poop"). A cylindrical billboard is edge-on from above and leaves a bald
+  patch under the camera. The 45 degree and top views are enlarged (`MID_GROW` / `TOP_GROW`, `?midgrow=` /
+  `?topgrow=`) to match the coarse cluster LODs they replace; compare `?imppx=100000` (all impostors) with
+  `?imppx=0` (all geometry) by mean colour on the `slope` and `topdown700` views. Alpha is coverage-preserving per
+  mip (`impostorCoverage` reads the atlas back once).
+- Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
+  draws their billboards turned to the sun into the shadow map. So the real map is used wherever it reaches; an
+  average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the
+  map up on its sun side (`vShadowPos`: past its own caster quad) times the average self-shadow `?treeshade=`.
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
-  `main.js`): a constant canopy self-shadow on trees (`?treeshade=`), forest-density darkening on the ground
-  (`forestDensity`, `?groundshade=`, `?crown=`), and impostors scaled by `?impshade=`. Fading to fully sunlit made
-  distant forest brighter, with a line where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs
-  the real map on `topdown700`, comparing mean image colour.
+  `main.js`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
+  (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
+  where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs the real map on `topdown700`, comparing
+  mean image colour.
 - Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
   shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
   to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.
