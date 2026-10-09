@@ -4,8 +4,8 @@
 // draws. Trees whose projected height is under the impostor threshold are instead appended (by the GPU instance
 // pass) to an impostor list and drawn as 2 triangles each, which is what makes a horizon of ~1M trees cheap.
 //
-// The atlases have three 256x512 tiles per tree variant (half float), one per viewing elevation (ELEVATIONS): tiles
-// 0..n-1 from the side, n..2n-1 from 45 degrees up, 2n..3n-1 from straight above. The quad cross-fades between them
+// The atlases have four 256x512 tiles per tree variant (half float), one per viewing elevation (ELEVATIONS: 0, 30,
+// 60, 90 degrees), in blocks: tiles k*n..k*n+n-1 from elevation k. The quad cross-fades between them
 // by viewing elevation, so trees seen from the air don't turn into edge-on slivers. (With only side and top views, a
 // pine seen from 45 degrees was the top view's dark splat: "piles of poop" instead of slanted cones.)
 //
@@ -20,7 +20,7 @@ export const TILE_H = 512;
 /** Alpha-test cut-off of the impostor material. */
 export const IMPOSTOR_CUT = 0.35;
 /** The baked viewing elevations (degrees), one atlas column block each. */
-export const ELEVATIONS = [0, 45, 90];
+export const ELEVATIONS = [0, 30, 60, 90];
 
 /**
  * The triangles of one tree at a uniform DAG cut: every cluster whose own error is within `err` (object space,

@@ -5,6 +5,7 @@ import {
   vec4, uvec2, atomicAdd, atomicStore, select, max, min, length, dot,
 } from 'three/tsl';
 import { curve } from '../planet.js';
+import { switchPx } from './shading.js';
 import { FADE_HI, MAX_TRIS, WG, MAX_ITEMS, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin } from './constants.js';
 
 export const cullingMethods = {
@@ -240,11 +241,12 @@ export const cullingMethods = {
       const i = instanceIndex;
       const { ti, s, centerC, r, dCam, px, visible } = treeInfo(i);
       // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
-      const far = px.lessThan(u.impostorPx);
+      const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
+      const far = px.lessThan(swPx);
       if (!main) impFlag.element(i).assign(select(visible.and(far), uint(1), uint(0))); // (impostor shadow casters)
       if (main) {
         // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass)
-        const imp = visible.and(px.lessThan(u.impostorPx.mul(FADE_HI))).toVar();
+        const imp = visible.and(px.lessThan(swPx.mul(FADE_HI))).toVar();
         impFlag.element(i).assign(select(imp, uint(1), uint(0)));
         If(imp.and(u.occlusion.equal(1)), () => v.retestTree(i.bitOr(IMP_BIT)));
       }

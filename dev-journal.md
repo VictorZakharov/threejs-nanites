@@ -21,13 +21,15 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   (leaf error 0.35 x card size keeps ~3 px cards). Next: software-raster the shadow map (7-14M hardware tris, depth
   only, one pass); put software pixels in the HZB; one raster pass instead of two; zoomed views (`zoomref`
   `--zoom=5`: 71M sw tris, 24 ms).
-- **Billboard -> tree swap too visible** (user, on the live site; then "shadows also change" and "piles of poop"
-  for trees seen from ~45 degrees). Done so far: swap at 20 px (was 40); impostors cast shadows into the map (the
-  ground and trees around impostors used to get an average shade, which changed at the switch and with the zoom); a
-  45 degree atlas tile (the top tile's dark splats were what read as poop). Check: `slope` view, unzoomed vs
-  `--zoom=5`, and `--ab="imppx=0|imppx=100000"` mean colours (54.9,71,39.8 vs 54.5,70,38.7). Still different up
-  close: real trees at coarse LOD are speckled (alpha-to-coverage, dark trunks), impostors smooth. Ideas left: a
-  time-based cross-fade when the zoom changes; the leaf simplification (cards grown sqrt2 per level).
+- **Billboard -> tree swap too visible** (user, on the live site: "shadows also change", "piles of poop", a line
+  that moves with the camera, a rectangle from 1.8 km, "flat like google maps"). Done: swap at 20 px; impostors
+  cast shadows; 4 atlas elevations; per-tree switch size (`impspread`); shadow map grows with altitude (no
+  rectangle). Colour match all-geometry vs all-impostors: `slope` 53.6 vs 53, `topdown700` 47.5 vs 46.9.
+  **Root cause left: small real trees shimmer in motion** (`--dolly --views=slope`: the geometry half of the
+  screen is red, the impostor half calm), so the switch band shows while moving. Next: temporal anti-aliasing
+  (needs motion vectors for the vertex-pulled and software-rasterized trees), or a steadier leaf alpha.
+- **Startup:** "Compiling shaders" now steps through groups with a status each (`[loading]` lines in the harness
+  `console.log`). The compute passes dominate: culling ~0.6 s, occlusion ~0.45 s, software raster ~0.3 s.
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
   screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
   perf report).

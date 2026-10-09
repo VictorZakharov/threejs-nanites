@@ -4,14 +4,15 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, cross,
-  cameraViewMatrix, normalize,
+  cameraViewMatrix, normalize, asin,
 } from 'three/tsl';
 import { curve } from '../planet.js';
 import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.js';
 import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.js';
-import { treeTint, dither, typeId } from './shading.js';
-const TOP_GROW = Number(new URLSearchParams(location.search).get('topgrow') ?? 1.25);
-const MID_GROW = Number(new URLSearchParams(location.search).get('midgrow') ?? 1.2); // (the 45 degree tile's)
+import { treeTint, dither, typeId, switchPx } from './shading.js';
+// per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
+const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
+const deg = Math.PI / 180;
 // extra colour gains on top of each variant's impGain (side / top-down views), for experiments: ?impgain=r,g,b
 const gainParam = (name) => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
 const IMP_GAIN = gainParam('impgain');
@@ -21,8 +22,8 @@ export const billboardMethods = {
   // ------------------------------------------------------------------ impostors (far field)
   /**
    * The billboard of tree `instanceIndex` (one quad, 6 vertices), facing `dirOf(pivot)` (towards the viewer: the
-   * camera, or the sun for the shadow casters), showing the atlas tile baked from the nearest elevation (side, 45
-   * degrees, top; see ELEVATIONS): upright when seen from the side (base on the ground), lying flat when seen from
+   * camera, or the sun for the shadow casters), showing the atlas tiles baked from the nearest elevations (0, 30,
+   * 60, 90 degrees; see ELEVATIONS): upright when seen from the side (base on the ground), lying flat when seen from
    * above (a cylindrical billboard would be seen edge-on from above, leaving a bald patch under the camera).
    * Returns the position node, the varyings and per elevation k: q.t[k] (albedo sample), q.uv[k], q.a[k] (alpha).
    * `screen`: the camera's quads (sub-pixel trees thinned out, cross-fade share with the geometry, shading inputs).
@@ -34,7 +35,7 @@ export const billboardMethods = {
     const frameH = uniformArray(atlas.frames.map((f) => f.h), 'float');
     const q = {
       vUv: varying(vec2(0), 'vImpUv'),
-      vW: varying(vec3(1, 0, 0), 'vImpW'), // weights of the side, 45 degree and top tiles
+      vW: varying(vec4(1, 0, 0, 0), 'vImpW'), // weights of the tiles (ELEVATIONS)
       vType: varying(float(0), 'vImpType'),
       vTint: varying(float(1), 'vImpTint'),
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
@@ -59,12 +60,17 @@ export const billboardMethods = {
       const h0 = frameH.element(type).mul(s);
       const pivot = a.xyz.add(vec3(0, h0.mul(0.5), 0));
       const dir = dirOf(pivot);
-      // tile weights by elevation (dir.y = sin): switch halfway between the baked ones (~22 and ~67 degrees)
-      const sideMid = smoothstep(0.25, 0.45, dir.y), midTop = smoothstep(0.87, 0.96, dir.y);
-      const weights = vec3(sideMid.oneMinus(), sideMid.sub(midTop), midTop);
+      // tile weights by elevation: each switches to the next halfway between them, over +-7.5 degrees (with only
+      // side and top tiles, the whole screen looked straight down at from high up was one flat top view: trees
+      // towards the edges don't lean outwards like real ones)
+      const elev = asin(clamp(dir.y, -1, 1)).div(deg);
+      const steps = ELEVATIONS.slice(1).map((e, k) => smoothstep((ELEVATIONS[k] + e) / 2 - 7.5, (ELEVATIONS[k] + e) / 2 + 7.5, elev));
+      const wk = ELEVATIONS.map((e, k) => (k === 0 ? steps[0].oneMinus() : k === steps.length ? steps[k - 1] : steps[k - 1].sub(steps[k])));
+      const weights = vec4(...wk);
       // seen from above, the coarse cluster LODs it replaces read wider than the crown in the atlas (fewer, grown
-      // leaf cards): enlarge the 45 degree and top views to match, so the forest doesn't thin out at the switch
-      const grow = dot(weights, vec3(1, MID_GROW, TOP_GROW)).toVar();
+      // leaf cards): enlarge the higher views to match, so the forest doesn't thin out at the switch
+      // (the shadow casters too: the geometry's shadow comes from the same fat coarse LODs)
+      const grow = dot(weights, vec4(...GROW)).toVar();
       if (screen) {
         // sub-pixel trees shimmer (they hit or miss pixel centres as the camera moves): never draw a quad narrower
         // than MIN_PX; keep the forest's coverage by dropping a matching share of the trees instead (per tree, so
@@ -77,7 +83,8 @@ export const billboardMethods = {
         // same projected height as the instance pass (geometry share of the cross-fade)
         const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0)).sub(this.main.lodPos));
         const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1));
-        q.vFade.assign(smoothstep(u.impostorPx, u.impostorPx.mul(FADE_HI), px));
+        const sw = switchPx(u, inst);
+        q.vFade.assign(smoothstep(sw, sw.mul(FADE_HI), px));
       }
       const w = frameW.element(type).mul(s).mul(grow), h = h0.mul(grow);
       const right = vec3(dir.z, 0, dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize();
@@ -111,9 +118,9 @@ export const billboardMethods = {
       return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
     };
     q.tile = uint(q.vType.round());
-    const w = [q.vW.x, q.vW.y, q.vW.z];
+    const w = [q.vW.x, q.vW.y, q.vW.z, q.vW.w];
     q.a = q.t.map((t, k) => t.a.mul(scaleOf(q.tile.add(k * n))).mul(clamp(w[k].mul(2), 0, 1)));
-    q.alpha = min(max(max(q.a[0], q.a[1]), q.a[2]), 1);
+    q.alpha = min(q.a.reduce((m, a) => max(m, a)), 1);
     return q;
   },
 
@@ -127,13 +134,13 @@ export const billboardMethods = {
     // lit like the real leaves (Lambert, same lights, shadow fade and fog), from baked albedo + normals
     const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
     mat.alphaToCoverage = this.textures.alphaToCoverage;
-    const wSum = max(q.a[0].add(q.a[1]).add(q.a[2]), 1e-4);
+    const wSum = max(q.a.reduce((m, a) => m.add(a)), 1e-4);
     // (MSAA-resolved edges are premultiplied by coverage: divide it out)
     const albedo = q.t.reduce((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
     // tree-local normals to world: tile k looks from +z tilted up by e (screen right +x, up (0, cos e, -sin e))
-    const nWorld = ELEVATIONS.reduce((acc, deg, k) => {
+    const nWorld = ELEVATIONS.reduce((acc, e, k) => {
       const n = texture(atlas.normals, q.uv[k]).xyz;
-      const c = Math.cos((deg * Math.PI) / 180), sn = Math.sin((deg * Math.PI) / 180);
+      const c = Math.cos(e * deg), sn = Math.sin(e * deg);
       const up = n.y.mul(c).sub(n.z.mul(sn)), toward = n.y.mul(sn).add(n.z.mul(c));
       return acc.add(vRight.mul(n.x).add(vUp.mul(up)).add(vDir.mul(toward)).mul(q.a[k]));
     }, vec3(0));
@@ -144,9 +151,9 @@ export const billboardMethods = {
     const gainSide = uniformArray(gains.map((g) => new THREE.Vector3(...g.side).multiply(new THREE.Vector3(...IMP_GAIN))), 'vec3');
     const gainTop = uniformArray(gains.map((g) => new THREE.Vector3(...g.top).multiply(new THREE.Vector3(...IMP_GAIN_TOP))), 'vec3');
     this.impGains = { side: gainSide, top: gainTop }; // (live: harness --typematch=calibrate adjusts them)
-    // (the 45 degree tile: halfway between the side and top gains)
+    // (the tiles between: side and top gains mixed by elevation)
     const gS = gainSide.element(tile), gT = gainTop.element(tile);
-    const gain = gS.mul(q.a[0]).add(gS.add(gT).mul(0.5).mul(q.a[1])).add(gT.mul(q.a[2])).div(wSum);
+    const gain = ELEVATIONS.reduce((acc, e, k) => acc.add(mix(gS, gT, e / 90).mul(q.a[k])), vec3(0)).div(wSum);
     const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
     // the other half of the geometry's dithered cross-fade
     const alpha = select(dither().lessThan(vFade), float(0), q.alpha);

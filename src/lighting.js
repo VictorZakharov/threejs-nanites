@@ -6,6 +6,7 @@ import { heightAt } from './terrain.js';
 import { PHASE2_LAYER } from './nanite/constants.js';
 
 const params = new URLSearchParams(location.search);
+const SHADOW_MAX = Number(params.get('shadowmax') ?? 6000); // largest half-extent of the shadow map (m)
 
 export function createLighting(scene, { harness }) {
   // sky + sun
@@ -50,10 +51,12 @@ export function createLighting(scene, { harness }) {
   // One shadow map that follows the view. Its half-extent grows with altitude (in steps, so texels don't crawl),
   // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
   let SH = 0;
+  const sunBack = () => Math.max(800, SH * 1.2);
   function setShadowExtent(h) {
     if (h === SH) return;
     SH = h;
-    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 1600 });
+    // (depth range: the sun sits `sunBack` from the focus; the ground across the map spans about its width in depth)
+    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 2 * sunBack() });
     sun.shadow.camera.updateProjectionMatrix();
   }
   setShadowExtent(110);
@@ -84,7 +87,9 @@ export function createLighting(scene, { harness }) {
   function follow(camera, gy, shift) {
     // shadow map: centred on the ground the camera looks at, extent from altitude
     const agl = Math.max(0, camera.position.y - gy);
-    setShadowExtent(Math.min(640, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
+    // (no lower cap than the view needs: at 1.8 km a 640 m map was a rectangle of real shadows in an evenly shaded
+    // forest; the texels stay ~2 px at the nearest ground as the map grows with altitude)
+    setShadowExtent(Math.min(SHADOW_MAX, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
     const dir = camera.getWorldDirection(new THREE.Vector3());
     const reach = dir.y < -0.05 ? Math.min(SH * 0.9, agl / -dir.y) : SH * 0.5;
     const focus = camera.position.clone().addScaledVector(dir, reach).add(shift);
@@ -96,7 +101,7 @@ export function createLighting(scene, { harness }) {
     const fx = Math.round(focus.dot(lx) / texel) * texel, fy = Math.round(focus.dot(ly) / texel) * texel, fz = focus.dot(sunDir);
     focus.copy(lx).multiplyScalar(fx).addScaledVector(ly, fy).addScaledVector(sunDir, fz);
     sun.target.position.copy(focus);
-    sun.position.copy(focus).addScaledVector(sunDir, 800);
+    sun.position.copy(focus).addScaledVector(sunDir, sunBack());
 
     sun.updateMatrixWorld();
     sun.target.updateMatrixWorld();

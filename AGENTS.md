@@ -68,18 +68,25 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
-- Impostors (`src/impostors.js`): the atlas has three tiles per variant, baked from 0, 45 and 90 degrees up
+- Impostors (`src/impostors.js`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
   (`ELEVATIONS`); the quad faces the camera and cross-fades between them by elevation as the *union* of the
   silhouettes (mixing alphas thins the forest). With only side and top tiles, trees seen from ~45 degrees were the
-  top tile's dark splats (the user: "piles of poop"). A cylindrical billboard is edge-on from above and leaves a bald
-  patch under the camera. The 45 degree and top views are enlarged (`MID_GROW` / `TOP_GROW`, `?midgrow=` /
-  `?topgrow=`) to match the coarse cluster LODs they replace; compare `?imppx=100000` (all impostors) with
-  `?imppx=0` (all geometry) by mean colour on the `slope` and `topdown700` views. Alpha is coverage-preserving per
-  mip (`impostorCoverage` reads the atlas back once).
+  top tile's dark splats (the user: "piles of poop"), and from high up the whole screen was one flat top view
+  ("flat like google maps"); with the in-between tiles, off-centre trees lean outwards like real ones. A
+  cylindrical billboard is edge-on from above and leaves a bald patch under the camera. Each tile's quad is
+  enlarged (`GROW`, `?grow=a,b,c,d`) to match the coarse cluster LODs it replaces, the shadow quads too; calibrate
+  `?imppx=100000` (all impostors) against `?imppx=0` (all geometry) by mean colour on the `slope` and
+  `topdown700` views. Alpha is coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
+- Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.js`: impostorPx x a
+  per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
+  that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
 - Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
   draws their billboards turned to the sun into the shadow map. So the real map is used wherever it reaches; an
   average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the
   map up on its sun side (`vShadowPos`: past its own caster quad) times the average self-shadow `?treeshade=`.
+- The shadow map's extent grows with altitude (texels ~2 px at the nearest ground) up to `?shadowmax=` (6000 m
+  half-extent); the light's depth range grows with it. Capped at 640 m, it was a rectangle of real shadows inside
+  an evenly shaded forest seen from 1.8 km.
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
   `lighting.js`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
   (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line

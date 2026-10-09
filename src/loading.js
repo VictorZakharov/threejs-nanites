@@ -16,6 +16,7 @@ export class LoadingScreen {
 
   /** Logs a line without moving the bar. */
   note(message) {
+    console.info(`[loading] ${message}`); // (the harness keeps the page console: boot breakdown)
     const li = document.createElement('li');
     const time = document.createElement('time');
     time.textContent = `${((performance.now() - t0) / 1000).toFixed(2)}s`;

@@ -1,7 +1,7 @@
 // Material pieces shared by the hardware draws, the software rasterizer's resolve and the impostors.
 import {
   uniformArray, uint, float, vec2, vec3, select, max, mix, hash, length, dot, clamp, dFdx, dFdy, log2, fract,
-  screenCoordinate,
+  screenCoordinate, exp2,
 } from 'three/tsl';
 
 /**
@@ -60,3 +60,11 @@ export const typeId = (type) => {
   for (let i = TYPE_IDS.length - 2; i >= 0; i--) c = select(uint(type).mod(TYPE_IDS.length).equal(i), vec3(...TYPE_IDS[i]), c);
   return c;
 };
+
+// Each tree switches to its impostor at its own size, spread geometrically over [1 / SPREAD, SPREAD] x impostorPx
+// (`?impspread=`, 1 = all at once). With one threshold the switch is a line across the forest at a fixed distance
+// that slides along with the camera; the real trees shimmer a little in motion and the impostors don't, so that
+// moving line was easy to see (the user, on the live site).
+const SPREAD = Number(new URLSearchParams(location.search).get('impspread') ?? 1.6);
+/** The projected height (pixels) under which tree `inst` is drawn as an impostor (u: the forest's uniforms). */
+export const switchPx = (u, inst) => u.impostorPx.mul(exp2(hash(uint(inst).add(101)).mul(2).sub(1).mul(Math.log2(SPREAD))));

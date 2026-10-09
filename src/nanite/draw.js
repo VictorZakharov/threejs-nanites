@@ -6,7 +6,7 @@ import {
 } from 'three/tsl';
 import { curve } from '../planet.js';
 import { FADE_HI, MAX_TRIS, LIST_CAP } from './constants.js';
-import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId } from './shading.js';
+import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.js';
 
 export const drawMethods = {
   // ------------------------------------------------------------------ draw
@@ -47,7 +47,8 @@ export const drawMethods = {
     const ti = this.typeInfo.element(uint(b.z));
     const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(a.w), 0)).sub(view.lodPos));
     const px = ti.w.mul(a.w).mul(u.projScale).div(max(dCam, 0.1)); // (same as the instance pass)
-    return smoothstep(u.impostorPx, u.impostorPx.mul(FADE_HI), px);
+    const sw = switchPx(u, inst);
+    return smoothstep(sw, sw.mul(FADE_HI), px);
   },
 
   /**

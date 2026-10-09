@@ -63,7 +63,7 @@ async function start() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
-  const { sun, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
+  const { sky, sun, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
@@ -319,11 +319,54 @@ async function start() {
     setBenchMs: (m) => { ms = m; fps = 1000 / m; },
   });
 
-  // compile everything before revealing (synchronous and slow: the bar eases on the compositor meanwhile)
-  await ui.beginLongStage(0.84, 0.97, 'Compiling shaders', 3500);
+  // Compile everything before revealing. three.js builds a material's shaders the first time it draws it, which
+  // blocks the main thread; drawing one group of objects at a time (the rest hidden) lets the status line and the
+  // bar move between groups. The last step, a real frame, compiles the culling compute passes.
   const tc = performance.now();
-  frame(0);
-  await renderer.backend.device.queue.onSubmittedWorkDone();
+  const byName = (prefix) => forest.group.children.filter((o) => o.name.startsWith(prefix));
+  const warm = [
+    ['terrain and sky', [terrain, sky]],
+    ['bark', byName('nanite-bark')],
+    ['leaves', byName('nanite-leaves')],
+    ['impostors', byName('nanite-impostors')],
+    ['software rasterizer resolve', byName('nanite-software-resolve')],
+    ['clouds', [clouds.group]],
+  ];
+  const all = [terrain, sky, clouds.group, ...forest.group.children];
+  const wasVisible = all.map((o) => o.visible);
+  fitToWindow();
+  renderer.setRenderTarget(sceneRT);
+  camera.layers.set(0);
+  camera.layers.enable(PHASE2_LAYER);
+  for (let k = 0; k < warm.length; k++) {
+    const [label, objects] = warm[k];
+    await ui.update(0.84 + (0.09 * k) / warm.length, `Compiling shaders: ${label}`, false);
+    const t = performance.now();
+    all.forEach((o, i) => (o.visible = wasVisible[i] && objects.includes(o)));
+    sun.shadow.needsUpdate = shadowsOn; // (the shadow-map versions of the casters too)
+    renderer.render(scene, camera);
+    ui.note(`Compiled ${label} (${Math.round(performance.now() - t)} ms)`);
+  }
+  all.forEach((o, i) => (o.visible = wasVisible[i]));
+  camera.layers.set(0);
+  renderer.setRenderTarget(null);
+  // the compute passes, one stage at a time (each compiles on its first dispatch)
+  renderer.getDrawingBufferSize(size);
+  follow(camera, heightAt(camera.position.x, camera.position.z), demo.shadowShift);
+  const computeSteps = [
+    ['culling', () => forest.update(camera, size, 0, shadowsOn ? sun.shadow.camera : null)],
+    ['occlusion', () => forest.occlusion(camera, size.x, size.y)],
+    ['software rasterizer', () => forest.rasterize(camera, size.x, size.y)],
+    ['the first frame', () => frame(0)],
+  ];
+  for (let k = 0; k < computeSteps.length; k++) {
+    const [label, run] = computeSteps[k];
+    await ui.update(0.93 + (0.06 * k) / computeSteps.length, `Compiling shaders: ${label}`, false);
+    const t = performance.now();
+    run();
+    await renderer.backend.device.queue.onSubmittedWorkDone();
+    ui.note(`Compiled ${label} (${Math.round(performance.now() - t)} ms)`);
+  }
   ui.note(`First frame ready (${Math.round(performance.now() - tc)} ms)`);
   await ui.reveal();
   if (!HARNESS) renderer.setAnimationLoop(loop);
