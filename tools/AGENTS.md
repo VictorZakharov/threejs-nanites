@@ -48,6 +48,8 @@ npm run harness -- --ab="imppx=0|imppx=100000" --views=topdown700 --query="faral
                                                                # all geometry vs all impostors: colour match
 npm run harness -- --sweep=lod --views=treeline --steps=40 --step=2 --query=wind=0   # LOD popping
 npm run harness -- --dolly --views=treeline --steps=30 --step=0.05 --query=wind=0     # flicker while moving
+npm run harness -- --ab="sw=0|sw=1" --views=canopy,d550 --query="wind=0&shadows=0"   # software vs hardware raster
+npm run harness -- --views=canopy --flicker --query=wind=0     # still camera: differing pixels between frames
 npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --views=ground,orbit   # after a deploy
 ```
 
@@ -56,6 +58,9 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - A view can carry its own `zoom` (`bark` uses 5x: the near plane is 0.3 m, so the camera can't get close enough to
   a trunk to fill the screen without it); `--zoom` overrides it.
 - Popping and flicker tests need `wind=0` (the harness freezes the clouds itself).
+- `swTris` counts the triangles the software rasterizer took (`tris` is the hardware ones); `cull` includes its
+  compute passes. `--flicker` prints how many pixels differ between still frames (hardware: ~100-900 px of
+  equal-depth ties; software ones are stable).
 - The table's `gpu` is the render passes' GPU time, `cull` the compute passes', `frame` the pipelined frame time
   (headless, so vsync doesn't cap it). Don't time frames by awaiting `onSubmittedWorkDone` after each one: that
   adds ~4 ms of latency per frame.

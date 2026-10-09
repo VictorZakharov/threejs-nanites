@@ -8,7 +8,8 @@
 //   3. clusters   (indirect dispatch) one thread per candidate cluster: DAG cut test
 //                 (own projected error <= threshold < parent projected error) + frustum cull, append to bark/leaf list
 //   4. draw       two indirect draws (bark, leaves); each draw instance is one cluster, the vertex shader pulls its
-//                 triangles from storage buffers (128 tris max, the rest degenerate)
+//                 triangles from storage buffers (128 tris max, the rest degenerate). In the main view, clusters of
+//                 tiny triangles go to the software rasterizer instead (src/softraster.js).
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
@@ -20,6 +21,7 @@ import {
 } from 'three/tsl';
 import { curve } from './planet.js';
 import { IMPOSTOR_CUT } from './impostors.js';
+import { SoftRaster } from './softraster.js';
 
 /**
  * Coverage-preserving alpha for the leaf array texture (see coverageScales in main.js): scales alpha by the
@@ -27,16 +29,46 @@ import { IMPOSTOR_CUT } from './impostors.js';
  */
 export function makeLeafAlpha(leafTex, uvNode) {
   const levels = leafTex.userData.levels;
+  const scaled = makeLeafAlphaLod(leafTex);
+  return (a, layer) => scaled(a, layer, log2(max(length(dFdx(uvNode)), length(dFdy(uvNode))).mul(leafTex.image.width)));
+}
+
+/** The same with the mip level given (`lod`), for where there are no derivatives (the software rasterizer). */
+export function makeLeafAlphaLod(leafTex) {
+  const levels = leafTex.userData.levels;
   const scaleArr = uniformArray(leafTex.userData.alphaScales, 'float');
-  return (a, layer) => {
-    const lod = clamp(log2(max(length(dFdx(uvNode)), length(dFdy(uvNode))).mul(leafTex.image.width)), 0, levels - 1.001);
+  return (a, layer, lodIn) => {
+    const lod = clamp(lodIn, 0, levels - 1.001);
     const i0 = uint(layer).mul(levels).add(uint(lod.floor()));
     return a.mul(mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract()));
   };
 }
 
+/** Leaf colour before lighting (shared by the hardware draw and the software rasterizer's resolve). */
+export function leafColour(rgb, layerI, tint) {
+  // per-tree hue variation, x 0.76 (meant as "darker towards the bottom of the crown" from the normal, but the
+  // fragment stage's normalLocal is the geometry's zero normal attribute, so it always was this constant, and the
+  // impostor colours are calibrated against it)
+  const inner = 0.76;
+  // per-texture tint (layer 2 = aspen, an autumn-yellow texture: pull it back to summer green)
+  // and layer 3 = pine, olive needles that read yellow in full sun: darker, bluer)
+  const layerTint = select(
+    layerI.equal(2),
+    vec3(0.5, 0.82, 0.85),
+    select(layerI.equal(3), vec3(0.62, 0.78, 1.0), vec3(1)),
+  );
+  return rgb.mul(layerTint).mul(vec3(tint.mul(0.92), tint, tint.mul(0.8))).mul(inner).mul(1.2);
+}
+
+/** Bark colour before lighting. */
+export const barkColour = (rgb) => rgb.mul(vec3(0.9, 0.86, 0.8));
+
+/** Per-tree brightness variation. */
+export const treeTint = (inst) => hash(inst).mul(0.35).add(0.8);
+
 /** Screen-space dither in [0, 1) (interleaved gradient noise): a fixed pattern, so a cross-fade doesn't shimmer. */
-const dither = () => fract(dot(screenCoordinate.xy, vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
+export const ditherAt = (xy) => fract(dot(xy, vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
+const dither = () => ditherAt(screenCoordinate.xy);
 
 function countFlags(buf) {
   const f = new Uint32Array(buf);
@@ -54,19 +86,19 @@ const IMP_GAIN_TOP = gainParam('impgaintop');
 // keep in sync with TYPE_IDS in tools/harness/typematch.mjs): six hues 60 degrees apart, told apart by hue after
 // fog and tone mapping; the dull olive ground and pale sky aren't saturated enough to count.
 export const TYPE_IDS = [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], [1, 0, 1]];
-const typeId = (type) => {
+export const typeId = (type) => {
   let c = vec3(...TYPE_IDS[TYPE_IDS.length - 1]);
   for (let i = TYPE_IDS.length - 2; i >= 0; i--) c = select(uint(type).mod(TYPE_IDS.length).equal(i), vec3(...TYPE_IDS[i]), c);
   return c;
 };
 const MIN_PX = 2; // impostors are never drawn narrower than this (pixels)
-const FADE_HI = 1.3; // impostor cross-fade band: [1, FADE_HI] x impostorPx (geometry count unchanged)
+export const FADE_HI = 1.3; // impostor cross-fade band: [1, FADE_HI] x impostorPx (geometry count unchanged)
 const SHADOW_TAU_MUL = 2.5; // shadow casters may be coarser than what's seen
-const MAX_TRIS = 128;
+export const MAX_TRIS = 128;
 const WG = 64;
 const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
 const MAX_DIM = 65535;
-const LIST_CAP = 1 << 20; // max visible clusters per list
+export const LIST_CAP = 1 << 20; // max visible clusters per list
 // marks an impostor in the phase 2 retest list (tree indices are below it); a tree in the cross-fade band is listed
 // both as geometry and as an impostor
 const IMP_BIT = 0x80000000;
@@ -90,7 +122,7 @@ export class NaniteForest {
       projScale: uniform(1000),
       tau: uniform(1.0), // max screen-space error in pixels
       maxDist: uniform(3000),
-      impostorPx: uniform(40), // trees drawn shorter than this (pixels) become impostor quads
+      impostorPx: uniform(20), // trees drawn shorter than this (pixels) become impostor quads
       time: uniform(0),
       wind: uniform(1),
       debug: uniform(0, 'uint'),
@@ -99,6 +131,7 @@ export class NaniteForest {
     this.textures = textures;
     this._buildBuffers(trees, instances);
     this._buildHzb();
+    this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/softraster.js)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();
@@ -202,18 +235,27 @@ export class NaniteForest {
     const barkList = storage(set.barkListAttr, 'uvec2', LIST_CAP);
     const leafList = storage(set.leafListAttr, 'uvec2', LIST_CAP);
 
-    /** Appends cluster c of tree inst to the bark or leaf draw list. */
-    set.append = (inst, c) => {
+    /**
+     * Appends cluster c of tree inst to the bark or leaf draw list; in the main view a cluster that's tiny on screen
+     * (centre cw, radius rad) goes to the software rasterizer's list instead.
+     */
+    set.append = (inst, c, cw, rad) => {
       const tris = this.cMeta.element(c).y;
-      If(this.cData.element(c.mul(4).add(3)).w.lessThan(0.5), () => {
-        const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
-        atomicAdd(set.statsA.element(0), tris);
-        If(slot.lessThan(LIST_CAP), () => barkList.element(slot).assign(uvec2(inst, c)));
-      }).Else(() => {
-        const slot = atomicAdd(leafA.element(1), uint(1)).toVar();
-        atomicAdd(set.statsA.element(1), tris);
-        If(slot.lessThan(LIST_CAP), () => leafList.element(slot).assign(uvec2(inst, c)));
-      });
+      const isBark = this.cData.element(c.mul(4).add(3)).w.lessThan(0.5);
+      const hwAppend = (chain) =>
+        chain(isBark, () => {
+          const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
+          atomicAdd(set.statsA.element(0), tris);
+          If(slot.lessThan(LIST_CAP), () => barkList.element(slot).assign(uvec2(inst, c)));
+        }).Else(() => {
+          const slot = atomicAdd(leafA.element(1), uint(1)).toVar();
+          atomicAdd(set.statsA.element(1), tris);
+          If(slot.lessThan(LIST_CAP), () => leafList.element(slot).assign(uvec2(inst, c)));
+        });
+      if (occ) {
+        const sw = If(this.sw.wants(cw, rad, tris), () => this.sw.append(inst, c, tris));
+        hwAppend((cond, fn) => sw.ElseIf(cond, fn));
+      } else hwAppend(If);
     };
 
     set.reset = Fn(() => {
@@ -290,7 +332,7 @@ export class NaniteForest {
               });
             });
           }
-          If(keep, () => set.append(inst, c));
+          If(keep, () => set.append(inst, c, cw, cs.w.mul(s)));
         });
       });
     })().compute(MAX_ITEMS * WG, [WG]);
@@ -441,8 +483,8 @@ export class NaniteForest {
           const ti = this.typeInfo.element(uint(b.z));
           const s = a.w;
           const cs = this.cData.element(c.mul(4).add(2));
-          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s)));
-          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))).not(), () => setB.append(inst, c));
+          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
+          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });
       })().compute(LIST_CAP, [WG]);
     }
@@ -580,6 +622,59 @@ export class NaniteForest {
   }
 
   // ------------------------------------------------------------------ draw
+  /**
+   * Vertex k (its slot in the cluster's index list) of cluster c of tree inst: planet-curved world position (with
+   * wind), normal (tree rotation only) and uv. `leaf`: true / false, or a bool node when it's only known per cluster.
+   */
+  _vertex(inst, c, k, leaf) {
+    const u = this.u;
+    const m = this.cMeta.element(c);
+    const vi = this.idx.element(m.x.add(k));
+    const va = this.vA.element(vi), vb = this.vB.element(vi);
+    const a = this.instA.element(inst), b = this.instB.element(inst);
+    const type = uint(b.z);
+    const ti = this.typeInfo.element(type);
+    const s = a.w;
+    const rot = (v) => vec3(v.x.mul(b.x).sub(v.z.mul(b.y)), v.y, v.x.mul(b.y).add(v.z.mul(b.x)));
+    const p = rot(va.xyz).mul(s);
+    // wind: whole tree bends with height^2, leaves flutter on top
+    const h = clamp(va.y.div(ti.w), 0, 1);
+    const t = u.time.mul(1.1).add(b.w);
+    const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
+    const bend = h.mul(h).mul(gust).mul(u.wind).mul(0.06).mul(ti.w).mul(s);
+    let off = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
+    if (leaf !== false) {
+      const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
+      const fl = sin(u.time.mul(7.0).add(ph)).mul(0.04).mul(u.wind).mul(s);
+      const flutter = vec3(fl, fl.mul(0.5), fl.mul(-0.7));
+      off = off.add(leaf === true ? flutter : select(leaf, flutter, vec3(0)));
+    }
+    return { world: curve(a.xyz.add(p).add(off)), normal: rot(vb.xyz), uv: vec2(va.w, vb.w), type };
+  }
+
+  /** Share of tree inst drawn as geometry (1, or less in the impostor cross-fade band): by its projected height. */
+  _geometryShare(inst, view = this.main) {
+    const u = this.u;
+    const a = this.instA.element(inst), b = this.instB.element(inst);
+    const ti = this.typeInfo.element(uint(b.z));
+    const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(a.w), 0)).sub(view.lodPos));
+    const px = ti.w.mul(a.w).mul(u.projScale).div(max(dCam, 0.1)); // (same as the instance pass)
+    return smoothstep(u.impostorPx, u.impostorPx.mul(FADE_HI), px);
+  }
+
+  /**
+   * Debug colours: 1 = cluster, 2 = DAG level, 3 = tree instance, 4 = tree type (unlit, see TYPE_IDS),
+   * 5 = rasterizer (hardware grey-green; the software rasterizer's pixels are magenta, see softraster.js).
+   */
+  _debugColour(inst, c, type) {
+    const u = this.u;
+    const level = this.cMeta.element(c).z;
+    const dbgSeed = select(u.debug.equal(1), c, select(u.debug.equal(2), level.mul(7919).add(3), inst));
+    const palette = vec3(hash(dbgSeed), hash(dbgSeed.add(17)), hash(dbgSeed.add(43)));
+    const levelRamp = mix(vec3(0.1, 0.9, 0.2), vec3(1.0, 0.15, 0.1), clamp(float(level).div(8), 0, 1));
+    return select(u.debug.equal(5), vec3(0.25, 0.4, 0.25), select(u.debug.equal(4), typeId(type), select(u.debug.equal(2), levelRamp, palette)));
+  }
+
   _buildMesh(kind, view, set, shadowOnly) {
     const u = this.u;
     const textures = this.textures;
@@ -599,46 +694,19 @@ export class NaniteForest {
       const entry = list.element(instanceIndex);
       const inst = entry.x, c = entry.y;
       const m = this.cMeta.element(c);
-      const tri = vertexIndex.div(3);
-      const valid = tri.lessThan(m.y);
-      const vi = this.idx.element(m.x.add(min(vertexIndex, m.y.mul(3).sub(1))));
-      const va = this.vA.element(vi), vb = this.vB.element(vi);
-      const a = this.instA.element(inst), b = this.instB.element(inst);
-      const type = uint(b.z);
-      const ti = this.typeInfo.element(type);
-      const s = a.w;
-      const rot = (v) => vec3(v.x.mul(b.x).sub(v.z.mul(b.y)), v.y, v.x.mul(b.y).add(v.z.mul(b.x)));
-      const p = rot(va.xyz).mul(s);
-
-      // wind: whole tree bends with height^2, leaves flutter on top
-      const h = clamp(va.y.div(ti.w), 0, 1);
-      const t = u.time.mul(1.1).add(b.w);
-      const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
-      const bend = h.mul(h).mul(gust).mul(u.wind).mul(0.06).mul(ti.w).mul(s);
-      const off = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6)).toVar();
-      if (kind === 1) {
-        const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
-        const fl = sin(u.time.mul(7.0).add(ph)).mul(0.04).mul(u.wind).mul(s);
-        off.addAssign(vec3(fl, fl.mul(0.5), fl.mul(-0.7)));
-      }
-      const world = a.xyz.add(p).add(off);
-      normalLocal.assign(rot(vb.xyz));
-      vUv.assign(vec2(va.w, vb.w));
+      const valid = vertexIndex.div(3).lessThan(m.y);
+      const vx = this._vertex(inst, c, min(vertexIndex, m.y.mul(3).sub(1)), kind === 1);
+      const type = vx.type;
+      normalLocal.assign(vx.normal);
+      vUv.assign(vx.uv);
       const layer = kind === 0 ? textures.barkLayerOf : textures.leafLayerOf;
       vLayer.assign(layer(type));
       if (!shadowOnly) {
-        // same projected height as the instance pass
-        const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0)).sub(view.lodPos));
-        const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1));
-        vFade.assign(smoothstep(u.impostorPx, u.impostorPx.mul(FADE_HI), px));
-        vTint.assign(hash(inst).mul(0.35).add(0.8));
-        // debug colours: 1 = cluster, 2 = DAG level, 3 = tree instance, 4 = tree type (unlit, see TYPE_IDS)
-        const dbgSeed = select(u.debug.equal(1), c, select(u.debug.equal(2), m.z.mul(7919).add(3), inst));
-        const palette = vec3(hash(dbgSeed), hash(dbgSeed.add(17)), hash(dbgSeed.add(43)));
-        const levelRamp = mix(vec3(0.1, 0.9, 0.2), vec3(1.0, 0.15, 0.1), clamp(float(m.z).div(8), 0, 1));
-        vDebug.assign(select(u.debug.equal(4), typeId(type), select(u.debug.equal(2), levelRamp, palette)));
+        vFade.assign(this._geometryShare(inst, view));
+        vTint.assign(treeTint(inst));
+        vDebug.assign(this._debugColour(inst, c, type));
       }
-      return select(valid, curve(world), vec3(0));
+      return select(valid, vx.world, vec3(0));
     })();
 
     const leafAlpha = makeLeafAlpha(textures.leaf, vUv);
@@ -652,7 +720,7 @@ export class NaniteForest {
       if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).a, layerI));
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 });
-      const col = texture(textures.bark, vUv).depth(layerI).rgb.mul(vec3(0.9, 0.86, 0.8));
+      const col = barkColour(texture(textures.bark, vUv).depth(layerI).rgb);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), float(1), float(0)));
       mat.emissiveNode = select(u.debug.equal(4), vDebug, vec3(0));
     } else {
@@ -661,16 +729,7 @@ export class NaniteForest {
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
       const tex = texture(textures.leaf, vUv).depth(layerI);
       const alpha = leafAlpha(tex.a, layerI);
-      // per-tree hue variation; darker towards the bottom of the crown
-      const inner = smoothstep(-0.6, 0.8, normalLocal.y).mul(0.4).add(0.6);
-      // per-texture tint (layer 2 = aspen, an autumn-yellow texture: pull it back to summer green)
-      // and layer 3 = pine, olive needles that read yellow in full sun: darker, bluer)
-      const layerTint = select(
-        layerI.equal(2),
-        vec3(0.5, 0.82, 0.85),
-        select(layerI.equal(3), vec3(0.62, 0.78, 1.0), vec3(1)),
-      );
-      const col = tex.rgb.mul(layerTint).mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(inner).mul(1.2);
+      const col = leafColour(tex.rgb, layerI, vTint);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)
       mat.normalNode = normalViewGeometry;
@@ -752,7 +811,7 @@ export class NaniteForest {
       vUv.assign(vec2(float(type).add(ux).div(2 * n), cy.oneMinus())); // (render-target textures are stored flipped)
       vTop.assign(top);
       vType.assign(float(type));
-      vTint.assign(hash(inst).mul(0.35).add(0.8));
+      vTint.assign(treeTint(inst));
       vRight.assign(select(flip, right.negate(), right));
       vUp.assign(up);
       vDir.assign(dir);
@@ -830,8 +889,9 @@ export class NaniteForest {
     r.compute(A.clampDraw);
   }
 
-  /** Runs the GPU culling for the camera and (if given) the shadow camera. */
-  update(camera, viewportHeight, time, shadowCamera = null) {
+  /** Runs the GPU culling for the camera and (if given) the shadow camera. `size`: drawing buffer pixels. */
+  update(camera, size, time, shadowCamera = null) {
+    const viewportHeight = size.y;
     const u = this.u;
     u.time.value = time;
     if (this.frozen) return;
@@ -844,8 +904,14 @@ export class NaniteForest {
     // (the main view gets full zoomed detail, as if 5x closer: the narrow view culls most of the forest, and the
     // auto quality trims tau if it's still too much)
     this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1);
+    this.sw.begin(this.renderer, camera, size.x, size.y);
     this._cull(this.main, camera);
     if (shadowCamera) this._cull(this.shadow, shadowCamera);
+  }
+
+  /** Software-rasterizes the tiny clusters both phases listed (call after occlusion(), before the phase 2 render). */
+  rasterize(camera, width, height) {
+    this.sw.rasterize(this.renderer, camera, width, height);
   }
 
   /** Reads back the counters (async, for the overlay/harness), summed over the view's sets. */
@@ -871,6 +937,7 @@ export class NaniteForest {
       if (k === 1) out.phase2 = s[2];
     });
     out.impostors = countFlags(flags);
+    if (view === this.main) Object.assign(out, await this.sw.readStats(this.renderer));
     return out;
   }
 }

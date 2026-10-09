@@ -2,7 +2,7 @@
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VIEWS } from './views.mjs';
-import { meanColour } from './images.mjs';
+import { meanColour, diffPixels } from './images.mjs';
 import { at } from './status.mjs';
 
 /** Loads the demo with this query (on top of ?harness=1) and waits until it's ready. */
@@ -39,6 +39,7 @@ const COLUMNS = [
   ['cpu', 7, (n, r) => r.cpuMs.toFixed(2)],
   ['clusters', 9, (n, r) => r.clusters],
   ['tris', 10, (n, r) => r.tris],
+  ['swTris', 10, (n, r) => r.swTris ?? ''], // triangles in software-rasterized clusters (src/softraster.js)
   ['trees', 6, (n, r) => r.instances ?? ''],
   ['shadowTris', 11, (n, r) => r.shadowTris ?? ''],
   ['imposts', 8, (n, r) => r.impostors ?? ''],
@@ -84,7 +85,9 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
         shots.push(await page.screenshot({ clip: { x: 0, y: 150, width: opts.width, height: opts.height - 150 } }));
       }
       const same = shots.every((b) => b.equals(shots[0]));
-      console.log(`${''.padEnd(12)} flicker check: ${same ? 'frames identical' : 'FRAMES DIFFER'}`);
+      const px = same ? 0 : Math.max(...shots.slice(1).map((b) => diffPixels(shots[0], b)));
+      r.flickerPx = px;
+      console.log(`${''.padEnd(12)} flicker check: ${same ? 'frames identical' : `FRAMES DIFFER (${px} px)`}`);
       if (!same) shots.forEach((b, i) => writeFileSync(join(outDir, `${name}${tag}-flicker-${i}.png`), b));
     }
 

@@ -3,12 +3,12 @@ import { Tree, Billboard } from '@dgreenheck/ez-tree';
 // Tree variants: ez-tree preset, seed, target height (m), and its textures. impGain: the impostor colour gains
 // (side and top-down views), measured against the real trees with `npm run harness -- --typematch`.
 export const VARIANTS = [
-  { preset: 'Oak Large', seed: 1234, height: 22, bark: 'oak', leaf: 'oak', impGain: { side: [1.49, 1.27, 2.73], top: [1.6, 1.31, 3.14] } },
-  { preset: 'Oak Medium', seed: 77, height: 15, bark: 'oak', leaf: 'oak', impGain: { side: [1.08, 0.85, 2.08], top: [1.2, 0.99, 1.91] } },
-  { preset: 'Ash Large', seed: 4242, height: 24, bark: 'birch', leaf: 'ash', impGain: { side: [1.01, 0.81, 1.34], top: [1.32, 1.01, 1.7] } },
-  { preset: 'Aspen Medium', seed: 9001, height: 18, bark: 'birch', leaf: 'aspen', impGain: { side: [0.87, 0.75, 1.01], top: [1.02, 0.77, 0.95] } },
-  { preset: 'Pine Large', seed: 31337, height: 26, bark: 'pine', leaf: 'pine', impGain: { side: [1.87, 1.44, 3.54], top: [2.46, 1.67, 4.59] } },
-  { preset: 'Pine Medium', seed: 555, height: 17, bark: 'pine', leaf: 'pine', impGain: { side: [1.73, 1.37, 2.92], top: [2.17, 1.5, 3.77] } },
+  { preset: 'Oak Large', seed: 1234, height: 22, bark: 'oak', leaf: 'oak', impGain: { side: [0.85, 0.74, 0.97], top: [0.78, 0.66, 0.83] } },
+  { preset: 'Oak Medium', seed: 77, height: 15, bark: 'oak', leaf: 'oak', impGain: { side: [0.7, 0.61, 0.88], top: [0.69, 0.68, 0.55] } },
+  { preset: 'Ash Large', seed: 4242, height: 24, bark: 'birch', leaf: 'ash', impGain: { side: [0.96, 0.78, 1.27], top: [0.97, 0.76, 1.5] } },
+  { preset: 'Aspen Medium', seed: 9001, height: 18, bark: 'birch', leaf: 'aspen', impGain: { side: [0.67, 0.42, 0.49], top: [0.66, 0.47, 0.31] } },
+  { preset: 'Pine Large', seed: 31337, height: 26, bark: 'pine', leaf: 'pine', impGain: { side: [0.98, 0.75, 1.08], top: [0.85, 0.58, 0.63] } },
+  { preset: 'Pine Medium', seed: 555, height: 17, bark: 'pine', leaf: 'pine', impGain: { side: [0.92, 0.66, 0.91], top: [0.62, 0.4, 0.33] } },
 ];
 
 /** Generates the source meshes of one variant with ez-tree, scaled to metres. */

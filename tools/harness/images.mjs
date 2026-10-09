@@ -30,6 +30,15 @@ export function meanColour(png, rect = null) {
   return { all: avg(all, n), trees: avg(tree, nt), treeShare: +(nt / Math.max(n, 1)).toFixed(3) };
 }
 
+/** Pixels that differ between two screenshots of the same size. */
+export function diffPixels(a, b) {
+  const p = PNG.sync.read(a), q = PNG.sync.read(b);
+  let n = 0;
+  for (let i = 0; i < p.data.length; i += 4)
+    if (p.data[i] !== q.data[i] || p.data[i + 1] !== q.data[i + 1] || p.data[i + 2] !== q.data[i + 2]) n++;
+  return n;
+}
+
 export const TILE = 16;
 
 /** Mean luminance per TILE x TILE tile (NaN for tiles under the HUD), plus the decoded image. */

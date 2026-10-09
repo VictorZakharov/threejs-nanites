@@ -86,6 +86,18 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
+- Software rasterizer (`src/softraster.js`, main view only): the cluster pass sends clusters whose triangles
+  average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
+  rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the
+  depth matches (no 64-bit atomics in WebGPU). A fullscreen quad on the phase 2 layer (`buildResolveMesh`) rebuilds
+  each pixel's triangle and shades it with a Lambert material whose normal, shadow position and depth are
+  overridden; fog is applied in its `outputNode`. Don't give its shared nodes names (`toVar('x')`): three.js
+  builds the normal in a separate sub-build that re-declares them, and the pixels came out black. Leaves emulate
+  three.js alpha to coverage (`smoothstep(0.5, 0.5 + fwidth(a), a)` against a fixed per-pixel threshold): a plain
+  0.5 cut made distant crowns solid. Check with `?debug=5` (software pixels orange) and `--ab="sw=0|sw=1"` (mean
+  colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
+- The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
+  there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
 - Occlusion culling (`src/nanite.js`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each

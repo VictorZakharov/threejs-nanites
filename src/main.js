@@ -245,9 +245,12 @@ async function start() {
   const skyCube = new THREE.CubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   const cubeCam = new THREE.CubeCamera(1, 1000, skyCube);
   const fogNear = uniform(400), fogFar = uniform(4000);
-  const viewDir = positionWorld.sub(cameraPosition).normalize();
-  const horizonDir = vec3(viewDir.x, max(viewDir.y, 0.015), viewDir.z).normalize();
-  scene.fogNode = fog(cubeTexture(skyCube.texture, horizonDir).level(2).rgb, rangeFogFactor(fogNear, fogFar));
+  const fogColour = (pos) => {
+    const viewDir = pos.sub(cameraPosition).normalize();
+    const horizonDir = vec3(viewDir.x, max(viewDir.y, 0.015), viewDir.z).normalize();
+    return cubeTexture(skyCube.texture, horizonDir).level(2).rgb;
+  };
+  scene.fogNode = fog(fogColour(positionWorld), rangeFogFactor(fogNear, fogFar));
 
   const hemi = new THREE.HemisphereLight(0xbcd3ec, 0x4a4632, 1.3);
   scene.add(hemi);
@@ -274,10 +277,11 @@ async function start() {
   const treeFarShadow = uniform(Number(params.get('treeshade') ?? 0.35));
   // The same goes where the trees are impostors (which cast no shadow): judged by the screen height of a typical
   // tree at the receiver's distance, against the impostor threshold. (Called once the forest exists.)
-  const makeFadeShadow = (far) => Fn(([shadow]) => {
-    const c = shadowMatrix.mul(vec4(positionWorld, 1)).xy;
+  // (`pos`: the receiver's world position, for materials that compute their own, see softraster.js)
+  const makeFadeShadow = (far, pos = positionWorld) => Fn(([shadow]) => {
+    const c = shadowMatrix.mul(vec4(pos, 1)).xy;
     const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
-    const typicalPx = float(20).mul(forest.u.projScale).div(max(length(positionWorld.sub(cameraPosition)), 1));
+    const typicalPx = float(20).mul(forest.u.projScale).div(max(length(pos.sub(cameraPosition)), 1));
     const impostors = smoothstep(forest.u.impostorPx.mul(1.1), forest.u.impostorPx.mul(0.7), typicalPx);
     const fade = max(max(smoothstep(0.75, 0.97, edge), impostors), farEverywhere);
     return mix(shadow, mix(float(1), far, farShadowOn), fade);
@@ -328,6 +332,11 @@ async function start() {
   forest.u.debug.value = Number(params.get('debug') ?? 0);
   if (params.get('wind') === '0') forest.u.wind.value = 0;
   forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = makeFadeShadow(treeFarShadow)));
+  // software-rasterized tiny clusters: shaded per pixel from the visibility buffer, with the same shadows and fog
+  forest.group.add(forest.sw.buildResolveMesh({
+    fadeShadow: (pos) => makeFadeShadow(treeFarShadow, pos),
+    fog: (pos, viewZ) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
+  }));
   // ground: darkened by how much canopy stands over it
   const density = forestDensity(instances);
   const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
@@ -407,7 +416,7 @@ async function start() {
 
   let showHelp = true;
   controls.onKey = (code) => {
-    if (code === 'KeyL') forest.u.debug.value = (forest.u.debug.value + 1) % 5;
+    if (code === 'KeyL') forest.u.debug.value = (forest.u.debug.value + 1) % 6;
     if (code === 'KeyF') forest.frozen = !forest.frozen;
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (forest.u.tau.value = Math.max(0.25, forest.u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
@@ -424,7 +433,8 @@ async function start() {
   const samples = params.get('aa') === '0' ? 1 : 4;
   const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true });
   sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
-  const output = new THREE.RenderPipeline(renderer, texture(sceneRT.texture));
+  // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
+  const output = new THREE.RenderPipeline(renderer, vec4(texture(sceneRT.texture).rgb, 1));
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.u.occlusion.value = params.get('occ') === '0' ? 0 : 1;
 
@@ -488,13 +498,14 @@ async function start() {
     sun.shadow.updateMatrices(sun);
 
     renderer.getDrawingBufferSize(size);
-    forest.update(camera, size.y, time, shadowsOn ? sun.shadow.camera : null);
+    forest.update(camera, size, time, shadowsOn ? sun.shadow.camera : null);
     // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);
     camera.layers.set(0);
     renderer.render(scene, camera);
     // phase 2: HZB from that depth, cull the rest and the impostors against it, draw what's visible (+ the clouds)
     forest.occlusion(camera, size.x, size.y);
+    forest.rasterize(camera, size.x, size.y); // (the tiny clusters both phases listed, into the visibility buffer)
     const autoClear = renderer.autoClear, shadowAuto = sun.shadow.autoUpdate;
     renderer.autoClear = false;
     sun.shadow.autoUpdate = false;
@@ -517,9 +528,9 @@ async function start() {
       `trees      ${(gs.instances + gs.impostors).toLocaleString()} / ${forest.instanceCount.toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors)\n` +
       `altitude   ${Math.round(camera.position.y - heightAt(camera.position.x, camera.position.z))} m   speed ${Math.round(controls.velocity.length())} m/s\n` +
       `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
-      `triangles  ${(tris / 1e6).toFixed(2)} M\n` +
+      `triangles  ${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)\n` +
       `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
+      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
   }
 
   let prev = performance.now();

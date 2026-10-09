@@ -16,9 +16,14 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   (`src/nanite.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
   views over the canopy (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front.
   Next: tighter leaf cluster bounds; then decide whether the zoom case needs a coarser tau instead.
-- **Impostors too obvious from above / zooming "teleports" detail in** (user, at ~520 m looking down: trees are
-  ~23 px, impostors; zoom 5x makes them geometry). Colour now matched per type (`--typematch=calibrate`; pines
-  were near-black). Still different: real trees at coarse LOD are round fluffy blobs (big leaf cards, alpha to
+- **Software rasterizer + visibility buffer (new, in progress).** Works and matches the hardware look; default views
+  are now 6-11 ms (over the 8 ms budget in the forest: auto quality raises tau). A ~23 px tree is ~1500 triangles
+  (leaf error 0.35 x card size keeps ~3 px cards). Next: software-raster the shadow map (7-14M hardware tris, depth
+  only, one pass); put software pixels in the HZB; one raster pass instead of two; zoomed views (`zoomref`
+  `--zoom=5`: 71M sw tris, 24 ms).
+- **Billboard -> tree swap too visible** (user, on the live site). Swap moved from 40 px to 20 px tall (geometry
+  stays twice as far). At `d550` trees are now geometry. Colours recalibrated after the page-background fix (the
+  canvas showed the page through alpha-to-coverage leaves: everything was paler and bluer). Still different: real trees at coarse LOD are round fluffy blobs (big leaf cards, alpha to
   coverage speckle), impostors are crisp cut-out crowns. Baking from the matching DAG cut changed little. Ideas:
   bake with the runtime's alpha-to-coverage look, soften the impostor alpha edge, a time-based cross-fade when the
   zoom changes; and the leaf simplification itself (cards grown sqrt2 per level make crowns fatter than the tree).
@@ -28,8 +33,9 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 
 ## Decided (keep)
 
-- Trees become 2-triangle impostors under `impostorPx` (40 px tall) and the DAG cut uses tau 1 px: at 14 px / tau
-  1.5 the distant treeline popped (`--sweep=lod` on `treeline`: 94 jumps -> 2) for about the same GPU time.
+- Trees become 2-triangle impostors under `impostorPx` (20 px tall; was 40, the swap was too visible) and the DAG
+  cut uses tau 1 px (tau 1.5 made the distant treeline pop). Trees between ~20 and ~60 px are mostly drawn by the
+  software rasterizer (`src/softraster.js`, triangles under 4 px²): at 20 px it's 15-35% less GPU than hardware.
   Impostors are relit (albedo + normal atlases), dither cross-fade with geometry, never narrower than 2 px. Billboards are what make 1M trees cheap from the air;
   occlusion culling is for the forest interior and doesn't replace them.
 - Past the shadow map and in the impostor zone, receivers use an average shadow (canopy self-shadow, ground

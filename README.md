@@ -32,11 +32,15 @@ URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`
 - **Per frame (GPU compute, no readback):** instance cull (frustum, distance) emits work items only for the clusters
   that could possibly be selected (clusters sorted by parent error → binary search), then a cluster pass picks the DAG
   cut (`own error ≤ τ < parent error`, projected to pixels), frustum-culls, and appends to draw lists.
-- **Far field:** trees under ~40 px tall are drawn as camera-facing impostor quads (an atlas baked at startup from
+- **Software rasterizer (Nanite-style):** clusters whose triangles average under ~4 px² skip the hardware draw:
+  a compute pass rasterizes them into a visibility buffer (per pixel: depth, then triangle id, with 32-bit atomics),
+  and a fullscreen pass shades each pixel from its triangle with the same three.js lighting, shadows and fog.
+  The hardware rasterizer is slow on pixel-sized triangles; this keeps trees as geometry down to 20 px tall.
+- **Far field:** trees under ~20 px tall are drawn as camera-facing impostor quads (an atlas baked at startup from
   the full-detail trees), flagged per tree by the instance pass: ~1M trees to the horizon for ~1 ms.
 - **Planet:** the world is bent in the vertex shaders (drop = d²/2R, R = 150 km) so the horizon curves; terrain
   continues as a coarse skirt to ~65 km, and fog takes the sky's colour. A cloud deck sits at ~2.2 km.
-- **Draw:** two indirect draws (bark, leaves); every draw instance is a cluster and the vertex shader pulls its
+- **Draw:** two indirect draws (bark, leaves) for the clusters of larger triangles; every draw instance is a cluster and the vertex shader pulls its
   triangles from storage buffers. The sun's shadow map gets its own cull pass (light frustum, coarser LOD).
 
 ## Develop
