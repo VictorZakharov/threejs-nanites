@@ -12,7 +12,7 @@ import { VIEWS } from './views.mjs';
 import { typeMask, typeColours } from './images.mjs';
 import { at } from './status.mjs';
 
-// keep in sync with TYPE_IDS in src/nanite.js
+// keep in sync with TYPE_IDS in src/nanite/shading.js
 const TYPE_IDS = [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], [1, 0, 1]];
 const MODES = { geometry: 0, impostors: 1e9 };
 const ROUNDS = 5; // calibration rounds

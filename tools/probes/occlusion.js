@@ -1,4 +1,4 @@
-// Occlusion culling counters of the current view (see the two-phase culling in src/nanite.js):
+// Occlusion culling counters of the current view (see the two-phase culling in src/nanite/culling.js and hzb.js):
 //   phase1Trees/Tris   drawn in phase 1 (passed last frame's HZB)
 //   retestTrees        trees that failed phase 1 (tested again in phase 2)
 //   retestClusters     clusters of phase 1 trees that failed (tested again in phase 2)

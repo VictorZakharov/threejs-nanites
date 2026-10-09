@@ -21,7 +21,8 @@ import {
   numWorkgroups, instanceIndex, screenCoordinate, texture, positionGeometry, output, mix, cameraViewMatrix, normalize,
   length,
 } from 'three/tsl';
-import { LIST_CAP, MAX_TRIS, makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, PHASE2_LAYER } from './nanite.js';
+import { LIST_CAP, MAX_TRIS, PHASE2_LAYER } from './constants.js';
+import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt } from './shading.js';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
@@ -226,7 +227,7 @@ export class SoftRaster {
 
   /**
    * The fullscreen resolve quad (phase 2 layer). `shading`: { fadeShadow(pos) => receivedShadowNode, fog(pos, viewZ)
-   * => { color, factor } } from main.js, so shadows and fog match the hardware-drawn trees.
+   * => { color, factor } } from main.js (lighting.js), so shadows and fog match the hardware-drawn trees.
    */
   buildResolveMesh(shading) {
     const f = this.forest, u = f.u, tex = f.textures;

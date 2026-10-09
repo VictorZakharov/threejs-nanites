@@ -100,7 +100,7 @@ function hue(r, g, b) {
 }
 
 /**
- * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite.js): the
+ * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite/shading.js): the
  * index of the id with the closest hue (within 30 degrees), or -1 (ground, sky, an edge). Fog and tone mapping
  * shift and wash out the ids, so only the hue of saturated pixels counts.
  */

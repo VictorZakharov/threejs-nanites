@@ -43,11 +43,18 @@ first in a new session. Update it as you go, and keep it short and current, not 
 
 ## Architecture notes
 
+- **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
+  renderer is `src/nanite/`: `forest.js` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
+  methods in modules by stage, attached as prototype mixins (`culling.js`, `hzb.js`, `draw.js`, `billboards.js`),
+  plus `softraster.js`, `shading.js` (material pieces) and `constants.js`. `src/main.js` is setup and the frame
+  loop; `lighting.js` (sky, fog, sun, shadow map), `textures.js`, `placement.js` and `harness-api.js`
+  (`window.__demo`) are split out of it.
+
 - `src/trees.js` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
 - `src/dag-worker.js` builds each variant's cluster DAG in a worker: bark via meshoptimizer (128-tri clusters,
   groups of ~8, simplify to half with group-border vertices locked); leaves by keeping half the cards and growing
   them √2 per level. Every cluster stores its LOD sphere/error and its parent group's sphere/error.
-- `src/nanite.js` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
+- `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
@@ -74,7 +81,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
   average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the
   map up on its sun side (`vShadowPos`: past its own caster quad) times the average self-shadow `?treeshade=`.
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
-  `main.js`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
+  `lighting.js`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
   (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
   where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs the real map on `topdown700`, comparing
   mean image colour.
@@ -92,7 +99,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
-- Software rasterizer (`src/softraster.js`, main view only): the cluster pass sends clusters whose triangles
+- Software rasterizer (`src/nanite/softraster.js`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
   rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the
   depth matches (no 64-bit atomics in WebGPU). A fullscreen quad on the phase 2 layer (`buildResolveMesh`) rebuilds
@@ -104,7 +111,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
   colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
-- Occlusion culling (`src/nanite.js`, main view only): two phases per frame. Phase 1 tests trees and clusters
+- Occlusion culling (`src/nanite/culling.js`, `hzb.js`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
   pixel's MSAA samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2

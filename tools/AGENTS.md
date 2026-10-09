@@ -64,6 +64,6 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - The table's `gpu` is the render passes' GPU time, `cull` the compute passes', `frame` the pipelined frame time
   (headless, so vsync doesn't cap it). Don't time frames by awaiting `onSubmittedWorkDone` after each one: that
   adds ~4 ms of latency per frame.
-- Debug URL parameters worth knowing (see `src/main.js`): `imppx` (impostor size threshold, 0 = no impostors),
+- Debug URL parameters worth knowing (see `src/main.js`, `src/lighting.js`, `src/nanite/`): `imppx` (impostor size threshold, 0 = no impostors),
   `occ=0` (no occlusion culling), `farall=1` (far-field shading everywhere, to calibrate it), `tau`, `shadows=0`,
   `debug=1|2|3` (cluster / DAG level / tree colours), `wind=0`, `trees=N`.

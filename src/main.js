@@ -1,14 +1,19 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, texture, length, uint, uniform, vec3, vec4 } from 'three/tsl';
-import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
+import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4 } from 'three/tsl';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
-import { NaniteForest, makeLeafAlpha, PHASE2_LAYER } from './nanite.js';
+import { NaniteForest } from './nanite/forest.js';
+import { PHASE2_LAYER } from './nanite/constants.js';
+import { makeLeafAlpha } from './nanite/shading.js';
 import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.js';
 import { viewerPos } from './planet.js';
 import { createClouds, CLOUD_BASE } from './clouds.js';
 import { FlyControls } from './controls.js';
 import { LoadingScreen } from './loading.js';
+import { arrayTexture, layerLookup } from './textures.js';
+import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.js';
+import { createLighting } from './lighting.js';
+import { installHarnessApi } from './harness-api.js';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -19,167 +24,6 @@ if (HARNESS) document.body.classList.add('harness');
 const demo = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });
 const ui = new LoadingScreen();
 const hud = document.getElementById('hud');
-
-// ---------------------------------------------------------------- helpers
-function mulberry32(seed) {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
-
-async function loadImage(url) {
-  const img = new Image();
-  img.src = url;
-  await img.decode();
-  return img;
-}
-
-/**
- * Coverage-preserving alpha for alpha-tested foliage: for each mip level (2x2 box filter, as the GPU builds them),
- * the scale that keeps the same fraction of texels above the 0.5 cut-off as the full-size image. Without it a leaf
- * card thins out (or, with a crude boost, thickens) depending on its mip, so a tree's density and brightness jump
- * when its LOD swaps to fewer, bigger cards, and distant canopies speckle.
- */
-function coverageScales(px, size, levels) {
-  let a = new Float32Array(size * size);
-  for (let i = 0; i < a.length; i++) a[i] = px[i * 4 + 3] / 255;
-  let target = 0;
-  for (const v of a) if (v > 0.5) target++;
-  target /= a.length;
-  const scales = [1];
-  let w = size;
-  for (let l = 1; l < levels; l++) {
-    const h = w >> 1;
-    const b = new Float32Array(h * h);
-    for (let y = 0; y < h; y++)
-      for (let x = 0; x < h; x++)
-        b[y * h + x] = (a[2 * y * w + 2 * x] + a[2 * y * w + 2 * x + 1] + a[(2 * y + 1) * w + 2 * x] + a[(2 * y + 1) * w + 2 * x + 1]) / 4;
-    a = b;
-    w = h;
-    // alpha value at the (1 - target) quantile becomes the new 0.5
-    const sorted = Float32Array.from(a).sort();
-    const q = sorted[Math.min(sorted.length - 1, Math.floor((1 - target) * sorted.length))];
-    scales.push(Math.min(8, 0.5 / Math.max(q, 1e-3)));
-  }
-  return scales;
-}
-
-/** Stacks images into one mipmapped DataArrayTexture (so one draw can sample any tree's texture). */
-async function arrayTexture(urls, size, fillTransparent = false) {
-  const canvas = document.createElement('canvas');
-  canvas.width = canvas.height = size;
-  const ctx = canvas.getContext('2d', { willReadFrequently: true });
-  const data = new Uint8Array(size * size * 4 * urls.length);
-  const imgs = await Promise.all(urls.map(loadImage));
-  const alphaScales = [];
-  imgs.forEach((img, i) => {
-    ctx.clearRect(0, 0, size, size);
-    ctx.drawImage(img, 0, 0, size, size);
-    const px = ctx.getImageData(0, 0, size, size).data;
-    if (fillTransparent) {
-      // transparent texels are white in these PNGs; mipmapping would bleed that into the leaf edges as a pale halo,
-      // so give them the average leaf colour instead
-      let r = 0, g = 0, b = 0, n = 0;
-      for (let p = 0; p < px.length; p += 4) if (px[p + 3] > 128) { r += px[p]; g += px[p + 1]; b += px[p + 2]; n++; }
-      r /= n; g /= n; b /= n;
-      for (let p = 0; p < px.length; p += 4) if (px[p + 3] < 128) { px[p] = r; px[p + 1] = g; px[p + 2] = b; }
-    }
-    if (fillTransparent) alphaScales.push(...coverageScales(px, size, Math.log2(size) + 1));
-    data.set(px, i * size * size * 4);
-  });
-  const tex = new THREE.DataArrayTexture(data, size, size, urls.length);
-  tex.colorSpace = THREE.SRGBColorSpace;
-  tex.wrapS = tex.wrapT = THREE.RepeatWrapping;
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearMipmapLinearFilter;
-  tex.generateMipmaps = true;
-  tex.anisotropy = 8;
-  tex.flipY = false;
-  tex.needsUpdate = true;
-  tex.userData.alphaScales = alphaScales; // per layer, per mip level
-  tex.userData.levels = Math.log2(size) + 1;
-  return tex;
-}
-
-/** Maps a tree type (uint node) to a texture layer via a select chain. */
-function layerLookup(layers) {
-  return (type) => {
-    let node = float(layers[layers.length - 1]);
-    for (let i = layers.length - 2; i >= 0; i--) node = select(type.equal(uint(i)), float(layers[i]), node);
-    return node;
-  };
-}
-
-/** Scatters trees over the hills: jittered grid, noisy clearings, pines higher up. */
-const TREE_SPACING = 9;
-const MAX_ALTITUDE = 9000;
-/** Radius (m) of the forest disc for `count` trees. */
-const forestRadius = (count) => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
-
-/** Canopy cover (0..1) of the ground on a grid over the forest, for the far-field ground darkening. */
-function forestDensity({ a, radius }) {
-  const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
-  const cov = new Float32Array(N * N);
-  const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
-  for (let i = 0; i < a.length; i += 4) {
-    const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
-    if (x >= 0 && z >= 0 && x < N && z < N) cov[z * N + x] += crown * a[i + 3] * a[i + 3];
-  }
-  // two box blurs (~ a few tens of metres), then clamp to full cover
-  let src = cov, dst = new Float32Array(N * N);
-  for (let pass = 0; pass < 4; pass++) {
-    const horiz = pass % 2 === 0;
-    for (let z = 0; z < N; z++)
-      for (let x = 0; x < N; x++) {
-        let sum = 0;
-        for (let k = -2; k <= 2; k++) {
-          const xx = horiz ? Math.min(N - 1, Math.max(0, x + k)) : x, zz = horiz ? z : Math.min(N - 1, Math.max(0, z + k));
-          sum += src[zz * N + xx];
-        }
-        dst[z * N + x] = sum / 5;
-      }
-    [src, dst] = [dst, src];
-  }
-  const data = new Uint8Array(N * N * 4);
-  for (let i = 0; i < N * N; i++) data[i * 4] = Math.round(Math.min(1, src[i]) * 255);
-  const tex = new THREE.DataTexture(data, N, N);
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-  return { texture: tex, extent };
-}
-
-function placeTrees(count) {
-  const rnd = mulberry32(42);
-  const radius = forestRadius(count);
-  const a = [], b = [];
-  const pineTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? i : -1)).filter((i) => i >= 0);
-  const leafTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? -1 : i)).filter((i) => i >= 0);
-  let tries = 0;
-  while (a.length / 4 < count && tries++ < count * 20) {
-    const ang = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * radius * 1.35;
-    const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-    // ragged forest edge: the boundary radius wobbles with the angle, and density fades out past it
-    const edge = radius * (1 + 0.22 * Math.sin(ang * 3 + 0.7) + 0.12 * Math.sin(ang * 7 - 1.9) + 0.06 * Math.sin(ang * 13));
-    if (r > edge && rnd() > Math.exp(-(r - edge) / 35)) continue;
-    if (Math.hypot(x - 20, z - 40) < 14) continue; // keep the spawn point clear
-    // clearings
-    const clearing = Math.sin(x * 0.011 + 1.3) * Math.cos(z * 0.013 - 0.7) + Math.sin(x * 0.031 + z * 0.027) * 0.4;
-    if (clearing > 0.75 && rnd() < 0.9) continue;
-    const y = heightAt(x, z);
-    const pineBias = THREE.MathUtils.smoothstep(y, -10, 30) * 0.7 + (Math.sin(x * 0.004 - z * 0.006) * 0.5 + 0.5) * 0.4;
-    const pool = rnd() < pineBias ? pineTypes : leafTypes;
-    const type = pool[Math.floor(rnd() * pool.length)];
-    const scale = 0.75 + rnd() * 0.5;
-    const rot = rnd() * Math.PI * 2;
-    a.push(x, y - 0.3, z, scale);
-    b.push(Math.cos(rot), Math.sin(rot), type, rnd() * 6.28);
-  }
-  return { a: new Float32Array(a), b: new Float32Array(b), radius };
-}
 
 // ---------------------------------------------------------------- setup
 async function start() {
@@ -219,77 +63,8 @@ async function start() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
-  // sky + sun
-  const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 32), THREE.MathUtils.degToRad(215));
-  const sky = new SkyMesh();
-  sky.scale.setScalar(120000);
-  sky.cloudCoverage.value = 0; // the real cloud deck (clouds.js) replaces the dome's painted clouds
-  sky.turbidity.value = 4;
-  sky.rayleigh.value = 1.2;
-  sky.mieCoefficient.value = 0.004;
-  sky.mieDirectionalG.value = 0.85;
-  sky.sunPosition.value.copy(sunDir);
-  sky.material.fog = false;
-  if (HARNESS) sky.cloudSpeed.value = 0; // still clouds: frame-to-frame comparisons only see the forest
-  scene.add(sky);
-
-  // Fog takes the sky's own colour in the view direction (from a small cube capture of the sky), so fully fogged
-  // terrain and trees melt into the sky instead of meeting it at a grey band. Below the horizon it uses the horizon.
-  const skyCapture = new THREE.Scene();
-  const sky2 = new SkyMesh();
-  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'sunPosition', 'cloudCoverage', 'cloudDensity', 'cloudElevation'])
-    sky2[k].value = sky[k].value.clone?.() ?? sky[k].value;
-  sky2.cloudSpeed.value = 0;
-  sky2.scale.setScalar(100);
-  skyCapture.add(sky2);
-  const skyCube = new THREE.CubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
-  const cubeCam = new THREE.CubeCamera(1, 1000, skyCube);
-  const fogNear = uniform(400), fogFar = uniform(4000);
-  const fogColour = (pos) => {
-    const viewDir = pos.sub(cameraPosition).normalize();
-    const horizonDir = vec3(viewDir.x, max(viewDir.y, 0.015), viewDir.z).normalize();
-    return cubeTexture(skyCube.texture, horizonDir).level(2).rgb;
-  };
-  scene.fogNode = fog(fogColour(positionWorld), rangeFogFactor(fogNear, fogFar));
-
-  const hemi = new THREE.HemisphereLight(0xbcd3ec, 0x4a4632, 1.3);
-  scene.add(hemi);
-  const sun = new THREE.DirectionalLight(0xfff1dc, 3.2);
-  sun.castShadow = true;
-  const smap = Number(params.get('smap') ?? 2048);
-  sun.shadow.mapSize.set(smap, smap);
-  // One shadow map that follows the view. Its half-extent grows with altitude (in steps, so texels don't crawl),
-  // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
-  let SH = 0;
-  function setShadowExtent(h) {
-    if (h === SH) return;
-    SH = h;
-    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 1600 });
-    sun.shadow.camera.updateProjectionMatrix();
-  }
-  setShadowExtent(110);
-  const shadowMatrix = uniform(sun.shadow.matrix);
-  // Beyond the shadow map, receivers fade to an *average* shadow instead of none: a constant canopy self-shadow
-  // for trees and a forest-density darkening for the ground (and the impostors carry the same darkening). Fading
-  // to fully lit made distant forest brighter than near forest, with a visible line where the map ends.
-  const farShadowOn = uniform(1); // 0 when shadows are switched off
-  const farEverywhere = uniform(params.get('farall') === '1' ? 1 : 0); // (debug: calibrate against the real map)
-  const treeFarShadow = uniform(Number(params.get('treeshade') ?? 0.35));
-  // (Impostors cast their shadow too, so the real map is used wherever it reaches: an average shadow where the trees
-  // turned impostor changed visibly at the switch and with the zoom.)
-  // (`pos`: the receiver's world position, for materials that compute their own, see softraster.js)
-  const makeFadeShadow = (far, pos = positionWorld) => Fn(([shadow]) => {
-    const c = shadowMatrix.mul(vec4(pos, 1)).xy;
-    const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
-    const fade = max(smoothstep(0.75, 0.97, edge), farEverywhere);
-    return mix(shadow, mix(float(1), far, farShadowOn), fade);
-  });
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.6;
-  sun.shadow.camera.layers.set(1); // the forest has dedicated (coarser, light-culled) shadow-caster meshes on layer 1
-  scene.add(sun, sun.target);
-  hemi.layers.enable(PHASE2_LAYER);
-  sun.layers.enable(PHASE2_LAYER);
+  const { sun, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
+    createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
@@ -480,25 +255,7 @@ async function start() {
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     forest.u.maxDist.value = fogFar.value;
 
-    // shadow map: centred on the ground the camera looks at, extent from altitude
-    const agl = Math.max(0, camera.position.y - gy);
-    setShadowExtent(Math.min(640, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
-    const dir = camera.getWorldDirection(new THREE.Vector3());
-    const reach = dir.y < -0.05 ? Math.min(SH * 0.9, agl / -dir.y) : SH * 0.5;
-    const focus = camera.position.clone().addScaledVector(dir, reach).add(demo.shadowShift);
-    focus.y = heightAt(focus.x, focus.z);
-    // snap in light space (the sun is diagonal: snapping world x/z doesn't stop shimmer)
-    const texel = (2 * SH) / sun.shadow.mapSize.x;
-    const lx = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
-    const ly = new THREE.Vector3().crossVectors(sunDir, lx);
-    const fx = Math.round(focus.dot(lx) / texel) * texel, fy = Math.round(focus.dot(ly) / texel) * texel, fz = focus.dot(sunDir);
-    focus.copy(lx).multiplyScalar(fx).addScaledVector(ly, fy).addScaledVector(sunDir, fz);
-    sun.target.position.copy(focus);
-    sun.position.copy(focus).addScaledVector(sunDir, 800);
-
-    sun.updateMatrixWorld();
-    sun.target.updateMatrixWorld();
-    sun.shadow.updateMatrices(sun);
+    follow(camera, gy, demo.shadowShift);
 
     renderer.getDrawingBufferSize(size);
     forest.update(camera, size, time, shadowsOn ? sun.shadow.camera : null);
@@ -556,135 +313,10 @@ async function start() {
   }
 
   // ---------------------------------------------------------------- harness API
-  Object.assign(demo, {
-    renderer, scene, camera, forest, controls,
-    info: () => ({
-      adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
-      size: `${size.x}x${size.y}`,
-      trees: forest.instanceCount,
-      forestRadius: Math.round(instances.radius),
-      dagBuildMs: Math.round(buildMs),
-      ...forest.stats,
-    }),
-    setView(v) {
-      let x = v.x, z = v.z, yaw = THREE.MathUtils.degToRad(v.yaw ?? 0), pitch = THREE.MathUtils.degToRad(v.pitch ?? 0);
-      let y = v.y ?? heightAt(x, z) + (v.agl ?? 2);
-      if (v.nearTree || v.trunk) {
-        // the closest tree to (x, z): `nearTree` frames it from that many metres away; `trunk` faces its trunk
-        // from that many metres (from the trunk's axis), level, at `agl` above the tree's base
-        let best = 0, bd = Infinity;
-        for (let i = 0; i < forest.instanceCount; i++) {
-          const d = Math.hypot(instances.a[i * 4] - x, instances.a[i * 4 + 2] - z);
-          if (d < bd) { bd = d; best = i; }
-        }
-        const tx = instances.a[best * 4], tz = instances.a[best * 4 + 2], ty = instances.a[best * 4 + 1];
-        const dist = v.trunk ?? v.nearTree;
-        x = tx + Math.sin(yaw) * dist;
-        z = tz + Math.cos(yaw) * dist;
-        if (v.trunk) y = ty + (v.agl ?? 1.5);
-        else {
-          y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
-          pitch = Math.atan2(ty + 6 - y, v.nearTree);
-        }
-      }
-      camera.position.set(x, y, z);
-      controls.yaw = yaw;
-      controls.pitch = pitch;
-      controls.velocity.set(0, 0, 0);
-      // right-mouse zoom factor (1 = none), applied at once instead of easing in
-      controls.zoomTarget = controls.zoom = v.zoom ?? 1;
-    },
-    async renderOnce(benchResult) {
-      if (benchResult) { ms = benchResult.medianMs; fps = 1000 / ms; }
-      frame(1 / 60);
-      await updateHud();
-      frame(1 / 60);
-      await renderer.backend.device.queue.onSubmittedWorkDone();
-    },
-    stats: () => forest.readStats(),
-    /** Harness sweeps: move one thing that normally follows the camera, keep the view fixed. */
-    setShift(what, x, z) {
-      forest.main.lodShift.set(0, 0, 0);
-      forest.shadow.lodShift.set(0, 0, 0);
-      demo.shadowShift.set(0, 0, 0);
-      const t = { lod: forest.main.lodShift, shadowlod: forest.shadow.lodShift, shadow: demo.shadowShift }[what];
-      t?.set(x, 0, z);
-    },
-    /** Times a shadow toggle off and on (each followed by a rendered frame). */
-    async shadowToggleMs() {
-      const out = [];
-      for (const on of [false, true]) {
-        const t = performance.now();
-        setShadows(on);
-        frame(1 / 60);
-        await renderer.backend.device.queue.onSubmittedWorkDone();
-        out.push(Math.round(performance.now() - t));
-      }
-      return out;
-    },
-    /** Runs the real loop (auto quality on, flying forward) for `ms`, reports where the controller settled. */
-    async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
-      auto.on = true;
-      auto.budget = budget;
-      auto.gpuMs = 0;
-      forest.u.tau.value = 1;
-      const fwd = () => controls.keys.add('KeyW');
-      controls.speed = speed;
-      fwd();
-      const t0 = performance.now();
-      let n = 0;
-      renderer.setAnimationLoop(() => {
-        loop();
-        n++;
-      });
-      await new Promise((r) => setTimeout(r, ms));
-      renderer.setAnimationLoop(null);
-      controls.keys.clear();
-      return { tau: +forest.u.tau.value.toFixed(2), gpuMs: +auto.gpuMs.toFixed(2), fps: +((n * 1000) / (performance.now() - t0)).toFixed(1), budget };
-    },
-    async bench(n = 120) {
-      const device = renderer.backend.device;
-      const ts = renderer.backend.trackTimestamp;
-      for (let i = 0; i < 5; i++) {
-        frame(1 / 60); // warm up (pipelines compile on first use)
-        await device.queue.onSubmittedWorkDone();
-        if (ts) { await renderer.resolveTimestampsAsync('render'); await renderer.resolveTimestampsAsync('compute'); }
-      }
-      // 1) GPU time per frame from timestamp queries (render passes incl. shadows, and the culling compute)
-      const gpuR = [], gpuC = [], cpu = [];
-      for (let i = 0; ts && i < n; i++) {
-        const t = performance.now();
-        frame(1 / 60);
-        cpu.push(performance.now() - t);
-        gpuR.push(await renderer.resolveTimestampsAsync('render'));
-        gpuC.push(await renderer.resolveTimestampsAsync('compute'));
-      }
-      // 2) throughput: frames pipelined like a real loop (max 2 in flight)
-      const inflight = [];
-      const t0 = performance.now();
-      for (let i = 0; i < n; i++) {
-        if (inflight.length >= 2) await inflight.shift();
-        frame(1 / 60);
-        inflight.push(device.queue.onSubmittedWorkDone());
-      }
-      await Promise.all(inflight);
-      const frameMs = (performance.now() - t0) / n;
-      const med = (a) => (a.length ? [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] : 0);
-      const s = await forest.readStats();
-      const sh = await forest.readStats(forest.shadow);
-      return {
-        shadowTris: shadowsOn ? sh.barkTris + sh.leafTris : 0,
-        frameMs,
-        gpuRenderMs: med(gpuR),
-        gpuComputeMs: med(gpuC),
-        cpuMs: med(cpu),
-        medianMs: frameMs,
-        clusters: s.barkClusters + s.leafClusters,
-        tris: s.barkTris + s.leafTris,
-        instances: s.instances,
-        ...s,
-      };
-    },
+  installHarnessApi(demo, {
+    renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud,
+    shadowsOn: () => shadowsOn,
+    setBenchMs: (m) => { ms = m; fps = 1000 / m; },
   });
 
   // compile everything before revealing (synchronous and slow: the bar eases on the compositor meanwhile)

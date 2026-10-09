@@ -13,7 +13,7 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 ## Now
 
 - **Occlusion culling (in progress).** Two-phase, Nanite-style, per tree, per cluster and per impostor
-  (`src/nanite.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
+  (`src/nanite/culling.js`, `hzb.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
   views over the canopy (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front.
   Next: tighter leaf cluster bounds; then decide whether the zoom case needs a coarser tau instead.
 - **Software rasterizer + visibility buffer (new, in progress).** Works and matches the hardware look; default views
@@ -28,16 +28,18 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   `--zoom=5`, and `--ab="imppx=0|imppx=100000"` mean colours (54.9,71,39.8 vs 54.5,70,38.7). Still different up
   close: real trees at coarse LOD are speckled (alpha-to-coverage, dark trunks), impostors smooth. Ideas left: a
   time-based cross-fade when the zoom changes; the leaf simplification (cards grown sqrt2 per level).
-- **Refactor (user): no file over 300-400 lines.** `nanite.js` (~1000) and `main.js` (~700) to split.
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
   screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
   perf report).
 
 ## Decided (keep)
 
+- Files stay under ~300-400 lines (user): `src/nanite/` split by stage, `main.js` split into lighting/textures/
+  placement/harness-api. `dag-worker.js` (~410) is next if it grows.
+
 - Trees become 2-triangle impostors under `impostorPx` (20 px tall; was 40, the swap was too visible) and the DAG
   cut uses tau 1 px (tau 1.5 made the distant treeline pop). Trees between ~20 and ~60 px are mostly drawn by the
-  software rasterizer (`src/softraster.js`, triangles under 4 px²): at 20 px it's 15-35% less GPU than hardware.
+  software rasterizer (`src/nanite/softraster.js`, triangles under 4 px²): at 20 px it's 15-35% less GPU than hardware.
   Impostors are relit (albedo + normal atlases), dither cross-fade with geometry, never narrower than 2 px. Billboards are what make 1M trees cheap from the air;
   occlusion culling is for the forest interior and doesn't replace them.
 - Past the shadow map and in the impostor zone, receivers use an average shadow (canopy self-shadow, ground
