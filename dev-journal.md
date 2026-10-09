@@ -25,9 +25,11 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   that moves with the camera, a rectangle from 1.8 km, "flat like google maps"). Done: swap at 20 px; impostors
   cast shadows; 4 atlas elevations; per-tree switch size (`impspread`); shadow map grows with altitude (no
   rectangle). Colour match all-geometry vs all-impostors: `slope` 53.6 vs 53, `topdown700` 47.5 vs 46.9.
-  **Root cause left: small real trees shimmer in motion** (`--dolly --views=slope`: the geometry half of the
-  screen is red, the impostor half calm), so the switch band shows while moving. Next: temporal anti-aliasing
-  (needs motion vectors for the vertex-pulled and software-rasterized trees), or a steadier leaf alpha.
+  Small real trees shimmered in motion (impostors don't), which showed the switch band while moving: fixed with
+  TAA (`src/taa.js`; `--dolly --views=slope`: 71 -> 9 flicker events). Check with the user on the live site.
+- **TAA (new).** Depth reprojection + wind motion vectors for the hardware-drawn trees (not for the software-
+  rasterized ones or impostors: small on screen). Watch for: smearing at high flight speed, softness, ghosting
+  behind fast-moving clouds (they're reprojected as sky).
 - **Startup:** "Compiling shaders" now steps through groups with a status each (`[loading]` lines in the harness
   `console.log`). The compute passes dominate: culling ~0.6 s, occlusion ~0.45 s, software raster ~0.3 s.
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a

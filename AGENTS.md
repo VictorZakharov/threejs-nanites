@@ -116,6 +116,16 @@ first in a new session. Update it as you go, and keep it short and current, not 
   three.js alpha to coverage (`smoothstep(0.5, 0.5 + fwidth(a), a)` against a fixed per-pixel threshold): a plain
   0.5 cut made distant crowns solid. Check with `?debug=5` (software pixels orange) and `--ab="sw=0|sw=1"` (mean
   colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
+- Temporal anti-aliasing (`src/taa.js`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
+  offset each frame (`?taajitter=`, default half a pixel: MSAA does the geometric edges) *before* culling, so the
+  culling, the software rasterizer and the draws see the same camera; the dither pattern (`ditherShift`) moves every
+  frame too. The resolve rebuilds where each pixel was from the depth buffer and last frame's camera (undoing the
+  planet curvature's shift with the viewer), minus the trees' own wind motion: the scene target has a second output
+  `wind` (MRT), written by the tree materials (`mrtNode`, from `_vertex`'s `prevWorld` at `prevTime`), 0
+  elsewhere. History: Catmull-Rom lookup (bilinear blurred the swaying leaves), clipped to the 3x3 neighbourhood's
+  colour spread (YCoCg), blended 10% per frame in tone-mapped space; the output adds a light unsharp mask
+  (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
+  visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
 - Occlusion culling (`src/nanite/culling.js`, `hzb.js`, main view only): two phases per frame. Phase 1 tests trees and clusters

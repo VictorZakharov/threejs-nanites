@@ -19,7 +19,7 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | F | freeze culling (fly around and inspect what was selected) |
 | [ ] | error threshold in pixels (turns auto quality off) |
 | Q | auto quality on/off (keeps GPU time under budget) |
-| P / G / H | shadows / wind / help |
+| P / T / G / H | shadows / anti-aliasing (TAA) / wind / help |
 
 URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
 

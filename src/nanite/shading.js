@@ -1,8 +1,9 @@
 // Material pieces shared by the hardware draws, the software rasterizer's resolve and the impostors.
 import {
   uniformArray, uint, float, vec2, vec3, select, max, mix, hash, length, dot, clamp, dFdx, dFdy, log2, fract,
-  screenCoordinate, exp2,
+  screenCoordinate, exp2, uniform,
 } from 'three/tsl';
+import * as THREE from 'three/webgpu';
 
 /**
  * Coverage-preserving alpha for the leaf array texture (see coverageScales in textures.js): scales alpha by the
@@ -48,7 +49,10 @@ export const barkColour = (rgb) => rgb.mul(vec3(0.9, 0.86, 0.8));
 export const treeTint = (inst) => hash(inst).mul(0.35).add(0.8);
 
 /** Screen-space dither in [0, 1) (interleaved gradient noise): a fixed pattern, so a cross-fade doesn't shimmer. */
-export const ditherAt = (xy) => fract(dot(xy, vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
+// (`ditherShift` moves the pattern every frame under temporal anti-aliasing, which then averages the dithered leaf
+// edges and cross-fades into smooth ones instead of a fixed speckle; see src/taa.js)
+export const ditherShift = uniform(new THREE.Vector2());
+export const ditherAt = (xy) => fract(dot(xy.add(ditherShift), vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
 export const dither = () => ditherAt(screenCoordinate.xy);
 
 // debug 4: a flat, unlit colour per tree type, in geometry and impostors alike (harness --typematch masks with it;

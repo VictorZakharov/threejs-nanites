@@ -39,6 +39,7 @@ export class NaniteForest {
       maxDist: uniform(3000),
       impostorPx: uniform(20), // trees drawn shorter than this (pixels) become impostor quads
       time: uniform(0),
+      prevTime: uniform(0), // (last frame's: wind motion vectors)
       wind: uniform(1),
       debug: uniform(0, 'uint'),
       occlusion: uniform(1, 'uint'), // two-phase occlusion culling on/off
@@ -139,6 +140,7 @@ export class NaniteForest {
   update(camera, size, time, shadowCamera = null) {
     const viewportHeight = size.y;
     const u = this.u;
+    u.prevTime.value = u.time.value;
     u.time.value = time;
     if (this.frozen) return;
     u.camPos.value.copy(camera.position);

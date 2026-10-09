@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4 } from 'three/tsl';
+import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
 import { NaniteForest } from './nanite/forest.js';
@@ -14,6 +14,7 @@ import { arrayTexture, layerLookup } from './textures.js';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.js';
 import { createLighting } from './lighting.js';
 import { installHarnessApi } from './harness-api.js';
+import { TAA } from './taa.js';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -200,6 +201,7 @@ async function start() {
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
     if (code === 'KeyQ') auto.on = !auto.on;
     if (code === 'KeyP') setShadows(!shadowsOn);
+    if (code === 'KeyT') (taa.enabled = !taa.enabled), (taa.reset = true);
     if (code === 'KeyG') forest.u.wind.value = forest.u.wind.value > 0 ? 0 : 1;
     if (code === 'KeyH') document.getElementById('help').classList.toggle('hidden', (showHelp = !showHelp) === false);
   };
@@ -209,10 +211,17 @@ async function start() {
   // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
   // then a fullscreen pass tone-maps it to the canvas.
   const samples = params.get('aa') === '0' ? 1 : 4;
-  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true });
+  // (two outputs: colour, and the wind's screen motion of the trees for the anti-aliasing, see src/taa.js)
+  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
+  sceneRT.textures[0].name = 'output';
+  sceneRT.textures[1].name = 'wind';
+  const sceneMRT = mrt({ output: colourOutput, wind: vec4(0) }); // (still everywhere but the trees)
+  sceneMRT.setClearColor('wind', 0x000000, 0);
   sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
+  // temporal anti-aliasing (src/taa.js): the output shows its resolved history
+  const taa = new TAA(renderer, sceneRT, samples, { enabled: params.get('taa') !== '0' });
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
-  const output = new THREE.RenderPipeline(renderer, vec4(texture(sceneRT.texture).rgb, 1));
+  const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.u.occlusion.value = params.get('occ') === '0' ? 0 : 1;
 
@@ -248,6 +257,8 @@ async function start() {
     viewerPos.value.copy(camera.position);
     clouds.update(time, camera);
     camera.updateMatrixWorld();
+    renderer.getDrawingBufferSize(size);
+    taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
@@ -261,6 +272,7 @@ async function start() {
     forest.update(camera, size, time, shadowsOn ? sun.shadow.camera : null);
     // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);
+    renderer.setMRT(sceneMRT);
     camera.layers.set(0);
     renderer.render(scene, camera);
     // phase 2: HZB from that depth, cull the rest and the impostors against it, draw what's visible (+ the clouds)
@@ -274,6 +286,8 @@ async function start() {
     camera.layers.set(0);
     sun.shadow.autoUpdate = shadowAuto;
     renderer.autoClear = autoClear;
+    renderer.setMRT(null);
+    taa.resolve(camera, camera.position);
     renderer.setRenderTarget(null);
     output.render();
   }
@@ -290,7 +304,7 @@ async function start() {
       `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
       `triangles  ${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)\n` +
       `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
+      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}   taa ${taa.enabled ? 'on' : 'off'}`;
   }
 
   let prev = performance.now();
@@ -336,6 +350,7 @@ async function start() {
   const wasVisible = all.map((o) => o.visible);
   fitToWindow();
   renderer.setRenderTarget(sceneRT);
+  renderer.setMRT(sceneMRT);
   camera.layers.set(0);
   camera.layers.enable(PHASE2_LAYER);
   for (let k = 0; k < warm.length; k++) {
@@ -349,6 +364,7 @@ async function start() {
   }
   all.forEach((o, i) => (o.visible = wasVisible[i]));
   camera.layers.set(0);
+  renderer.setMRT(null);
   renderer.setRenderTarget(null);
   // the compute passes, one stage at a time (each compiles on its first dispatch)
   renderer.getDrawingBufferSize(size);

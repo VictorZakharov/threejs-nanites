@@ -2,7 +2,8 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
-  normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry,
+  normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
+  cameraViewMatrix,
 } from 'three/tsl';
 import { curve } from '../planet.js';
 import { FADE_HI, MAX_TRIS, LIST_CAP } from './constants.js';
@@ -13,6 +14,7 @@ export const drawMethods = {
   /**
    * Vertex k (its slot in the cluster's index list) of cluster c of tree inst: planet-curved world position (with
    * wind), normal (tree rotation only) and uv. `leaf`: true / false, or a bool node when it's only known per cluster.
+   * `prevWorld`: the same with last frame's wind (for the wind motion vectors of temporal anti-aliasing).
    */
   _vertex(inst, c, k, leaf) {
     const u = this.u;
@@ -27,17 +29,25 @@ export const drawMethods = {
     const p = rot(va.xyz).mul(s);
     // wind: whole tree bends with height^2, leaves flutter on top
     const h = clamp(va.y.div(ti.w), 0, 1);
-    const t = u.time.mul(1.1).add(b.w);
-    const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
-    const bend = h.mul(h).mul(gust).mul(u.wind).mul(0.06).mul(ti.w).mul(s);
-    let off = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
-    if (leaf !== false) {
-      const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
-      const fl = sin(u.time.mul(7.0).add(ph)).mul(0.04).mul(u.wind).mul(s);
-      const flutter = vec3(fl, fl.mul(0.5), fl.mul(-0.7));
-      off = off.add(leaf === true ? flutter : select(leaf, flutter, vec3(0)));
-    }
-    return { world: curve(a.xyz.add(p).add(off)), normal: rot(vb.xyz), uv: vec2(va.w, vb.w), type };
+    const windAt = (time) => {
+      const t = time.mul(1.1).add(b.w);
+      const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
+      const bend = h.mul(h).mul(gust).mul(u.wind).mul(0.06).mul(ti.w).mul(s);
+      let off = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
+      if (leaf !== false) {
+        const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
+        const fl = sin(time.mul(7.0).add(ph)).mul(0.04).mul(u.wind).mul(s);
+        const flutter = vec3(fl, fl.mul(0.5), fl.mul(-0.7));
+        off = off.add(leaf === true ? flutter : select(leaf, flutter, vec3(0)));
+      }
+      return off;
+    };
+    const base = a.xyz.add(p);
+    return {
+      world: curve(base.add(windAt(u.time))),
+      prevWorld: curve(base.add(windAt(u.prevTime))),
+      normal: rot(vb.xyz), uv: vec2(va.w, vb.w), type,
+    };
   },
 
   /** Share of tree inst drawn as geometry (1, or less in the impostor cross-fade band): by its projected height. */
@@ -78,6 +88,8 @@ export const drawMethods = {
     const vDebug = varying(vec3(0), 'vDebug');
     const vTint = varying(float(1), 'vTint');
     const vFade = varying(float(1), 'vFade'); // share of this tree drawn as geometry (impostor cross-fade)
+    // clip positions with this and last frame's wind (same camera): the wind's motion on screen, for TAA
+    const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
 
     const position = Fn(() => {
       const entry = list.element(instanceIndex);
@@ -94,6 +106,9 @@ export const drawMethods = {
         vFade.assign(this._geometryShare(inst, view));
         vTint.assign(treeTint(inst));
         vDebug.assign(this._debugColour(inst, c, type));
+        const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
+        vClip.assign(viewProj.mul(vec4(vx.world, 1)));
+        vPrevClip.assign(viewProj.mul(vec4(vx.prevWorld, 1)));
       }
       return select(valid, vx.world, vec3(0));
     })();
@@ -126,6 +141,11 @@ export const drawMethods = {
       mat.emissiveNode = select(u.debug.equal(4), vDebug, select(u.debug.greaterThan(0), vec3(0), col.mul(0.12)));
     }
     mat.positionNode = position;
+    if (!shadowOnly) {
+      // (uv units, y down: what the TAA resolve subtracts from its camera reprojection; see src/taa.js)
+      const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
+      mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
+    }
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     if (shadowOnly) {
