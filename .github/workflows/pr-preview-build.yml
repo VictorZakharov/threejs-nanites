@@ -1,0 +1,66 @@
+name: PR preview build
+
+# Builds every pull request, forks included, into an artifact that
+# pr-preview.yml publishes. This run executes the PR's code, so it gets a
+# read-only token and no secrets; everything that writes (gh-pages, Pages,
+# the PR comment) happens in pr-preview.yml, which runs trusted code from main.
+
+on:
+  pull_request:
+    branches: [main]
+    types: [opened, reopened, synchronize, closed]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pr-preview-build-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build PR preview
+    if: >-
+      github.event.pull_request.user.login != 'dependabot[bot]' &&
+      (github.event.action != 'closed' || github.event.pull_request.merged != true)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out pull request
+        if: github.event.action != 'closed'
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        if: github.event.action != 'closed'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        if: github.event.action != 'closed'
+        run: npm ci
+
+      - name: Build preview
+        if: github.event.action != 'closed'
+        run: npm run build
+
+      # pr-preview.yml treats this as untrusted input and checks it against the API
+      - name: Describe the preview
+        env:
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_ACTION: ${{ github.event.action }}
+        run: |
+          mkdir -p preview/site
+          if [[ "${PR_ACTION}" != "closed" ]]; then cp -a dist/. preview/site/; fi
+          printf '{"number":%d,"action":"%s"}\n' "${PR_NUMBER}" "${PR_ACTION}" > preview/pr.json
+
+      - name: Upload preview
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: pr-preview
+          path: preview
+          include-hidden-files: true
+          retention-days: 1

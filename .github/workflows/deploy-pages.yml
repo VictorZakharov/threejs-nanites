@@ -1,0 +1,128 @@
+name: Deploy GitHub Pages
+
+# Production deploy. The site is served from an aggregate `gh-pages` branch that
+# holds production at the root and open PR previews under `pr-preview/pr-N/`
+# (see pr-preview.yml); this job refreshes production and keeps open previews.
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pages-publisher
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build Pages artifact
+    permissions:
+      contents: write
+      pages: write
+      pull-requests: read
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Check out repository
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@45bfe0192ca1faeb007ade9deae92b16b8254a0d # v6.0.0
+
+      - name: Build
+        run: npm run build
+
+      - name: Collect open PR previews
+        id: open-previews
+        uses: actions/github-script@3a2844b7e9c422d3c10d287c895573f7108da1b3 # v9.0.0
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            const openPullRequests = await github.paginate(github.rest.pulls.list, {
+              owner,
+              repo,
+              state: 'open',
+              per_page: 100,
+            });
+            const paths = openPullRequests.map(({ number }) => `pr-preview/pr-${number}`);
+            core.setOutput('paths', paths.join('\n'));
+
+      - name: Stage production and retain open PR previews
+        shell: bash
+        env:
+          OPEN_PREVIEWS: ${{ steps.open-previews.outputs.paths }}
+        run: |
+          set -euo pipefail
+          pages_dir="${RUNNER_TEMP}/pages"
+
+          if git ls-remote --exit-code --heads origin gh-pages >/dev/null 2>&1; then
+            git fetch --no-tags --depth=1 origin +refs/heads/gh-pages:refs/remotes/origin/gh-pages
+            git worktree add --detach "${pages_dir}" origin/gh-pages
+          else
+            git worktree add --detach "${pages_dir}"
+            git -C "${pages_dir}" switch --orphan gh-pages
+            git -C "${pages_dir}" rm -rf --ignore-unmatch .
+          fi
+
+          # replace production content, keep the pr-preview directory
+          find "${pages_dir}" -mindepth 1 -maxdepth 1 \
+            ! -name .git \
+            ! -name pr-preview \
+            -exec rm -rf {} +
+
+          # drop previews of pull requests that are no longer open
+          if [[ -d "${pages_dir}/pr-preview" ]]; then
+            while IFS= read -r -d '' preview_dir; do
+              relative_path="pr-preview/$(basename "${preview_dir}")"
+              if ! grep -Fxq "${relative_path}" <<< "${OPEN_PREVIEWS}"; then
+                rm -rf "${preview_dir}"
+              fi
+            done < <(find "${pages_dir}/pr-preview" -mindepth 1 -maxdepth 1 -type d -name 'pr-*' -print0)
+          fi
+
+          cp -a dist/. "${pages_dir}/"
+          touch "${pages_dir}/.nojekyll"
+
+          git -C "${pages_dir}" config user.name "github-actions[bot]"
+          git -C "${pages_dir}" config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git -C "${pages_dir}" add -A
+          if ! git -C "${pages_dir}" diff --cached --quiet; then
+            git -C "${pages_dir}" commit -m "Deploy production ${GITHUB_SHA}"
+            git -C "${pages_dir}" push origin HEAD:gh-pages
+          fi
+
+      - name: Upload aggregated Pages artifact
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: ${{ runner.temp }}/pages
+          include-hidden-files: true
+
+  deploy:
+    name: Publish GitHub Pages
+    needs: build
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
+    runs-on: ubuntu-24.04
+    # Pages deployments can wait in GitHub's queue for a few minutes.
+    timeout-minutes: 10
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@cd2ce8fcbc39b97be8ca5fce6e763baed58fa128 # v5.0.0
