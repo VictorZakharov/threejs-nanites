@@ -1,0 +1,22 @@
+// Occlusion culling counters of the current view (see the two-phase culling in src/nanite.js):
+//   phase1Trees/Tris   drawn in phase 1 (passed last frame's HZB)
+//   retestTrees        trees that failed phase 1 (tested again in phase 2)
+//   retestClusters     clusters of phase 1 trees that failed (tested again in phase 2)
+//   phase2Trees/Tris   drawn in phase 2 (failed phase 1, visible against this frame's HZB)
+//   hiddenTrees        trees still hidden after phase 2
+async (demo) => {
+  const f = demo.forest, r = demo.renderer, v = f.main;
+  for (let i = 0; i < 3; i++) await demo.renderOnce(); // (phase 1 needs a previous frame's HZB of this view)
+  const u32 = async (attr) => new Uint32Array(await r.getArrayBufferAsync(attr));
+  const [retest, a, b] = await Promise.all([u32(v.retestCountAttr), u32(v.sets[0].statsAttr), u32(v.sets[1].statsAttr)]);
+  const mtris = (s) => +((s[0] + s[1]) / 1e6).toFixed(2);
+  return {
+    phase1Trees: a[2],
+    phase1MTris: mtris(a),
+    retestTrees: retest[0],
+    retestClusters: retest[1],
+    phase2Trees: b[2],
+    phase2MTris: mtris(b),
+    hiddenTrees: b[3],
+  };
+}

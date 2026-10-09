@@ -22,7 +22,7 @@ npm run harness    # headless benchmark + screenshots, see below
   previews under `pr-preview/`); don't delete that branch or switch Pages away from the workflow setup.
 - **Ship something viewable early**, then keep iterating: the user wants to look at it and give feedback.
 - **Never develop blind:** check every visual or performance change with the harness (screenshots + numbers) before
-  calling it done.
+  calling it done (see `tools/AGENTS.md`).
 
 ## Temp files: never on C:
 
@@ -30,25 +30,16 @@ The C: drive has no free space. Keep every temp/scratch file, probe script, brow
 the project on G: (`tools/tmp/`, `tools/out/`, both gitignored), never in the system temp folder, `/tmp` or a
 scratchpad on C:. The harness already points TEMP/TMP at `tools/tmp/browser` before launching the browser.
 
-## Harness (`tools/harness.mjs`)
+## Harness
 
-Boots Vite and a **headless** Chromium (falls back to Edge/Chrome) on the real GPU with WebGPU; nothing pops up on
-screen. It flies the camera to fixed views (`ground`, `closeup`, `canopy`, `overview`, `horizon`), reports per view
-the pipelined frame time, GPU render time and GPU cull time (timestamp queries), CPU time, visible clusters /
-triangles / trees and shadow triangles, and writes screenshots + `report.json` + the page console to `tools/out/`.
+`tools/AGENTS.md` is the harness guide (`npm run harness -- --help` for the options). Measurements you need more
+than once go into the harness (views, probes in `tools/probes/`, image tools), never retyped as one-off snippets:
+retyped probe code drifts and compounds errors.
 
-```bash
-npm run harness -- --views=ground,canopy --frames=120 --query="tau=2&shadows=0"
-npm run harness -- --eval="__demo.autoTest(5000, 8)"      # runs the real loop with auto quality, flying forward
-npm run harness -- --eval-file=tools/tmp/probe.js           # any page-side probe (window.__demo exposes the scene)
-```
+## Dev journal
 
-`--sweep=lod,shadowlod,shadow` holds the view still and moves only the LOD reference point (or the shadow-caster
-LOD reference, or the shadow-map centre), then reports and heat-maps tiles whose brightness jumps from one step to
-the next: the way to measure LOD popping. Run sweeps with `--query=wind=0` (the harness also freezes the clouds).
-
-Don't time frames by awaiting `onSubmittedWorkDone` after each one: that adds ~4 ms of latency per frame and made
-an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame time the harness reports.
+`dev-journal.md` holds the current direction: what's being worked on, what's decided, the known issues. Read it
+first in a new session. Update it as you go, and keep it short and current, not historical: trim what's done.
 
 ## Architecture notes
 
@@ -91,3 +82,10 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
+- Occlusion culling (`src/nanite.js`, main view only): two phases per frame. Phase 1 tests trees and clusters
+  against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
+  updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
+  pixel's MSAA samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2
+  meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Clouds are on
+  that layer too, so they're drawn after every tree. The HZB lookup reads up to 4x4 texels of a finer level than
+  usual: at 2x2 the texels near the horizon take in sky and nothing is ever occluded.

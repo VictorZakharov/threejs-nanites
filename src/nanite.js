@@ -16,7 +16,7 @@ import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, vertexIndex, workgroupId, localId, numWorkgroups,
   uint, float, vec2, vec3, vec4, uvec2, atomicAdd, atomicStore, select, max, min, varying, normalLocal, texture,
   sin, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, normalViewGeometry, cross, fract, screenCoordinate,
-  cameraViewMatrix, normalize,
+  cameraViewMatrix, normalize, exp2, ivec2, int, textureLoad,
 } from 'three/tsl';
 import { curve } from './planet.js';
 import { IMPOSTOR_CUT } from './impostors.js';
@@ -55,6 +55,16 @@ const WG = 64;
 const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
 const MAX_DIM = 65535;
 const LIST_CAP = 1 << 20; // max visible clusters per list
+const HZB_LEVELS = 13;
+const HZB_LEVEL0_MAX = 2048 * 2048; // level 0 texels (half resolution): screens up to 4096 x 4096
+const HZB_FLOATS = Math.ceil(HZB_LEVEL0_MAX * 1.34) + 64;
+
+const rotY = (p, cs, sn) => vec3(p.x.mul(cs).sub(p.z.mul(sn)), p.y, p.x.mul(sn).add(p.z.mul(cs)));
+/** How far wind can push a tree's parts (m), for a tree this tall: added to spheres in the occlusion tests. */
+const windMargin = (height) => height.mul(0.1).add(0.5);
+
+/** Layer of the main view's phase 2 meshes (see occlusion()). */
+export const PHASE2_LAYER = 2;
 
 export class NaniteForest {
   constructor(renderer, trees, instances, textures) {
@@ -69,15 +79,22 @@ export class NaniteForest {
       time: uniform(0),
       wind: uniform(1),
       debug: uniform(0, 'uint'),
+      occlusion: uniform(1, 'uint'), // two-phase occlusion culling on/off
     };
     this.textures = textures;
     this._buildBuffers(trees, instances);
+    this._buildHzb();
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();
     for (const kind of [0, 1]) {
-      this.group.add(this._buildMesh(kind, this.main, false));
-      this.group.add(this._buildMesh(kind, this.shadow, true));
+      this.group.add(this._buildMesh(kind, this.main, this.main.sets[0], false));
+      // phase 2 draws: on layer PHASE2_LAYER, rendered in a second pass after the HZB is built
+      const m2 = this._buildMesh(kind, this.main, this.main.sets[1], false);
+      m2.layers.set(PHASE2_LAYER);
+      m2.name += '-phase2';
+      this.group.add(m2);
+      this.group.add(this._buildMesh(kind, this.shadow, this.shadow.sets[0], true));
     }
   }
 
@@ -138,107 +155,95 @@ export class NaniteForest {
   }
 
   // ------------------------------------------------------------------ culling (one set of passes per view)
-  _buildView(name, tauMul) {
-    const u = this.u;
+  //
+  // A "set" is one cull -> draw chain: work items, the indirect cluster dispatch, bark/leaf cluster lists and their
+  // indirect draw args. The shadow view has one set. The main view has two, for Nanite-style two-phase occlusion
+  // culling against a max-depth pyramid (HZB):
+  //   phase 1 (set A)  trees and clusters are tested against *last* frame's HZB (with last frame's camera); what
+  //                    passes is drawn (with terrain, sky and impostors), what fails goes on a retest list
+  //   HZB              rebuilt from this frame's phase 1 depth
+  //   phase 2 (set B)  the retest lists are tested again against the new HZB and what's visible is drawn too.
+  // Everything visible is drawn in the frame it becomes visible (no one-frame holes when the camera moves), and the
+  // test is per cluster: the trunk and lower crown behind the canopy, the far side of a tree, are skipped too.
+  /** occ: null (no occlusion), 'retest' (phase 1: failures go to the retest list), 'final' (phase 2) */
+  _buildSet(v, tau, occ) {
     const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
-    const v = {
-      name,
-      planes: uniformArray(Array.from({ length: 6 }, () => new THREE.Vector4()), 'vec4'),
-      tauMul: uniform(tauMul),
-      lodPos: uniform(new THREE.Vector3()), // where LOD is measured from: the camera (+ a debug shift)
-      lodShift: new THREE.Vector3(),
+    const u = this.u;
+    const set = {
       itemsAttr: sb(new Uint32Array(MAX_ITEMS * 2), 2),
       dispatchAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4),
       barkArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
       leafArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
-      statsAttr: sb(new Uint32Array(4), 1),
+      statsAttr: sb(new Uint32Array(4), 1), // bark tris, leaf tris, trees, occluded trees
       itemCountAttr: sb(new Uint32Array(1), 1),
-      // per tree: drawn as an impostor this frame? (a flag per tree instead of an appended list: 900k threads
-      // appending through one atomic counter took ~5 ms; the impostor draw covers every tree and the vertex shader
-      // collapses the unflagged ones, which is far cheaper)
-      impFlagAttr: sb(new Uint32Array(name === 'main' ? this.instanceCount : 1), 1),
       barkListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
       leafListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
     };
-    const tau = u.tau.mul(v.tauMul);
-    const items = storage(v.itemsAttr, 'uvec2', MAX_ITEMS);
-    const dispatchA = storage(v.dispatchAttr, 'uint', 4).toAtomic();
-    const barkA = storage(v.barkArgsAttr, 'uint', 4).toAtomic();
-    const leafA = storage(v.leafArgsAttr, 'uint', 4).toAtomic();
-    const statsA = storage(v.statsAttr, 'uint', 4).toAtomic();
-    const impFlag = storage(v.impFlagAttr, 'uint', name === 'main' ? this.instanceCount : 1);
-    const barkList = storage(v.barkListAttr, 'uvec2', LIST_CAP);
-    const leafList = storage(v.leafListAttr, 'uvec2', LIST_CAP);
+    const items = storage(set.itemsAttr, 'uvec2', MAX_ITEMS);
+    const dispatchA = storage(set.dispatchAttr, 'uint', 4).toAtomic();
+    const barkA = storage(set.barkArgsAttr, 'uint', 4).toAtomic();
+    const leafA = storage(set.leafArgsAttr, 'uint', 4).toAtomic();
+    set.statsA = storage(set.statsAttr, 'uint', 4).toAtomic();
+    const barkList = storage(set.barkListAttr, 'uvec2', LIST_CAP);
+    const leafList = storage(set.leafListAttr, 'uvec2', LIST_CAP);
 
-    const sphereVisible = (c, r) => {
-      const vis = uint(1).toVar();
-      for (let p = 0; p < 6; p++) {
-        const pl = v.planes.element(p);
-        If(dot(pl.xyz, c).add(pl.w).lessThan(r.negate()), () => vis.assign(0));
-      }
-      return vis.equal(1);
+    /** Appends cluster c of tree inst to the bark or leaf draw list. */
+    set.append = (inst, c) => {
+      const tris = this.cMeta.element(c).y;
+      If(this.cData.element(c.mul(4).add(3)).w.lessThan(0.5), () => {
+        const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
+        atomicAdd(set.statsA.element(0), tris);
+        If(slot.lessThan(LIST_CAP), () => barkList.element(slot).assign(uvec2(inst, c)));
+      }).Else(() => {
+        const slot = atomicAdd(leafA.element(1), uint(1)).toVar();
+        atomicAdd(set.statsA.element(1), tris);
+        If(slot.lessThan(LIST_CAP), () => leafList.element(slot).assign(uvec2(inst, c)));
+      });
     };
-    const rotY = (p, cs, sn) => vec3(p.x.mul(cs).sub(p.z.mul(sn)), p.y, p.x.mul(sn).add(p.z.mul(cs)));
 
-    v.reset = Fn(() => {
+    set.reset = Fn(() => {
       atomicStore(dispatchA.element(0), uint(0));
       atomicStore(barkA.element(1), uint(0));
       atomicStore(leafA.element(1), uint(0));
-      for (let i = 0; i < 3; i++) atomicStore(statsA.element(i), uint(0));
+      for (let i = 0; i < 4; i++) atomicStore(set.statsA.element(i), uint(0));
     })().compute(1, [1]);
 
-    v.instances = Fn(() => {
-      const i = instanceIndex;
-      const a = this.instA.element(i);
-      const b = this.instB.element(i);
-      const ti = this.typeInfo.element(uint(b.z));
-      const s = a.w;
-      const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
-      const centerC = curve(center); // where the planet's curvature puts it on screen
-      const r = ti.z.mul(s);
-      const dCam = length(center.sub(v.lodPos));
-      const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1)); // projected tree height
-      // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
-      const far = px.lessThan(u.impostorPx);
-      const visible = sphereVisible(centerC, r).and(dCam.sub(r).lessThan(u.maxDist)).toVar();
-      // (impostors cast no shadow: receivers fall back to an average shadow there, see main.js)
-      if (name === 'main') impFlag.element(i).assign(select(visible.and(px.lessThan(u.impostorPx.mul(FADE_HI))), uint(1), uint(0)));
-      If(visible.and(far.not()), () => {
-        // clusters whose parent error (local units) is below this can never be selected for this tree
-        const thr = tau.mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
-        const start = uint(ti.x);
-        const lo = uint(0).toVar(), hi = uint(ti.y).toVar();
-        Loop(14, () => {
-          If(lo.lessThan(hi), () => {
-            const mid = lo.add(hi).div(2).toVar();
-            If(this.cData.element(start.add(mid).mul(4).add(3)).y.greaterThan(thr), () => lo.assign(mid.add(1))).Else(() => hi.assign(mid));
-          });
-        });
-        const n = lo;
-        const nItems = n.add(WG - 1).div(WG).toVar();
-        const base = atomicAdd(dispatchA.element(0), nItems).toVar();
-        atomicAdd(statsA.element(2), uint(1));
-        Loop({ start: uint(0), end: nItems, type: 'uint', condition: '<' }, ({ i: k }) => {
-          If(base.add(k).lessThan(MAX_ITEMS), () => {
-            items.element(base.add(k)).assign(uvec2(i, k.mul(WG).bitOr(n.shiftLeft(16))));
-          });
+    /** Emits the work items for tree i (called from an instance pass). */
+    set.emit = (i, ti, s, dCam, r) => {
+      // clusters whose parent error (local units) is below this can never be selected for this tree
+      const thr = tau.mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
+      const start = uint(ti.x);
+      const lo = uint(0).toVar(), hi = uint(ti.y).toVar();
+      Loop(14, () => {
+        If(lo.lessThan(hi), () => {
+          const mid = lo.add(hi).div(2).toVar();
+          If(this.cData.element(start.add(mid).mul(4).add(3)).y.greaterThan(thr), () => lo.assign(mid.add(1))).Else(() => hi.assign(mid));
         });
       });
-    })().compute(this.instanceCount, [WG]);
+      const n = lo;
+      const nItems = n.add(WG - 1).div(WG).toVar();
+      const base = atomicAdd(dispatchA.element(0), nItems).toVar();
+      atomicAdd(set.statsA.element(2), uint(1));
+      Loop({ start: uint(0), end: nItems, type: 'uint', condition: '<' }, ({ i: k }) => {
+        If(base.add(k).lessThan(MAX_ITEMS), () => {
+          items.element(base.add(k)).assign(uvec2(i, k.mul(WG).bitOr(n.shiftLeft(16))));
+        });
+      });
+    };
 
     // turn the item count into a 2D dispatch; the cluster pass gets the count from a separate buffer (a buffer can't
     // be both the indirect args and a storage binding of the same dispatch)
-    const dispatchRW = storage(v.dispatchAttr, 'uint', 4);
-    const itemCountW = storage(v.itemCountAttr, 'uint', 1);
-    v.clampDispatch = Fn(() => {
+    const dispatchRW = storage(set.dispatchAttr, 'uint', 4);
+    const itemCountW = storage(set.itemCountAttr, 'uint', 1);
+    set.clampDispatch = Fn(() => {
       const total = min(dispatchRW.element(0), uint(MAX_ITEMS)).toVar();
       itemCountW.element(0).assign(total);
       dispatchRW.element(0).assign(min(total, uint(MAX_DIM)));
       dispatchRW.element(1).assign(total.add(MAX_DIM - 1).div(MAX_DIM));
     })().compute(1, [1]);
 
-    const itemCount = storage(v.itemCountAttr, 'uint', 1).toReadOnly();
-    v.clusters = Fn(() => {
+    const itemCount = storage(set.itemCountAttr, 'uint', 1).toReadOnly();
+    set.clusters = Fn(() => {
       const itemIdx = workgroupId.x.add(workgroupId.y.mul(numWorkgroups.x));
       const item = items.element(min(itemIdx, uint(MAX_ITEMS - 1)));
       const inst = item.x;
@@ -260,42 +265,299 @@ export class NaniteForest {
         // DAG cut: fine enough itself, but the parent group is too coarse
         const cut = projErr(lod, e.x).lessThanEqual(tau).and(projErr(par, e.y).greaterThan(tau));
         If(cut, () => {
-          const cw = a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s));
-          If(sphereVisible(curve(cw), cs.w.mul(s)), () => {
-            const tris = this.cMeta.element(c).y;
-            If(e.w.lessThan(0.5), () => {
-              const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
-              atomicAdd(statsA.element(0), tris);
-              If(slot.lessThan(LIST_CAP), () => barkList.element(slot).assign(uvec2(inst, c)));
-            }).Else(() => {
-              const slot = atomicAdd(leafA.element(1), uint(1)).toVar();
-              atomicAdd(statsA.element(1), tris);
-              If(slot.lessThan(LIST_CAP), () => leafList.element(slot).assign(uvec2(inst, c)));
+          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
+          const keep = v.sphereVisible(cw, cs.w.mul(s)).toVar();
+          if (occ) {
+            If(keep.and(u.occlusion.equal(1)), () => {
+              If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))), () => {
+                keep.assign(false);
+                if (occ === 'retest') v.retestCluster(inst, c);
+              });
             });
-          });
+          }
+          If(keep, () => set.append(inst, c));
         });
       });
     })().compute(MAX_ITEMS * WG, [WG]);
 
-    const barkRW = storage(v.barkArgsAttr, 'uint', 4);
-    const leafRW = storage(v.leafArgsAttr, 'uint', 4);
-    v.clampDraw = Fn(() => {
+    const barkRW = storage(set.barkArgsAttr, 'uint', 4);
+    const leafRW = storage(set.leafArgsAttr, 'uint', 4);
+    set.clampDraw = Fn(() => {
       barkRW.element(1).assign(min(barkRW.element(1), uint(LIST_CAP)));
       leafRW.element(1).assign(min(leafRW.element(1), uint(LIST_CAP)));
     })().compute(1, [1]);
+    return set;
+  }
 
+  _buildView(name, tauMul) {
+    const u = this.u;
+    const main = name === 'main';
+    const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
+    const v = {
+      name,
+      planes: uniformArray(Array.from({ length: 6 }, () => new THREE.Vector4()), 'vec4'),
+      tauMul: uniform(tauMul),
+      lodPos: uniform(new THREE.Vector3()), // where LOD is measured from: the camera (+ a debug shift)
+      lodShift: new THREE.Vector3(),
+      // per tree: drawn as an impostor this frame? (a flag per tree instead of an appended list: 900k threads
+      // appending through one atomic counter took ~5 ms; the impostor draw covers every tree and the vertex shader
+      // collapses the unflagged ones, which is far cheaper)
+      impFlagAttr: sb(new Uint32Array(main ? this.instanceCount : 1), 1),
+    };
+    const tau = u.tau.mul(v.tauMul);
+    const impFlag = storage(v.impFlagAttr, 'uint', main ? this.instanceCount : 1);
+    v.sphereVisible = (c, r) => {
+      const ok = uint(1).toVar();
+      for (let p = 0; p < 6; p++) {
+        const pl = v.planes.element(p);
+        If(dot(pl.xyz, c).add(pl.w).lessThan(r.negate()), () => ok.assign(0));
+      }
+      return ok.equal(1);
+    };
+
+    if (main) {
+      // phase 1 failures: trees and clusters to test again in phase 2
+      const n = this.instanceCount;
+      v.retestTreesAttr = sb(new Uint32Array(n), 1);
+      v.retestClustersAttr = sb(new Uint32Array(LIST_CAP * 2), 2);
+      v.retestCountAttr = sb(new Uint32Array(4), 1); // trees, clusters (appended), trees, clusters (clamped)
+      v.retestTreeDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
+      v.retestClusterDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
+      const retestTrees = storage(v.retestTreesAttr, 'uint', n);
+      const retestClusters = storage(v.retestClustersAttr, 'uvec2', LIST_CAP);
+      const countA = storage(v.retestCountAttr, 'uint', 4).toAtomic();
+      v.retestTree = (i) => {
+        const slot = atomicAdd(countA.element(0), uint(1));
+        retestTrees.element(slot).assign(i);
+      };
+      v.retestCluster = (inst, c) => {
+        const slot = atomicAdd(countA.element(1), uint(1)).toVar();
+        If(slot.lessThan(LIST_CAP), () => retestClusters.element(slot).assign(uvec2(inst, c)));
+      };
+      v.resetRetest = Fn(() => {
+        atomicStore(countA.element(0), uint(0));
+        atomicStore(countA.element(1), uint(0));
+      })().compute(1, [1]);
+      // indirect dispatch sizes of the two retest passes (64 threads per workgroup), and the counts they read
+      const countRW = storage(v.retestCountAttr, 'uint', 4);
+      const dT = storage(v.retestTreeDispatch, 'uint', 4), dC = storage(v.retestClusterDispatch, 'uint', 4);
+      v.retestArgs = Fn(() => {
+        const nc = min(countRW.element(1), uint(LIST_CAP)).toVar();
+        countRW.element(2).assign(countRW.element(0));
+        countRW.element(3).assign(nc);
+        dT.element(0).assign(countRW.element(0).add(WG - 1).div(WG));
+        dC.element(0).assign(nc.add(WG - 1).div(WG));
+      })().compute(1, [1]);
+      v.retestCounts = storage(v.retestCountAttr, 'uint', 4).toReadOnly();
+      v.retestTreesRO = storage(v.retestTreesAttr, 'uint', n).toReadOnly();
+      v.retestClustersRO = storage(v.retestClustersAttr, 'uvec2', LIST_CAP).toReadOnly();
+    }
+    v.sets = [this._buildSet(v, tau, main ? 'retest' : null)];
+    if (main) v.sets.push(this._buildSet(v, tau, 'final'));
+
+    /** The per-tree basics shared by the instance passes. */
+    const treeInfo = (i) => {
+      const a = this.instA.element(i);
+      const b = this.instB.element(i);
+      const ti = this.typeInfo.element(uint(b.z));
+      const s = a.w;
+      const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
+      const centerC = curve(center).toVar(); // where the planet's curvature puts it on screen
+      const r = ti.z.mul(s);
+      const dCam = length(center.sub(v.lodPos)).toVar();
+      const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1)); // projected tree height
+      const visible = v.sphereVisible(centerC, r).and(dCam.sub(r).lessThan(u.maxDist)).toVar();
+      return { ti, s, centerC, r, dCam, px, visible };
+    };
+
+    // phase 1 (and the only pass of the shadow view)
+    const setA = v.sets[0];
+    v.instances = Fn(() => {
+      const i = instanceIndex;
+      const { ti, s, centerC, r, dCam, px, visible } = treeInfo(i);
+      // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
+      const far = px.lessThan(u.impostorPx);
+      // (impostors cast no shadow: receivers fall back to an average shadow there, see main.js)
+      if (main) impFlag.element(i).assign(select(visible.and(px.lessThan(u.impostorPx.mul(FADE_HI))), uint(1), uint(0)));
+      If(visible.and(far.not()), () => {
+        if (main) {
+          If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))))), () => v.retestTree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
+        } else {
+          setA.emit(i, ti, s, dCam, r);
+        }
+      });
+    })().compute(this.instanceCount, [WG]);
+
+    if (main) {
+      const setB = v.sets[1];
+      // phase 2: trees that failed phase 1, against the new HZB
+      v.retestTreesPass = Fn(() => {
+        const k = instanceIndex;
+        If(k.lessThan(v.retestCounts.element(2)), () => {
+          const i = v.retestTreesRO.element(k);
+          const { ti, s, centerC, r, dCam } = treeInfo(i);
+          If(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s)))), () => {
+            atomicAdd(setB.statsA.element(3), uint(1));
+          }).Else(() => setB.emit(i, ti, s, dCam, r));
+        });
+      })().compute(this.instanceCount, [WG]);
+      // ... and the clusters that failed phase 1 (of trees that passed)
+      v.retestClustersPass = Fn(() => {
+        const k = instanceIndex;
+        If(k.lessThan(v.retestCounts.element(3)), () => {
+          const e = v.retestClustersRO.element(k);
+          const inst = e.x, c = e.y;
+          const a = this.instA.element(inst), b = this.instB.element(inst);
+          const ti = this.typeInfo.element(uint(b.z));
+          const s = a.w;
+          const cs = this.cData.element(c.mul(4).add(2));
+          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s)));
+          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))).not(), () => setB.append(inst, c));
+        });
+      })().compute(LIST_CAP, [WG]);
+    }
     return v;
   }
 
+  // ------------------------------------------------------------------ HZB (max-depth pyramid of the main view)
+  _buildHzb() {
+    this.hzb = {
+      // level 0 is half resolution (each texel = 2x2 pixels x all MSAA samples)
+      buf: storage(new THREE.StorageBufferAttribute(new Float32Array(HZB_FLOATS), 1), 'float', HZB_FLOATS),
+      levels: uniformArray(Array.from({ length: HZB_LEVELS }, () => new THREE.Vector4()), 'vec4'), // offset, w, h
+      count: uniform(1, 'uint'),
+      size: uniform(new THREE.Vector2(1, 1)), // depth buffer pixels
+      view: uniform(new THREE.Matrix4()),
+      proj: uniform(new THREE.Vector4()), // P00, P11, P22, P32
+      near: uniform(0.3),
+      passes: [],
+      attr: null,
+    };
+    this.hzb.attr = this.hzb.buf.value;
+  }
+
+  /** True if a world-space sphere (planet-curved centre) lies entirely behind the HZB. */
+  _hzbOccluded(c, r) {
+    const h = this.hzb;
+    const res = uint(0).toVar();
+    const cv = h.view.mul(vec4(c, 1)).xyz.toVar();
+    const d = cv.z.negate().toVar();
+    const d0 = d.sub(r).toVar();
+    If(d0.greaterThan(h.near), () => {
+      const d1 = d.add(r);
+      // screen rect: the extremes of the sphere's view-space box over its nearest and farthest depth
+      const ext = (lo, hi, k) => {
+        const q = [lo.div(d0), lo.div(d1), hi.div(d0), hi.div(d1)];
+        return [
+          clamp(min(min(q[0], q[1]), min(q[2], q[3])).mul(k), -1, 1),
+          clamp(max(max(q[0], q[1]), max(q[2], q[3])).mul(k), -1, 1),
+        ];
+      };
+      const [nx0, nx1] = ext(cv.x.sub(r), cv.x.add(r), h.proj.x);
+      const [ny0, ny1] = ext(cv.y.sub(r), cv.y.add(r), h.proj.y);
+      const px0 = nx0.mul(0.5).add(0.5).mul(h.size.x), px1 = nx1.mul(0.5).add(0.5).mul(h.size.x);
+      const py0 = ny1.mul(-0.5).add(0.5).mul(h.size.y), py1 = ny0.mul(-0.5).add(0.5).mul(h.size.y);
+      const size = max(px1.sub(px0), py1.sub(py0));
+      // a level where the rect spans at most 4 texels a side (a level L texel is 2^(L+1) pixels), max of those
+      // (finer than the usual 2x2: near the horizon a coarse texel takes in sky above the treeline)
+      const L = uint(clamp(log2(max(size.div(3), 1)).ceil().sub(1), 0, float(h.count).sub(1))).toVar();
+      const lv = h.levels.element(L);
+      const scale = exp2(float(L).add(1));
+      const off = uint(lv.x), w = uint(lv.y), hh = uint(lv.z);
+      const tx = (p, n) => min(uint(max(p.div(scale).floor(), 0)), n.sub(1));
+      const tx0 = tx(px0, w), tx1 = tx(px1, w), ty0 = tx(py0, hh), ty1 = tx(py1, hh);
+      const farthest = float(0).toVar();
+      for (let j = 0; j < 4; j++)
+        for (let i = 0; i < 4; i++) {
+          const x = min(tx0.add(i), tx1), y = min(ty0.add(j), ty1);
+          farthest.assign(max(farthest, h.buf.element(off.add(y.mul(w)).add(x))));
+        }
+      // depth (0..1) of the sphere's nearest point
+      const zNear = h.proj.z.mul(d0.negate()).add(h.proj.w).div(d0);
+      If(zNear.greaterThan(farthest), () => res.assign(1));
+    });
+    return res.equal(1);
+  }
+
+  /** The depth buffer the HZB is built from (the main view's render target). */
+  setDepthSource(depthTexture, samples) {
+    const h = this.hzb;
+    h.passes = [];
+    for (let L = 0; L < HZB_LEVELS; L++) {
+      const node = Fn(() => {
+        const idx = instanceIndex;
+        const lv = h.levels.element(L);
+        const w = uint(lv.y), hh = uint(lv.z);
+        If(idx.lessThan(w.mul(hh)), () => {
+          const x = idx.mod(w), y = idx.div(w);
+          const m = float(0).toVar();
+          if (L === 0) {
+            const W = uint(h.size.x), H = uint(h.size.y);
+            for (let dy = 0; dy < 2; dy++)
+              for (let dx = 0; dx < 2; dx++) {
+                const p = ivec2(min(x.mul(2).add(dx), W.sub(1)), min(y.mul(2).add(dy), H.sub(1)));
+                for (let k = 0; k < samples; k++) m.assign(max(m, textureLoad(depthTexture, p, int(k)).x));
+              }
+          } else {
+            const pl = h.levels.element(L - 1);
+            const po = uint(pl.x), pw = uint(pl.y), ph = uint(pl.z);
+            for (let dy = 0; dy < 2; dy++)
+              for (let dx = 0; dx < 2; dx++) {
+                const cx = min(x.mul(2).add(dx), pw.sub(1)), cy = min(y.mul(2).add(dy), ph.sub(1));
+                m.assign(max(m, h.buf.element(po.add(cy.mul(pw)).add(cx))));
+              }
+          }
+          h.buf.element(uint(lv.x).add(y.mul(w)).add(x)).assign(m);
+        });
+      })().compute(HZB_LEVEL0_MAX, [WG]);
+      h.passes.push(node);
+    }
+    this.hzbReady = true;
+  }
+
+  /** Phase 2 (main view): build the HZB from the phase 1 depth, then cull set B against it. */
+  occlusion(camera, width, height) {
+    if (this.frozen || !this.hzbReady || this.u.occlusion.value === 0) return;
+    const h = this.hzb;
+    let w = Math.ceil(width / 2), hh = Math.ceil(height / 2), off = 0, n = 0;
+    if (w * hh > HZB_LEVEL0_MAX) return; // (a huge screen: phase 1 only)
+    const counts = [];
+    while (n < HZB_LEVELS) {
+      h.levels.array[n].set(off, w, hh, 0);
+      counts.push(w * hh);
+      off += w * hh;
+      n++;
+      if (w === 1 && hh === 1) break;
+      w = Math.ceil(w / 2);
+      hh = Math.ceil(hh / 2);
+    }
+    h.count.value = n;
+    h.size.value.set(width, height);
+    h.view.value.copy(camera.matrixWorldInverse);
+    const e = camera.projectionMatrix.elements;
+    h.proj.value.set(e[0], e[5], e[10], e[14]);
+    h.near.value = camera.near;
+    const r = this.renderer;
+    for (let L = 0; L < n; L++) r.compute(h.passes[L], counts[L]);
+    const v = this.main, setB = v.sets[1];
+    r.compute(v.retestArgs);
+    r.compute(v.retestTreesPass, v.retestTreeDispatch);
+    r.compute(v.retestClustersPass, v.retestClusterDispatch);
+    r.compute(setB.clampDispatch);
+    r.compute(setB.clusters, setB.dispatchAttr);
+    r.compute(setB.clampDraw);
+    setB.ran = true;
+  }
+
   // ------------------------------------------------------------------ draw
-  _buildMesh(kind, view, shadowOnly) {
+  _buildMesh(kind, view, set, shadowOnly) {
     const u = this.u;
     const textures = this.textures;
-    const list = storage(kind === 0 ? view.barkListAttr : view.leafListAttr, 'uvec2', LIST_CAP).toReadOnly();
+    const list = storage(kind === 0 ? set.barkListAttr : set.leafListAttr, 'uvec2', LIST_CAP).toReadOnly();
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
-    geo.setIndirect(kind === 0 ? view.barkArgsAttr : view.leafArgsAttr);
+    geo.setIndirect(kind === 0 ? set.barkArgsAttr : set.leafArgsAttr);
 
     const vUv = varying(vec2(0), 'vUv');
     const vLayer = varying(float(0), 'vLayer');
@@ -521,11 +783,13 @@ export class NaniteForest {
     f.planes.forEach((p, i) => view.planes.array[i].set(p.normal.x, p.normal.y, p.normal.z, p.constant));
     const r = this.renderer;
     view.ran = true; // (its buffers exist on the GPU from now on)
-    r.compute(view.reset);
+    for (const set of view.sets) r.compute(set.reset); // (phase 2 draws nothing unless occlusion() runs)
+    if (view.resetRetest) r.compute(view.resetRetest);
+    const A = view.sets[0];
     r.compute(view.instances);
-    r.compute(view.clampDispatch);
-    r.compute(view.clusters, view.dispatchAttr);
-    r.compute(view.clampDraw);
+    r.compute(A.clampDispatch);
+    r.compute(A.clusters, A.dispatchAttr);
+    r.compute(A.clampDraw);
   }
 
   /** Runs the GPU culling for the camera and (if given) the shadow camera. */
@@ -546,17 +810,28 @@ export class NaniteForest {
     if (shadowCamera) this._cull(this.shadow, shadowCamera);
   }
 
-  /** Reads back the counters (async, for the overlay/harness). */
+  /** Reads back the counters (async, for the overlay/harness), summed over the view's sets. */
   async readStats(view = this.main) {
-    if (!view.ran) return { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0 };
-    const [bark, leaf, st, disp, flags] = await Promise.all([
-      this.renderer.getArrayBufferAsync(view.barkArgsAttr),
-      this.renderer.getArrayBufferAsync(view.leafArgsAttr),
-      this.renderer.getArrayBufferAsync(view.statsAttr),
-      this.renderer.getArrayBufferAsync(view.itemCountAttr),
-      view === this.main ? this.renderer.getArrayBufferAsync(view.impFlagAttr) : new ArrayBuffer(4),
+    const out = { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0, occluded: 0, phase2: 0 };
+    if (!view.ran) return out;
+    const get = (a) => this.renderer.getArrayBufferAsync(a);
+    const sets = view.sets.filter((s, k) => k === 0 || s.ran);
+    const [flags, ...per] = await Promise.all([
+      view === this.main ? get(view.impFlagAttr) : Promise.resolve(new ArrayBuffer(4)),
+      ...sets.map((s) => Promise.all([get(s.barkArgsAttr), get(s.leafArgsAttr), get(s.statsAttr), get(s.itemCountAttr)])),
     ]);
-    const b = new Uint32Array(bark), l = new Uint32Array(leaf), s = new Uint32Array(st);
-    return { barkClusters: b[1], leafClusters: l[1], barkTris: s[0], leafTris: s[1], instances: s[2], items: new Uint32Array(disp)[0], impostors: countFlags(flags) };
+    per.forEach(([bark, leaf, st, disp], k) => {
+      const b = new Uint32Array(bark), l = new Uint32Array(leaf), s = new Uint32Array(st);
+      out.barkClusters += b[1];
+      out.leafClusters += l[1];
+      out.barkTris += s[0];
+      out.leafTris += s[1];
+      out.instances += s[2];
+      out.occluded += s[3];
+      out.items += new Uint32Array(disp)[0];
+      if (k === 1) out.phase2 = s[2];
+    });
+    out.impostors = countFlags(flags);
+    return out;
   }
 }

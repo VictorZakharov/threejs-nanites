@@ -3,7 +3,7 @@ import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cub
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
-import { NaniteForest, makeLeafAlpha } from './nanite.js';
+import { NaniteForest, makeLeafAlpha, PHASE2_LAYER } from './nanite.js';
 import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.js';
 import { viewerPos } from './planet.js';
 import { createClouds, CLOUD_BASE } from './clouds.js';
@@ -190,7 +190,7 @@ async function start() {
   const lim = adapter.limits;
   if (lim.maxStorageBuffersPerShaderStage < 10) throw new Error('GPU supports too few storage buffers per stage.');
   const renderer = new THREE.WebGPURenderer({
-    antialias: params.get('aa') !== '0',
+    antialias: false, // (the scene renders into its own MSAA target, see sceneRT)
     reversedDepthBuffer: params.get('rdb') === '1', // (breaks the terrain/fog here; off)
     powerPreference: 'high-performance',
     trackTimestamp: true, // GPU time drives the auto quality (and the harness numbers)
@@ -286,6 +286,8 @@ async function start() {
   sun.shadow.normalBias = 0.6;
   sun.shadow.camera.layers.set(1); // the forest has dedicated (coarser, light-culled) shadow-caster meshes on layer 1
   scene.add(sun, sun.target);
+  hemi.layers.enable(PHASE2_LAYER);
+  sun.layers.enable(PHASE2_LAYER);
 
   await ui.update(0.04, 'Raising hills, sky and sun');
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
@@ -294,6 +296,7 @@ async function start() {
   scene.add(terrain);
   const clouds = createClouds();
   scene.add(clouds.group);
+  clouds.group.traverse((o) => o.layers.set(PHASE2_LAYER)); // (transparent: drawn after both tree phases)
   clouds.group.visible = params.get('clouds') !== '0'; // (debug switch)
 
   // trees
@@ -416,14 +419,26 @@ async function start() {
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
+  // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
+  // then a fullscreen pass tone-maps it to the canvas.
+  const samples = params.get('aa') === '0' ? 1 : 4;
+  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true });
+  sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
+  const output = new THREE.RenderPipeline(renderer, texture(sceneRT.texture));
+  forest.setDepthSource(sceneRT.depthTexture, samples);
+  forest.u.occlusion.value = params.get('occ') === '0' ? 0 : 1;
+
   const viewSize = new THREE.Vector2();
   function fitToWindow() {
     renderer.getSize(viewSize);
     const w = window.innerWidth, h = window.innerHeight;
-    if (viewSize.x === w && viewSize.y === h) return;
-    camera.aspect = w / h;
-    camera.updateProjectionMatrix();
-    renderer.setSize(w, h);
+    if (viewSize.x !== w || viewSize.y !== h) {
+      camera.aspect = w / h;
+      camera.updateProjectionMatrix();
+      renderer.setSize(w, h);
+    }
+    renderer.getDrawingBufferSize(size);
+    if (sceneRT.width !== size.x || sceneRT.height !== size.y) sceneRT.setSize(size.x, size.y);
   }
   window.addEventListener('resize', fitToWindow);
 
@@ -474,7 +489,22 @@ async function start() {
 
     renderer.getDrawingBufferSize(size);
     forest.update(camera, size.y, time, shadowsOn ? sun.shadow.camera : null);
+    // phase 1: terrain, sky, impostors and the trees visible last frame (+ the shadow map)
+    renderer.setRenderTarget(sceneRT);
+    camera.layers.set(0);
     renderer.render(scene, camera);
+    // phase 2: HZB from that depth, cull the rest against it, draw what's visible (+ the clouds) on top
+    forest.occlusion(camera, size.x, size.y);
+    const autoClear = renderer.autoClear, shadowAuto = sun.shadow.autoUpdate;
+    renderer.autoClear = false;
+    sun.shadow.autoUpdate = false;
+    camera.layers.set(PHASE2_LAYER);
+    renderer.render(scene, camera);
+    camera.layers.set(0);
+    sun.shadow.autoUpdate = shadowAuto;
+    renderer.autoClear = autoClear;
+    renderer.setRenderTarget(null);
+    output.render();
   }
 
   // HUD
@@ -542,6 +572,8 @@ async function start() {
       controls.yaw = yaw;
       controls.pitch = pitch;
       controls.velocity.set(0, 0, 0);
+      // right-mouse zoom factor (1 = none), applied at once instead of easing in
+      controls.zoomTarget = controls.zoom = v.zoom ?? 1;
     },
     async renderOnce(benchResult) {
       if (benchResult) { ms = benchResult.medianMs; fps = 1000 / ms; }
