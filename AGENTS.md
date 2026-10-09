@@ -78,7 +78,11 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Impostors are *relit*, not baked lit: the bake writes an albedo atlas and a tree-local normal atlas (leaves cut
   out with Discard and alpha 1 so MSAA gives true coverage), and the impostor material is Lambert with the same
   lights, fog and shadow fade as the real leaves. Render-target textures are stored flipped (v = 1 - y).
-  `IMP_GAIN` (`?impgain=`) matches colour to the geometry from above (the real trees' sub-pixel leaves read paler).
+  Colour is matched per tree type and view (side / top) by `impGain` in `VARIANTS` (`src/trees.js`), calibrated
+  with `npm run harness -- --typematch=calibrate --views=d550,fogline --query=wind=0` (masks each type with
+  `debug=4`, compares real trees with impostors, adjusts the gains live, prints new values). One gain for all
+  types left pines as near-black stars from above. The tiles are baked from the DAG cut each tree has at the
+  switch size (`dagCut`, `?bakepx=`, 0 = full detail).
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.

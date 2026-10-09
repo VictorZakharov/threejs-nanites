@@ -3,6 +3,7 @@ import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VIEWS } from './views.mjs';
 import { meanColour } from './images.mjs';
+import { at } from './status.mjs';
 
 /** Loads the demo with this query (on top of ?harness=1) and waits until it's ready. */
 export async function boot(page, url, query, opts, outDir) {
@@ -43,6 +44,7 @@ const COLUMNS = [
   ['imposts', 8, (n, r) => r.impostors ?? ''],
   ['occluded', 8, (n, r) => r.occluded ?? ''], // trees drawn neither way: hidden behind nearer ones
   ['occImp', 7, (n, r) => r.occludedImpostors ?? ''], // impostors dropped the same way
+  ['secs', 5, (n, r) => r.secs ?? ''], // wall time of the benchmark (the harness's own cost)
 ];
 const row = (cells) => cells.map((c, i) => (i === 0 ? String(c).padEnd(COLUMNS[i][1]) : String(c).padStart(COLUMNS[i][1]))).join(' ');
 
@@ -56,11 +58,15 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
   for (const name of opts.views) {
     const view = { ...VIEWS[name], zoom: opts.zoom ?? VIEWS[name].zoom ?? 1 };
     await page.evaluate((v) => window.__demo.setView(v), view);
+    at(`view ${name}: benchmark`);
+    const t0 = Date.now();
     const r = await page.evaluate((n) => window.__demo.bench(n), opts.frames);
+    r.secs = ((Date.now() - t0) / 1000).toFixed(1);
     results[name] = r;
     console.log(row(COLUMNS.map(([, , f]) => f(name, r))));
 
     for (const probe of opts.probes) {
+      at(`view ${name}: probe ${probe}`);
       const res = await page.evaluate(async ([src, v]) => await (0, eval)(src)(window.__demo, v), [probeSource(root, probe), view]);
       if (res && typeof res.png === 'string') {
         writeFileSync(join(outDir, `${probe}-${name}${tag}.png`), Buffer.from(res.png.split(',')[1], 'base64'));
@@ -83,6 +89,7 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
     }
 
     if (opts.shots) {
+      at(`view ${name}: screenshot`);
       await page.evaluate((rr) => window.__demo.renderOnce(rr), r); // (the HUD then shows the benchmark's numbers)
       const shot = await page.screenshot();
       writeFileSync(join(outDir, `${name}${tag}.png`), shot);

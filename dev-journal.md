@@ -16,6 +16,12 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   (`src/nanite.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
   views over the canopy (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front.
   Next: tighter leaf cluster bounds; then decide whether the zoom case needs a coarser tau instead.
+- **Impostors too obvious from above / zooming "teleports" detail in** (user, at ~520 m looking down: trees are
+  ~23 px, impostors; zoom 5x makes them geometry). Colour now matched per type (`--typematch=calibrate`; pines
+  were near-black). Still different: real trees at coarse LOD are round fluffy blobs (big leaf cards, alpha to
+  coverage speckle), impostors are crisp cut-out crowns. Baking from the matching DAG cut changed little. Ideas:
+  bake with the runtime's alpha-to-coverage look, soften the impostor alpha edge, a time-based cross-fade when the
+  zoom changes; and the leaf simplification itself (cards grown sqrt2 per level make crowns fatter than the tree).
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
   screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
   perf report).
@@ -38,8 +44,8 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 - HUD shows ~23 ms per frame while fps reads 60 (reported by a tester). Probably the `gpu` figure (sum of GPU
   timestamp spans over all passes, which may overlap or include idle gaps) read as frame time, or the HUD's
   ms/fps averaging. Check what each HUD number measures and label them clearly; fold into the perf panel work.
-- Frame time at `orbit` is ~2.4 ms with `occ=0`, ~4.6 ms with occlusion, GPU ~1 ms either way: the occlusion
-  frame costs something the timers don't show (13 HZB dispatches + a second render pass; CPU side?).
+- Occlusion costs ~4 ms of frame time that the GPU timers don't show (`orbit`: 8 ms vs 4 ms with `occ=0`, GPU
+  ~1 ms either way). Suspect: 13 separate HZB compute dispatches + the second render pass. Next perf item.
 
 - Equal-depth draw-order ties give ~20-100 px of frame-to-frame differences (`--flicker`).
 - Bundle is ~4.9 MB (ez-tree's inlined textures).

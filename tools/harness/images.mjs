@@ -81,3 +81,51 @@ export function crop(buf, { x, y, w, h }, scale = 4) {
     }
   return PNG.sync.write(out);
 }
+
+/** Hue of an RGB colour in degrees (0..360). */
+function hue(r, g, b) {
+  const hi = Math.max(r, g, b), d = hi - Math.min(r, g, b);
+  if (d === 0) return 0;
+  const h = hi === r ? (g - b) / d : hi === g ? 2 + (b - r) / d : 4 + (r - g) / d;
+  return (h * 60 + 360) % 360;
+}
+
+/**
+ * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite.js): the
+ * index of the id with the closest hue (within 30 degrees), or -1 (ground, sky, an edge). Fog and tone mapping
+ * shift and wash out the ids, so only the hue of saturated pixels counts.
+ */
+export function typeMask(png, ids) {
+  const p = Buffer.isBuffer(png) ? PNG.sync.read(png) : png;
+  const idHues = ids.map(([r, g, b]) => hue(r, g, b));
+  const mask = new Int8Array(p.width * p.height).fill(-1);
+  for (let y = 0; y < p.height; y++)
+    for (let x = 0; x < p.width; x++) {
+      if (inHud(x, y)) continue;
+      const i = (y * p.width + x) * 4;
+      const r = p.data[i], g = p.data[i + 1], b = p.data[i + 2];
+      const hi = Math.max(r, g, b);
+      if (hi < 40 || (hi - Math.min(r, g, b)) / hi < 0.55) continue;
+      const h = hue(r, g, b);
+      let best = -1, bd = 30;
+      idHues.forEach((ih, k) => {
+        const d = Math.min(Math.abs(h - ih), 360 - Math.abs(h - ih));
+        if (d < bd) (bd = d), (best = k);
+      });
+      mask[y * p.width + x] = best;
+    }
+  return mask;
+}
+
+/** Mean colour (sRGB 0..255) and pixel count of each type in `mask`, over the matching pixels of `png`. */
+export function typeColours(png, mask, n) {
+  const p = Buffer.isBuffer(png) ? PNG.sync.read(png) : png;
+  const sum = Array.from({ length: n }, () => [0, 0, 0, 0]);
+  for (let j = 0; j < mask.length; j++) {
+    const k = mask[j];
+    if (k < 0 || k >= n) continue; // (an id colour no type uses: a blend at an edge)
+    const s = sum[k];
+    s[0] += p.data[j * 4]; s[1] += p.data[j * 4 + 1]; s[2] += p.data[j * 4 + 2]; s[3]++;
+  }
+  return sum.map(([r, g, b, c]) => ({ rgb: c ? [r / c, g / c, b / c].map((v) => +v.toFixed(1)) : null, pixels: c }));
+}

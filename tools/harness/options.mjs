@@ -22,6 +22,12 @@ measuring
                      shadow-map centre (--steps=30 --step=3 m); counts brightness jumps, heatmap sweep-<what>-<view>.png
   --dolly            move the camera in small steps (--steps=40 --step=0.5 m); counts tiles that flicker,
                      heatmap dolly-<view>.png
+  --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
+                     (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
+  --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
+                     that would match them (see harness/typematch.mjs)
+  --typematch=calibrate   adjust the impostor gains in the page until they match (views looking down steeply
+                     calibrate the top-down gains, others the side gains), print values for src/trees.js
   --flicker          a still camera must render identical frames (use --query=wind=0)
   --eval="expr"      evaluate an expression in the page once after loading;  --eval-file=path  the same from a file
 
@@ -43,7 +49,7 @@ export function parseOptions(argv) {
   const views = args.views ? String(args.views).split(',') : DEFAULT_VIEWS;
   const unknown = views.filter((v) => !VIEWS[v]);
   if (unknown.length) throw new Error(`unknown view(s): ${unknown.join(', ')} (see tools/harness/views.mjs)`);
-  return {
+  const opts = {
     help: Boolean(args.help || args.h),
     width,
     height,
@@ -57,6 +63,8 @@ export function parseOptions(argv) {
     variants: args.ab ? String(args.ab).split('|') : null,
     sweep: args.sweep ? String(args.sweep).split(',') : null,
     dolly: Boolean(args.dolly),
+    typematch: args.typematch ? (args.typematch === 'calibrate' ? 'calibrate' : 'measure') : null,
+    timeout: args.timeout === undefined ? null : Number(args.timeout), // (null: expectedSeconds, see below)
     steps: args.steps ? Number(args.steps) : null,
     step: args.step ? Number(args.step) : null,
     flicker: Boolean(args.flicker),
@@ -66,4 +74,13 @@ export function parseOptions(argv) {
     resizeDuringLoad: args['resize-during-load'] ? String(args['resize-during-load']).split('x').map(Number) : null,
     verbose: Boolean(args.verbose),
   };
+  opts.timeout ??= expectedSeconds(opts);
+  return opts;
+}
+
+/** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
+function expectedSeconds(o) {
+  const runs = o.views.length * (o.variants?.length ?? 1);
+  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0);
+  return Math.round(30 + runs * (8 + steps));
 }

@@ -13,6 +13,9 @@ is about using it well.
   drift from the demo, and a probe that silently measures nothing reads like a clean result.
 - **Temp files stay on G:** (`tools/tmp/`, `tools/out/`, both gitignored); the C: drive is full. The harness points
   the browser's temp folder there itself.
+- **Runs are bounded.** A basic run takes ~20 s; the watchdog stops a run that exceeds its expected time
+  (`--timeout`, default scaled by views x variants x steps) and names the step it was in. The `secs` column is
+  each view's benchmark wall time; boots are timed too. Keep runs small: few views, few variants.
 - **One harness at a time.** Two runs share the GPU and both report nonsense timings. GPU timings also swing when
   the user has the demo open: trust numbers that repeat.
 
@@ -25,6 +28,8 @@ is about using it well.
 | `harness/views.mjs` | named viewpoints; add one when a problem needs looking at again |
 | `harness/browser.mjs` | temp folder, Vite server, browser launch, page console capture |
 | `harness/session.mjs` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
+| `harness/typematch.mjs` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
+| `harness/status.mjs` | the current step, for the watchdog |
 | `harness/motion.mjs` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/images.mjs` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
 | `img.mjs` | command line for those: `node tools/img.mjs mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4` |

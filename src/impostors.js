@@ -4,9 +4,13 @@
 // draws. Trees whose projected height is under the impostor threshold are instead appended (by the GPU instance
 // pass) to an impostor list and drawn as 2 triangles each, which is what makes a horizon of ~1M trees cheap.
 //
-// The atlases have two 256x512 tiles per tree variant, from the full-detail source meshes (half float): tiles
-// 0..n-1 from the side, tiles n..2n-1 from straight above (crown centred in the tile). The quad cross-fades between them by viewing elevation, so
-// trees seen from the air don't turn into edge-on slivers.
+// The atlases have two 256x512 tiles per tree variant (half float): tiles 0..n-1 from the side, tiles n..2n-1 from
+// straight above (crown centred in the tile). The quad cross-fades between them by viewing elevation, so trees seen
+// from the air don't turn into edge-on slivers.
+//
+// The tiles are baked from the cluster DAG cut the real tree has at the switch (see dagCut), not from the full
+// detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
+// tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
 import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint } from 'three/tsl';
 
@@ -16,15 +20,50 @@ export const TILE_H = 512;
 export const IMPOSTOR_CUT = 0.35;
 
 /**
+ * The triangles of one tree at a uniform DAG cut: every cluster whose own error is within `err` (object space,
+ * metres) and whose parent's isn't, as the runtime cut selects them at a distance where `err` projects to tau.
+ * Returns { bark, leaves }, each { pos, nrm, uv, idx } (vertices shared, from the packed [x y z u nx ny nz v]).
+ */
+export function dagCut(t, err) {
+  const nv = t.vtx.length / 8;
+  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), uv = new Float32Array(nv * 2);
+  for (let i = 0; i < nv; i++) {
+    const v = t.vtx.subarray(i * 8, i * 8 + 8);
+    pos.set([v[0], v[1], v[2]], i * 3);
+    nrm.set([v[4], v[5], v[6]], i * 3);
+    uv.set([v[3], v[7]], i * 2);
+  }
+  const lists = [[], []]; // bark, leaves
+  const n = t.meta.length / 4;
+  for (let c = 0; c < n; c++) {
+    const own = t.rec[c * 16 + 12], parent = t.rec[c * 16 + 13];
+    if (!(own <= err && parent > err)) continue;
+    const o = t.meta[c * 4], tris = t.meta[c * 4 + 1], kind = t.meta[c * 4 + 3];
+    for (let k = 0; k < tris * 3; k++) lists[kind].push(t.idx[o + k]);
+  }
+  const part = (l) => ({ pos, nrm, uv, idx: new Uint32Array(l) });
+  return { bark: part(lists[0]), leaves: part(lists[1]) };
+}
+
+/** The full-detail source meshes in dagCut's form (leaf cards are quads of 4 vertices). */
+function fullDetail({ bark, leaves }) {
+  const nq = leaves.pos.length / 3 / 4;
+  const idx = new Uint32Array(nq * 6);
+  for (let q = 0; q < nq; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
+  return { bark, leaves: { ...leaves, idx } };
+}
+
+/**
  * Bakes two atlases with the same layout: albedo (unlit colour, alpha = coverage) and normals (tree-local, xyz in
  * [-1, 1]). The impostors are lit at runtime like the real trees (same sun, sky light, shadow and fog), so they
  * match from every side and under any light; a baked *lit* picture was brighter than the real trees on their shady
  * side and popped at the switch.
- * @param trees  results of buildAllTrees (each with .src source meshes and .variant)
+ * @param trees  results of buildAllTrees (each with .src source meshes, the packed DAG and .variant)
  * @param tex    { bark, leaf } array textures, barkLayers / leafLayers per variant, leafAlpha(a, layer) node fn
+ * @param cutPx  bake each tree at the DAG cut it has when it's this many pixels tall (at tau 1); 0 = full detail
  * @returns { texture, normals, frames: [{ w, h }], renderTarget } frame size (m) of each tile's quad (aspect 1:2)
  */
-export function bakeImpostors(renderer, trees, tex) {
+export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
   const n = trees.length;
   const makeRT = () =>
     new THREE.RenderTarget(TILE_W * 2 * n, TILE_H, {
@@ -51,7 +90,9 @@ export function bakeImpostors(renderer, trees, tex) {
   renderer.autoClear = false;
 
   trees.forEach((t, i) => {
-    const { bark, leaves } = t.src;
+    // (frame size from the full-detail tree: the same tile whichever cut is baked)
+    const src = t.src;
+    const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
     const scenes = [new THREE.Scene(), new THREE.Scene()]; // albedo, normals
     const normalOut = (a) => vec4(normalLocal.normalize(), a);
 
@@ -67,15 +108,12 @@ export function bakeImpostors(renderer, trees, tex) {
     scenes[0].add(new THREE.Mesh(barkGeo, barkMat));
     scenes[1].add(new THREE.Mesh(barkGeo, barkNrm));
 
-    if (leaves.pos.length) {
-      const nq = leaves.pos.length / 3 / 4;
-      const idx = new Uint32Array(nq * 6);
-      for (let q = 0; q < nq; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
+    if (leaves.idx.length) {
       const leafGeo = new THREE.BufferGeometry();
       leafGeo.setAttribute('position', new THREE.BufferAttribute(leaves.pos, 3));
       leafGeo.setAttribute('normal', new THREE.BufferAttribute(leaves.nrm, 3));
       leafGeo.setAttribute('uv', new THREE.BufferAttribute(leaves.uv, 2));
-      leafGeo.setIndex(new THREE.BufferAttribute(idx, 1));
+      leafGeo.setIndex(new THREE.BufferAttribute(leaves.idx, 1));
       const layer = tex.leafLayers[i];
       const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(float(layer));
       const alpha = tex.leafAlpha(l.a, uint(layer));
@@ -98,7 +136,7 @@ export function bakeImpostors(renderer, trees, tex) {
 
     // frame: tree base at the bottom, tile aspect 1:2
     let r = 0, h = 0;
-    for (const p of [bark.pos, leaves.pos])
+    for (const p of [src.bark.pos, src.leaves.pos])
       for (let k = 0; k < p.length; k += 3) {
         r = Math.max(r, Math.abs(p[k]), Math.abs(p[k + 2]));
         h = Math.max(h, p[k + 1]);

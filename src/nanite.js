@@ -46,7 +46,19 @@ function countFlags(buf) {
 }
 
 const TOP_GROW = Number(new URLSearchParams(location.search).get('topgrow') ?? 1.25);
-const IMP_GAIN = (new URLSearchParams(location.search).get('impgain') ?? '1.4,1.3,1.8').split(',').map(Number);
+// extra colour gains on top of each variant's impGain (side / top-down views), for experiments: ?impgain=r,g,b
+const gainParam = (name) => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
+const IMP_GAIN = gainParam('impgain');
+const IMP_GAIN_TOP = gainParam('impgaintop');
+// debug 4: a flat, unlit colour per tree type, in geometry and impostors alike (harness --typematch masks with it;
+// keep in sync with TYPE_IDS in tools/harness/typematch.mjs): six hues 60 degrees apart, told apart by hue after
+// fog and tone mapping; the dull olive ground and pale sky aren't saturated enough to count.
+export const TYPE_IDS = [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], [1, 0, 1]];
+const typeId = (type) => {
+  let c = vec3(...TYPE_IDS[TYPE_IDS.length - 1]);
+  for (let i = TYPE_IDS.length - 2; i >= 0; i--) c = select(uint(type).mod(TYPE_IDS.length).equal(i), vec3(...TYPE_IDS[i]), c);
+  return c;
+};
 const MIN_PX = 2; // impostors are never drawn narrower than this (pixels)
 const FADE_HI = 1.3; // impostor cross-fade band: [1, FADE_HI] x impostorPx (geometry count unchanged)
 const SHADOW_TAU_MUL = 2.5; // shadow casters may be coarser than what's seen
@@ -620,11 +632,11 @@ export class NaniteForest {
         const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1));
         vFade.assign(smoothstep(u.impostorPx, u.impostorPx.mul(FADE_HI), px));
         vTint.assign(hash(inst).mul(0.35).add(0.8));
-        // debug colours: 1 = cluster, 2 = DAG level, 3 = tree instance
+        // debug colours: 1 = cluster, 2 = DAG level, 3 = tree instance, 4 = tree type (unlit, see TYPE_IDS)
         const dbgSeed = select(u.debug.equal(1), c, select(u.debug.equal(2), m.z.mul(7919).add(3), inst));
         const palette = vec3(hash(dbgSeed), hash(dbgSeed.add(17)), hash(dbgSeed.add(43)));
         const levelRamp = mix(vec3(0.1, 0.9, 0.2), vec3(1.0, 0.15, 0.1), clamp(float(m.z).div(8), 0, 1));
-        vDebug.assign(select(u.debug.equal(2), levelRamp, palette));
+        vDebug.assign(select(u.debug.equal(4), typeId(type), select(u.debug.equal(2), levelRamp, palette)));
       }
       return select(valid, curve(world), vec3(0));
     })();
@@ -641,7 +653,8 @@ export class NaniteForest {
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 });
       const col = texture(textures.bark, vUv).depth(layerI).rgb.mul(vec3(0.9, 0.86, 0.8));
-      mat.colorNode = vec4(select(u.debug.greaterThan(0), vDebug, col), select(dither().lessThan(vFade), float(1), float(0)));
+      mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), float(1), float(0)));
+      mat.emissiveNode = select(u.debug.equal(4), vDebug, vec3(0));
     } else {
       // Lambert: no specular sheen on leaves, and cheaper for the heavy foliage overdraw
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
@@ -658,11 +671,11 @@ export class NaniteForest {
         select(layerI.equal(3), vec3(0.62, 0.78, 1.0), vec3(1)),
       );
       const col = tex.rgb.mul(layerTint).mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(inner).mul(1.2);
-      mat.colorNode = vec4(select(u.debug.greaterThan(0), vDebug, col), select(dither().lessThan(vFade), alpha, float(0)));
+      mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)
       mat.normalNode = normalViewGeometry;
       // light passing through leaves
-      mat.emissiveNode = select(u.debug.greaterThan(0), vec3(0), col.mul(0.12));
+      mat.emissiveNode = select(u.debug.equal(4), vDebug, select(u.debug.greaterThan(0), vec3(0), col.mul(0.12)));
     }
     mat.positionNode = position;
     const mesh = new THREE.Mesh(geo, mat);
@@ -679,7 +692,8 @@ export class NaniteForest {
 
   // ------------------------------------------------------------------ impostors (far field)
   /** atlas: { texture, frames: [{w, h}], renderTarget, coverage } from bakeImpostors + impostorCoverage: per tree type a side tile and a top-down tile. */
-  buildImpostorMesh(atlas) {
+  /** `gains`: per tree type, { side: [r, g, b], top: [r, g, b] } colour gains (VARIANTS[i].impGain). */
+  buildImpostorMesh(atlas, gains) {
     const u = this.u;
     const v = this.main;
     const flags = storage(v.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
@@ -779,13 +793,17 @@ export class NaniteForest {
     const nWorld = vRight.mul(ns.x).add(vUp.mul(ns.y)).add(vDir.mul(ns.z)).mul(aSide)
       .add(vRight.mul(nt.x).add(vUp.mul(nt.z.negate())).add(vDir.mul(nt.y)).mul(aTop));
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(vDir.mul(1e-3)), 0)).xyz);
-    // (IMP_GAIN: measured against the real trees from above; partly the sub-pixel leaves of the real trees, which
-    // blend with what's behind them and read paler than the solid baked crowns)
-    const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(vec3(...IMP_GAIN));
+    // (the gains: measured against the real trees; partly the sub-pixel leaves of the real trees, which blend with
+    // what's behind them and read paler than the solid baked crowns)
+    const gainSide = uniformArray(gains.map((g) => new THREE.Vector3(...g.side).multiply(new THREE.Vector3(...IMP_GAIN))), 'vec3');
+    const gainTop = uniformArray(gains.map((g) => new THREE.Vector3(...g.top).multiply(new THREE.Vector3(...IMP_GAIN_TOP))), 'vec3');
+    this.impGains = { side: gainSide, top: gainTop }; // (live: harness --typematch=calibrate adjusts them)
+    const gain = mix(gainSide.element(tile), gainTop.element(tile), aTop.div(wSum));
+    const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
     // the other half of the geometry's dithered cross-fade
     const alpha = select(dither().lessThan(vFade), float(0), min(max(aSide, aTop), 1));
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
-    mat.emissiveNode = select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12));
+    mat.emissiveNode = select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)));
     mat.positionNode = position;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;

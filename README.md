@@ -15,7 +15,7 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | Right mouse (hold) | zoom 5× |
 | Space / Ctrl | up / down |
 | Shift | fast (speed also builds up the longer you hold a movement key) |
-| L | debug colours: clusters / DAG level / trees |
+| L | debug colours: clusters / DAG level / trees / tree types |
 | F | freeze culling (fly around and inspect what was selected) |
 | [ ] | error threshold in pixels (turns auto quality off) |
 | Q | auto quality on/off (keeps GPU time under budget) |

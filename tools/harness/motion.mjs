@@ -3,6 +3,7 @@ import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VIEWS } from './views.mjs';
 import { TILE, tileLuma, heatmap } from './images.mjs';
+import { at } from './status.mjs';
 
 /** Unit vector of a view's horizontal heading (its yaw), in world x/z. */
 function heading(view) {
@@ -28,6 +29,7 @@ export async function sweeps(page, opts, outDir, tag = '') {
       let prev = null, base = null, jumps = 0, sum = 0;
       let maxJump = null;
       for (let k = 0; k < steps; k++) {
+        at(`sweep ${what} ${name}: step ${k + 1}/${steps}`);
         await page.evaluate(([w, x, z]) => window.__demo.setShift(w, x, z), [what, fx * k * step, fz * k * step]);
         await page.evaluate(() => window.__demo.renderOnce());
         const t = tileLuma(await page.screenshot());
@@ -70,6 +72,7 @@ export async function dolly(page, opts, outDir, tag = '') {
     const [fx, fz] = heading(v);
     const frames = [];
     for (let k = 0; k < steps; k++) {
+      at(`dolly ${name}: step ${k + 1}/${steps}`);
       await page.evaluate((vv) => window.__demo.setView(vv), { ...v, zoom: opts.zoom ?? v.zoom ?? 1, x: v.x + fx * k * step, z: v.z + fz * k * step });
       await page.evaluate(() => window.__demo.renderOnce());
       frames.push(tileLuma(await page.screenshot()));

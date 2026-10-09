@@ -344,9 +344,9 @@ async function start() {
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
-  });
+  }, Number(params.get('bakepx') ?? forest.u.impostorPx.value)); // (the default switch size, before ?imppx=)
   atlas.coverage = await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
-  const impostorMesh = forest.buildImpostorMesh(atlas);
+  const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
   impostorMesh.receiveShadow = true;
   impostorMesh.material.receivedShadowNode = makeFadeShadow(treeFarShadow);
   demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
@@ -407,7 +407,7 @@ async function start() {
 
   let showHelp = true;
   controls.onKey = (code) => {
-    if (code === 'KeyL') forest.u.debug.value = (forest.u.debug.value + 1) % 4;
+    if (code === 'KeyL') forest.u.debug.value = (forest.u.debug.value + 1) % 5;
     if (code === 'KeyF') forest.frozen = !forest.frozen;
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (forest.u.tau.value = Math.max(0.25, forest.u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
@@ -519,7 +519,7 @@ async function start() {
       `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
       `triangles  ${(tris / 1e6).toFixed(2)} M\n` +
       `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
+      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
   }
 
   let prev = performance.now();
