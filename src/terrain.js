@@ -27,7 +27,7 @@ function fbm(x, y, oct) {
   return s / n;
 }
 
-export const TERRAIN_SIZE = 4000;
+export const TERRAIN_SIZE = 7000;
 
 /** Terrain height in metres at world (x, z). */
 export function heightAt(x, z) {
@@ -40,7 +40,7 @@ export function heightAt(x, z) {
 }
 
 export function createTerrain() {
-  const seg = 512;
+  const seg = 896;
   const geo = new THREE.PlaneGeometry(TERRAIN_SIZE, TERRAIN_SIZE, seg, seg);
   geo.rotateX(-Math.PI / 2);
   const pos = geo.attributes.position;

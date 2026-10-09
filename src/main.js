@@ -1,18 +1,19 @@
 import * as THREE from 'three/webgpu';
-import { float, select, uint } from 'three/tsl';
+import { Fn, float, max, abs, mix, positionWorld, select, smoothstep, uint, uniform, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
 import { NaniteForest } from './nanite.js';
 import { FlyControls } from './controls.js';
+import { LoadingScreen } from './loading.js';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
-const TREE_COUNT = Number(params.get('trees') ?? 10000);
+const TREE_COUNT = Number(params.get('trees') ?? 100000);
 if (HARNESS) document.body.classList.add('harness');
 
 const demo = (window.__demo = { ready: false, error: null });
-const loadMsg = document.getElementById('loadmsg');
+const ui = new LoadingScreen();
 const hud = document.getElementById('hud');
 
 // ---------------------------------------------------------------- helpers
@@ -107,6 +108,7 @@ function placeTrees(count) {
 
 // ---------------------------------------------------------------- setup
 async function start() {
+  await ui.update(0.02, 'Waking the GPU');
   if (!navigator.gpu) throw new Error('WebGPU is not available in this browser (try Chrome or Edge).');
   const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
   if (!adapter) throw new Error('No WebGPU adapter.');
@@ -124,17 +126,22 @@ async function start() {
   });
   await renderer.init();
   if (!renderer.backend.isWebGPUBackend) throw new Error('WebGPU backend unavailable (got WebGL fallback).');
+  const ai = adapter.info ?? {};
+  ui.note(`WebGPU adapter: ${[ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown'}`);
   const pixelRatio = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, 1.5));
   renderer.setPixelRatio(pixelRatio);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
-  renderer.shadowMap.enabled = params.get('shadows') !== '0';
+  // Shadows stay compiled in; turning them "off" zeroes the intensity and skips the shadow pass. Toggling
+  // renderer.shadowMap.enabled instead recompiles every shader (a ~10 s freeze).
+  renderer.shadowMap.enabled = true;
+  let shadowsOn = params.get('shadows') !== '0';
   renderer.shadowMap.type = THREE.PCFShadowMap;
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 6000);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 9000);
 
   // sky + sun
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 32), THREE.MathUtils.degToRad(215));
@@ -149,7 +156,7 @@ async function start() {
   scene.add(sky);
 
   const fogColor = new THREE.Color(0xa9bccb);
-  scene.fog = new THREE.Fog(fogColor, 250, 2600);
+  scene.fog = new THREE.Fog(fogColor, 300, 3400);
 
   const hemi = new THREE.HemisphereLight(0xbcd3ec, 0x4a4632, 1.3);
   scene.add(hemi);
@@ -157,20 +164,37 @@ async function start() {
   sun.castShadow = true;
   const smap = Number(params.get('smap') ?? 2048);
   sun.shadow.mapSize.set(smap, smap);
-  const SH = 110;
-  Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 800 });
+  // One shadow map that follows the view. Its half-extent grows with altitude (in steps, so texels don't crawl),
+  // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
+  let SH = 0;
+  function setShadowExtent(h) {
+    if (h === SH) return;
+    SH = h;
+    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 1600 });
+    sun.shadow.camera.updateProjectionMatrix();
+  }
+  setShadowExtent(110);
+  const shadowMatrix = uniform(sun.shadow.matrix);
+  const fadeShadow = Fn(([shadow]) => {
+    const c = shadowMatrix.mul(vec4(positionWorld, 1)).xy;
+    const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
+    return mix(shadow, float(1), smoothstep(0.75, 0.97, edge));
+  });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
   sun.shadow.camera.layers.set(1); // the forest has dedicated (coarser, light-culled) shadow-caster meshes on layer 1
   scene.add(sun, sun.target);
 
-  scene.add(createTerrain());
+  await ui.update(0.04, 'Raising hills, sky and sun');
+  const terrain = createTerrain();
+  terrain.material.receivedShadowNode = fadeShadow;
+  scene.add(terrain);
 
   // trees
   const t0 = performance.now();
-  const trees = await buildAllTrees((d, n) => (loadMsg.textContent = `Building cluster DAGs… ${d}/${n}`));
+  const trees = await buildAllTrees(ui);
   const buildMs = performance.now() - t0;
-  loadMsg.textContent = 'Uploading…';
+  await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
   const barkTypes = ['oak', 'birch', 'pine'];
   const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
@@ -181,15 +205,19 @@ async function start() {
   barkTex.colorSpace = leafTex.colorSpace = THREE.SRGBColorSpace;
   leafTex.wrapS = leafTex.wrapT = THREE.ClampToEdgeWrapping;
 
+  await ui.update(0.8, `Scattering ${TREE_COUNT.toLocaleString()} trees`);
   const instances = placeTrees(TREE_COUNT);
   const forest = new NaniteForest(renderer, trees, instances, {
     bark: barkTex,
     leaf: leafTex,
     barkLayerOf: layerLookup(VARIANTS.map((v) => barkTypes.indexOf(v.bark))),
     leafLayerOf: layerLookup(VARIANTS.map((v) => leafTypes.indexOf(v.leaf))),
+    alphaToCoverage: params.get('a2c') !== '0',
   });
   forest.u.tau.value = Number(params.get('tau') ?? 1.5);
   forest.u.debug.value = Number(params.get('debug') ?? 0);
+  if (params.get('wind') === '0') forest.u.wind.value = 0;
+  forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = fadeShadow));
   scene.add(forest.group);
 
   // camera + controls
@@ -199,23 +227,33 @@ async function start() {
   controls.pitch = THREE.MathUtils.degToRad(4);
 
   function setShadows(on) {
-    renderer.shadowMap.enabled = on;
-    sun.castShadow = on;
-    scene.traverse((o) => o.material && (o.material.needsUpdate = true));
+    shadowsOn = on;
+    sun.shadow.intensity = on ? 1 : 0;
+    sun.shadow.autoUpdate = on;
+    sun.shadow.needsUpdate = true; // one last pass (empty when off: the casters are hidden)
+    forest.group.traverse((o) => o.isMesh && o.castShadow && (o.visible = on));
   }
-  setShadows(renderer.shadowMap.enabled);
+  setShadows(shadowsOn);
 
   // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
   const auto = { on: params.get('auto') !== '0' && !HARNESS, budget: Number(params.get('budget') ?? 8), gpuMs: 0, busy: false };
+  // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
+  // controller that twitches every frame makes the whole forest shimmer.
+  let lastAdjust = 0;
   function autoQuality(dt) {
     const tau = forest.u.tau;
     const step = (over) => {
-      if (over > 1.05) tau.value = Math.min(8, tau.value * Math.min(1.25, over));
-      else if (over < 0.7) tau.value = Math.max(1, tau.value / 1.04);
+      const now = performance.now();
+      if (now - lastAdjust < 500) return;
+      if (over > 1.1) tau.value = Math.min(8, tau.value * Math.min(1.3, over));
+      else if (over < 0.6) tau.value = Math.max(1, tau.value / 1.1);
+      else return;
+      lastAdjust = now;
     };
     if (!renderer.backend.trackTimestamp) {
       // no timestamp queries: fall back to frame time against 60 fps
-      if (auto.on) step(dt * 1000 / 16.7);
+      auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
+      if (auto.on) step(auto.frameMs / 16.7);
       return;
     }
     if (auto.busy) return;
@@ -224,7 +262,7 @@ async function start() {
       auto.busy = false;
       if (!(r >= 0)) return;
       const g = r + (c || 0);
-      auto.gpuMs = auto.gpuMs ? auto.gpuMs * 0.85 + g * 0.15 : g;
+      auto.gpuMs = auto.gpuMs ? auto.gpuMs * 0.9 + g * 0.1 : g;
       if (auto.on) step(auto.gpuMs / auto.budget);
     });
   }
@@ -236,7 +274,7 @@ async function start() {
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (forest.u.tau.value = Math.max(0.25, forest.u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
     if (code === 'KeyQ') auto.on = !auto.on;
-    if (code === 'KeyP') setShadows(!renderer.shadowMap.enabled);
+    if (code === 'KeyP') setShadows(!shadowsOn);
     if (code === 'KeyG') forest.u.wind.value = forest.u.wind.value > 0 ? 0 : 1;
     if (code === 'KeyH') document.getElementById('help').classList.toggle('hidden', (showHelp = !showHelp) === false);
   };
@@ -258,21 +296,28 @@ async function start() {
     if (camera.position.y < gy) camera.position.y = gy;
     camera.updateMatrixWorld();
 
-    // shadow camera follows the view, snapped to texels so shadows don't shimmer
-    const texel = (2 * SH) / sun.shadow.mapSize.x;
-    const focus = camera.position.clone().addScaledVector(camera.getWorldDirection(new THREE.Vector3()), SH * 0.5);
+    // shadow map: centred on the ground the camera looks at, extent from altitude
+    const agl = Math.max(0, camera.position.y - gy);
+    setShadowExtent(Math.min(640, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    const reach = dir.y < -0.05 ? Math.min(SH * 0.9, agl / -dir.y) : SH * 0.5;
+    const focus = camera.position.clone().addScaledVector(dir, reach);
     focus.y = heightAt(focus.x, focus.z);
-    focus.x = Math.round(focus.x / texel) * texel;
-    focus.z = Math.round(focus.z / texel) * texel;
+    // snap in light space (the sun is diagonal: snapping world x/z doesn't stop shimmer)
+    const texel = (2 * SH) / sun.shadow.mapSize.x;
+    const lx = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
+    const ly = new THREE.Vector3().crossVectors(sunDir, lx);
+    const fx = Math.round(focus.dot(lx) / texel) * texel, fy = Math.round(focus.dot(ly) / texel) * texel, fz = focus.dot(sunDir);
+    focus.copy(lx).multiplyScalar(fx).addScaledVector(ly, fy).addScaledVector(sunDir, fz);
     sun.target.position.copy(focus);
-    sun.position.copy(focus).addScaledVector(sunDir, 400);
+    sun.position.copy(focus).addScaledVector(sunDir, 800);
 
     sun.updateMatrixWorld();
     sun.target.updateMatrixWorld();
     sun.shadow.updateMatrices(sun);
 
     renderer.getDrawingBufferSize(size);
-    forest.update(camera, size.y, time, renderer.shadowMap.enabled ? sun.shadow.camera : null);
+    forest.update(camera, size.y, time, shadowsOn ? sun.shadow.camera : null);
     renderer.render(scene, camera);
   }
 
@@ -287,7 +332,7 @@ async function start() {
       `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
       `triangles  ${(tris / 1e6).toFixed(2)} M\n` +
       `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees'][forest.u.debug.value]}   shadows ${renderer.shadowMap.enabled ? 'on' : 'off'}`;
+      `debug      ${['off', 'clusters', 'DAG level', 'trees'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}`;
   }
 
   let prev = performance.now();
@@ -349,6 +394,18 @@ async function start() {
       await renderer.backend.device.queue.onSubmittedWorkDone();
     },
     stats: () => forest.readStats(),
+    /** Times a shadow toggle off and on (each followed by a rendered frame). */
+    async shadowToggleMs() {
+      const out = [];
+      for (const on of [false, true]) {
+        const t = performance.now();
+        setShadows(on);
+        frame(1 / 60);
+        await renderer.backend.device.queue.onSubmittedWorkDone();
+        out.push(Math.round(performance.now() - t));
+      }
+      return out;
+    },
     /** Runs the real loop (auto quality on, flying forward) for `ms`, reports where the controller settled. */
     async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
       auto.on = true;
@@ -400,7 +457,7 @@ async function start() {
       const s = await forest.readStats();
       const sh = await forest.readStats(forest.shadow);
       return {
-        shadowTris: renderer.shadowMap.enabled ? sh.barkTris + sh.leafTris : 0,
+        shadowTris: shadowsOn ? sh.barkTris + sh.leafTris : 0,
         frameMs,
         gpuRenderMs: med(gpuR),
         gpuComputeMs: med(gpuC),
@@ -414,10 +471,13 @@ async function start() {
     },
   });
 
-  // compile everything before revealing
+  // compile everything before revealing (synchronous and slow: the bar eases on the compositor meanwhile)
+  await ui.beginLongStage(0.84, 0.97, 'Compiling shaders', 3500);
+  const tc = performance.now();
   frame(0);
   await renderer.backend.device.queue.onSubmittedWorkDone();
-  document.getElementById('loading').classList.add('done');
+  ui.note(`First frame ready (${Math.round(performance.now() - tc)} ms)`);
+  await ui.reveal();
   if (!HARNESS) renderer.setAnimationLoop(loop);
   demo.ready = true;
 }
@@ -425,5 +485,5 @@ async function start() {
 start().catch((e) => {
   console.error(e);
   demo.error = String(e?.stack ?? e);
-  loadMsg.textContent = 'Error: ' + (e?.message ?? e);
+  ui.fail(e);
 });

@@ -13,14 +13,15 @@
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
 import {
-  Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, vertexIndex, workgroupId, localId,
+  Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, vertexIndex, workgroupId, localId, numWorkgroups,
   uint, float, vec2, vec3, vec4, uvec2, atomicAdd, atomicStore, select, max, min, varying, normalLocal, texture,
   sin, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, normalViewGeometry,
 } from 'three/tsl';
 
 const MAX_TRIS = 128;
 const WG = 64;
-const MAX_ITEMS = 65535; // max workgroups per dispatch dimension
+const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
+const MAX_DIM = 65535;
 const LIST_CAP = 1 << 20; // max visible clusters per list
 
 export class NaniteForest {
@@ -116,6 +117,7 @@ export class NaniteForest {
       barkArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
       leafArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
       statsAttr: sb(new Uint32Array(4), 1),
+      itemCountAttr: sb(new Uint32Array(1), 1),
       barkListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
       leafListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
     };
@@ -177,17 +179,25 @@ export class NaniteForest {
       });
     })().compute(this.instanceCount, [WG]);
 
+    // turn the item count into a 2D dispatch; the cluster pass gets the count from a separate buffer (a buffer can't
+    // be both the indirect args and a storage binding of the same dispatch)
     const dispatchRW = storage(v.dispatchAttr, 'uint', 4);
+    const itemCountW = storage(v.itemCountAttr, 'uint', 1);
     v.clampDispatch = Fn(() => {
-      dispatchRW.element(0).assign(min(dispatchRW.element(0), uint(MAX_ITEMS)));
+      const total = min(dispatchRW.element(0), uint(MAX_ITEMS)).toVar();
+      itemCountW.element(0).assign(total);
+      dispatchRW.element(0).assign(min(total, uint(MAX_DIM)));
+      dispatchRW.element(1).assign(total.add(MAX_DIM - 1).div(MAX_DIM));
     })().compute(1, [1]);
 
+    const itemCount = storage(v.itemCountAttr, 'uint', 1).toReadOnly();
     v.clusters = Fn(() => {
-      const item = items.element(workgroupId.x);
+      const itemIdx = workgroupId.x.add(workgroupId.y.mul(numWorkgroups.x));
+      const item = items.element(min(itemIdx, uint(MAX_ITEMS - 1)));
       const inst = item.x;
       const local = item.y.bitAnd(0xffff).add(localId.x);
       const n = item.y.shiftRight(16);
-      If(local.lessThan(n), () => {
+      If(local.lessThan(n).and(itemIdx.lessThan(itemCount.element(0))), () => {
         const a = this.instA.element(inst);
         const b = this.instB.element(inst);
         const ti = this.typeInfo.element(uint(b.z));
@@ -287,19 +297,23 @@ export class NaniteForest {
       return select(valid, world, vec3(0));
     })();
 
+    // the layer index must be exact: an interpolated 2.9999 truncates to the wrong texture (aspen speckles on pines,
+    // shimmering from frame to frame)
+    const layerI = vLayer.round();
     let mat;
     if (shadowOnly) {
       // depth-only caster: just the alpha cut-out for leaves
       mat = new THREE.MeshBasicNodeMaterial({ side: kind === 1 ? THREE.DoubleSide : THREE.FrontSide, alphaTest: kind === 1 ? 0.5 : 0 });
-      if (kind === 1) mat.colorNode = vec4(1, 1, 1, texture(textures.leaf, vUv).depth(vLayer).a);
+      if (kind === 1) mat.colorNode = vec4(1, 1, 1, texture(textures.leaf, vUv).depth(layerI).a);
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0 });
-      const col = texture(textures.bark, vUv).depth(vLayer).rgb.mul(vec3(0.9, 0.86, 0.8));
+      const col = texture(textures.bark, vUv).depth(layerI).rgb.mul(vec3(0.9, 0.86, 0.8));
       mat.colorNode = vec4(select(u.debug.greaterThan(0), vDebug, col), 1);
     } else {
       // Lambert: no specular sheen on leaves, and cheaper for the heavy foliage overdraw
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
-      const tex = texture(textures.leaf, vUv).depth(vLayer);
+      mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
+      const tex = texture(textures.leaf, vUv).depth(layerI);
       // alpha-tested foliage thins out in the smaller mips; boost alpha with the mip level to keep coverage
       const texel = max(length(dFdx(vUv)), length(dFdy(vUv))).mul(1024);
       const alpha = tex.a.mul(max(log2(texel), 0).mul(0.35).add(1));
@@ -308,9 +322,9 @@ export class NaniteForest {
       // per-texture tint (layer 2 = aspen, an autumn-yellow texture: pull it back to summer green)
       // and layer 3 = pine, olive needles that read yellow in full sun: darker, bluer)
       const layerTint = select(
-        vLayer.greaterThan(1.5).and(vLayer.lessThan(2.5)),
+        layerI.equal(2),
         vec3(0.5, 0.82, 0.85),
-        select(vLayer.greaterThan(2.5), vec3(0.62, 0.78, 1.0), vec3(1)),
+        select(layerI.equal(3), vec3(0.62, 0.78, 1.0), vec3(1)),
       );
       const col = tex.rgb.mul(layerTint).mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(inner).mul(1.2);
       mat.colorNode = vec4(select(u.debug.greaterThan(0), vDebug, col), alpha);
@@ -359,12 +373,13 @@ export class NaniteForest {
 
   /** Reads back the counters (async, for the overlay/harness). */
   async readStats(view = this.main) {
-    const [bark, leaf, st] = await Promise.all([
+    const [bark, leaf, st, disp] = await Promise.all([
       this.renderer.getArrayBufferAsync(view.barkArgsAttr),
       this.renderer.getArrayBufferAsync(view.leafArgsAttr),
       this.renderer.getArrayBufferAsync(view.statsAttr),
+      this.renderer.getArrayBufferAsync(view.itemCountAttr),
     ]);
     const b = new Uint32Array(bark), l = new Uint32Array(leaf), s = new Uint32Array(st);
-    return { barkClusters: b[1], leafClusters: l[1], barkTris: s[0], leafTris: s[1], instances: s[2] };
+    return { barkClusters: b[1], leafClusters: l[1], barkTris: s[0], leafTris: s[1], instances: s[2], items: new Uint32Array(disp)[0] };
   }
 }

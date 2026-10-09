@@ -1,8 +1,15 @@
 import * as THREE from 'three/webgpu';
 
 // Free-fly camera: click to capture the mouse, WASD move, Space up, Ctrl down, Shift faster.
-// Ctrl+W can't be blocked by a normal page (the browser reserves it). We take the keyboard in fullscreen with the
-// Keyboard Lock API (Chrome/Edge), where it *can* be captured, and fall back to a "leave site?" prompt elsewhere.
+// Ctrl+W can't be blocked by a normal page (the browser reserves it). In fullscreen the Keyboard Lock API
+// (Chrome/Edge) captures the flight keys - Ctrl+W included - and elsewhere a "leave site?" prompt is the fallback.
+// Esc is deliberately *not* locked: one press leaves the mouse/fullscreen (a locked Esc must be held for 2 s).
+// F11 toggles fullscreen.
+const LOCKED_KEYS = [
+  'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyF', 'KeyG', 'KeyH', 'KeyL', 'KeyP', 'KeyN', 'KeyT', 'KeyR',
+  'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'Tab', 'BracketLeft', 'BracketRight',
+  'Minus', 'Equal', 'F11',
+];
 export class FlyControls {
   constructor(camera, dom) {
     this.camera = camera;
@@ -28,6 +35,11 @@ export class FlyControls {
       this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * 0.0022, -1.55, 1.55);
     });
     window.addEventListener('keydown', (e) => {
+      if (e.code === 'F11') {
+        e.preventDefault();
+        this.toggleFullscreen();
+        return;
+      }
       // swallow browser shortcuts (Ctrl+S/D/F...) while flying; Ctrl+W needs the keyboard lock below
       if (this.locked || e.ctrlKey) e.preventDefault();
       if (!e.repeat) this.onKey?.(e.code, e);
@@ -55,7 +67,7 @@ export class FlyControls {
     }
     try {
       // in fullscreen this captures Ctrl+W, Ctrl+T, Esc-hold etc.
-      await navigator.keyboard?.lock?.();
+      await navigator.keyboard?.lock?.(LOCKED_KEYS);
     } catch {
       /* not supported */
     }
@@ -67,6 +79,18 @@ export class FlyControls {
       } catch {
         /* ignore */
       }
+    }
+  }
+
+  async toggleFullscreen() {
+    try {
+      if (document.fullscreenElement) await document.exitFullscreen();
+      else {
+        await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
+        await navigator.keyboard?.lock?.(LOCKED_KEYS);
+      }
+    } catch {
+      /* refused */
     }
   }
 

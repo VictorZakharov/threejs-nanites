@@ -5,6 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Nanite Forest</title>
     <link rel="icon" href="data:," />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Cinzel:wght@500;600&display=swap" rel="stylesheet" />
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb8cf; font: 13px/1.45 ui-monospace, Consolas, monospace; color: #e8eef2; }
       canvas { display: block; width: 100%; height: 100%; }
@@ -13,19 +16,76 @@
       #start { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #start div { padding: 12px 18px; background: rgba(8, 14, 20, 0.7); border-radius: 8px; font-size: 15px; }
       body.captured #start { display: none; }
-      #loading { position: fixed; inset: 0; display: grid; place-items: center; background: #1b2530; font-size: 16px; z-index: 10; }
-      #loading.done { display: none; }
+      /* ---- loading screen */
+      .loading {
+        position: fixed; inset: 0; z-index: 100; display: grid; place-content: center; justify-items: center;
+        padding: 24px; box-sizing: border-box; overflow: auto; color: #dfe9dc;
+        background: radial-gradient(circle at 50% 42%, rgb(20 36 24) 0%, rgb(8 15 11) 40%, #030604 80%), #030604;
+        transition: opacity 900ms ease, visibility 900ms;
+      }
+      .loading::after { position: absolute; inset: 0; content: ""; pointer-events: none; background: radial-gradient(circle, transparent 5%, rgb(0 0 0 / 66%) 105%); }
+      .loading > * { position: relative; z-index: 1; }
+      .loading__mark { display: flex; align-items: end; gap: 7px; height: 46px; margin-bottom: 22px; }
+      .loading__mark span {
+        display: block; width: 18px; height: 34px; transform-origin: 50% 100%;
+        background: linear-gradient(rgb(170 226 150), rgb(62 112 58 / 25%));
+        clip-path: polygon(50% 0, 100% 100%, 0 100%);
+        filter: drop-shadow(0 0 10px rgb(150 222 130 / 45%));
+        animation: sway 2.2s ease-in-out infinite alternate;
+      }
+      .loading__mark span:nth-child(2) { width: 24px; height: 46px; animation-delay: -0.7s; }
+      .loading__mark span:nth-child(3) { width: 15px; height: 27px; animation-delay: -1.4s; }
+      .loading h1 { margin: 0 0 6px; font: 600 clamp(1.05rem, 2.6vw, 1.5rem) Cinzel, Georgia, serif; letter-spacing: 0.32em; text-indent: 0.32em; }
+      .loading p { margin: 0 0 18px; color: rgb(205 228 200 / 45%); font: 500 clamp(0.6rem, 1.2vw, 0.72rem) Cinzel, Georgia, serif; letter-spacing: 0.24em; }
+      .loading__track, .loading small, .loading__log { width: min(560px, 88vw); }
+      .loading__track { height: 1px; background: rgb(190 225 180 / 10%); }
+      .loading__track i { display: block; width: 2%; height: 1px; background: #a6dc8e; box-shadow: 0 0 11px rgb(150 225 120 / 70%); transition: width 450ms ease; }
+      .loading small {
+        display: grid; grid-template-columns: minmax(0, 1fr) 4.2rem; align-items: baseline; column-gap: 12px; margin-top: 12px;
+        color: rgb(215 232 210 / 42%); font: 600 0.56rem/1.4 ui-monospace, Consolas, monospace; letter-spacing: 0.18em; text-transform: uppercase;
+      }
+      .loading small [data-loading-status] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+      .loading small [data-loading-progress] { color: rgb(166 220 142 / 70%); font-variant-numeric: tabular-nums; text-align: right; }
+      .loading__log {
+        height: clamp(112px, 24vh, 200px); box-sizing: border-box; margin: 18px 0 0; padding: 10px 12px; overflow-y: auto; list-style: none;
+        border: 1px solid rgb(166 220 142 / 13%); background: rgb(2 8 4 / 58%); color: rgb(205 228 200 / 62%);
+        font: 500 0.64rem/1.45 ui-monospace, Consolas, monospace; scrollbar-color: rgb(166 220 142 / 30%) transparent;
+      }
+      .loading__log li { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 10px; }
+      .loading__log li + li { margin-top: 3px; }
+      .loading__log time { color: rgb(166 220 142 / 52%); font-variant-numeric: tabular-nums; text-align: right; }
+      .loading__log span { overflow-wrap: anywhere; }
+      .is-ready .loading { visibility: hidden; opacity: 0; pointer-events: none; }
+      .loading.has-error h1, .loading.has-error small { color: #f3b497; }
+      .loading__error { width: min(460px, 84vw); margin-top: 22px; padding: 14px 16px; border: 1px solid rgb(243 180 151 / 24%); background: rgb(15 8 8 / 72%); }
+      .loading__error[hidden] { display: none; }
+      .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
+      .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
+      @keyframes sway { from { opacity: 0.45; transform: rotate(-3deg) scaleY(0.94); } to { opacity: 1; transform: rotate(3deg) scaleY(1); } }
+      body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       .hidden { display: none !important; }
       body.harness #help, body.harness #start { display: none; }
+      body.harness .loading { transition: none; }
     </style>
   </head>
   <body>
-    <div id="loading"><div id="loadmsg">Generating trees…</div></div>
+    <section class="loading" data-loading role="status" aria-live="polite">
+      <div class="loading__mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <h1>NANITE FOREST</h1>
+      <p>cluster LOD · WebGPU · three.js</p>
+      <div class="loading__track"><i data-loading-bar></i></div>
+      <small><span data-loading-status>Waking the GPU</span><span data-loading-progress>0%</span></small>
+      <ol class="loading__log" data-loading-log aria-label="Startup log"></ol>
+      <div class="loading__error" data-loading-error hidden>
+        <code data-loading-error-detail></code>
+        <span>This demo needs WebGPU: a recent Chrome or Edge on desktop works best.</span>
+      </div>
+    </section>
     <div id="hud"></div>
     <div id="help">WASD move · Space up · Ctrl down · Shift fast · mouse look
 L  debug colours (cluster / DAG level / tree)
 F  freeze culling     [ ]  error threshold (px)   Q  auto quality
-P  shadows   G  wind   H  hide help   Esc  release mouse</div>
+P  shadows   G  wind   H  hide help   F11  fullscreen   Esc  release mouse</div>
     <div id="start"><div>Click to fly</div></div>
     <script type="module" src="/src/main.js"></script>
   </body>

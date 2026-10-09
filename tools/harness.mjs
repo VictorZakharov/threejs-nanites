@@ -6,6 +6,9 @@
 //   npm run harness -- --views=ground,canopy --frames=200 --query="shadows=0&trees=5000"
 //   npm run harness -- --eval="__demo.stats()"   run an expression in the page after load and print it
 //   npm run harness -- --eval-file=probe.js   same, from a file
+//   npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/   test the deployed site
+//   npm run harness -- --loading-shots      also screenshot the loading screen (tools/out/loading-N.png)
+//   npm run harness -- --flicker --query=wind=0   still camera must render identical frames
 //   npm run harness -- --no-shots          skip screenshots
 import { chromium } from 'playwright-core';
 import { createServer } from 'vite';
@@ -49,6 +52,7 @@ const VIEWS = {
   canopy: { x: -50, z: 200, agl: 45, yaw: -20, pitch: -6 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
+  high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },
 };
 const viewNames = args.views ? String(args.views).split(',') : Object.keys(VIEWS);
 
@@ -71,9 +75,10 @@ async function launch() {
 }
 
 const t0 = Date.now();
-const server = await createServer({ root, logLevel: 'silent', server: { port: 5199, strictPort: false } });
-await server.listen();
-const url = server.resolvedUrls.local[0];
+// --url=<deployed site> tests a deployed build instead of the local source
+const server = args.url ? null : await createServer({ root, logLevel: 'silent', server: { port: 5199, strictPort: false } });
+await server?.listen();
+const url = args.url ? String(args.url) : server.resolvedUrls.local[0];
 const browser = await launch();
 let exitCode = 0;
 try {
@@ -95,6 +100,13 @@ try {
   });
 
   await page.goto(`${url}?harness=1${query ? '&' + query : ''}`);
+  if (args['loading-shots']) {
+    // screenshots of the loading screen while it runs
+    for (let i = 0; i < 12 && !(await page.evaluate(() => window.__demo?.ready || window.__demo?.error)); i++) {
+      await page.screenshot({ path: join(outDir, `loading-${i}.png`) });
+      await new Promise((r) => setTimeout(r, 600));
+    }
+  }
   await page.waitForFunction(() => window.__demo?.ready || window.__demo?.error, null, { timeout: 300000, polling: 250 });
   const err = await page.evaluate(() => window.__demo.error);
   if (err) throw new Error('page failed to start: ' + err);
@@ -122,6 +134,17 @@ try {
     console.log(
       `${name.padEnd(10)} ${r.frameMs.toFixed(2).padStart(7)} ${r.gpuRenderMs.toFixed(2).padStart(7)} ${r.gpuComputeMs.toFixed(2).padStart(7)} ${r.cpuMs.toFixed(2).padStart(7)} ${String(r.clusters).padStart(9)} ${String(r.tris).padStart(10)} ${String(r.instances ?? '').padStart(6)} ${String(r.shadowTris ?? '').padStart(11)}`,
     );
+    if (args.flicker) {
+      // a still camera (run with wind=0) must give identical frames; anything else is nondeterminism
+      const shots = [];
+      for (let i = 0; i < 3; i++) {
+        await page.evaluate(() => window.__demo.renderOnce());
+        shots.push(await page.screenshot({ clip: { x: 0, y: 150, width: W, height: H - 150 } }));
+      }
+      const same = shots.every((b) => b.equals(shots[0]));
+      console.log(`${''.padEnd(10)} flicker check: ${same ? 'frames identical' : 'FRAMES DIFFER'}`);
+      if (!same) shots.forEach((b, i) => writeFileSync(join(outDir, `${name}-flicker-${i}.png`), b));
+    }
     if (!args['no-shots']) {
       await page.evaluate((r) => window.__demo.renderOnce(r), r);
       await page.screenshot({ path: join(outDir, `${name}.png`) });
@@ -135,6 +158,6 @@ try {
   exitCode = 1;
 } finally {
   await browser.close();
-  await server.close();
+  await server?.close();
 }
 process.exit(exitCode);

@@ -63,27 +63,41 @@ export function generateTree(variant) {
   return { bark, leaves, radius: r, height: variant.height };
 }
 
-/** Builds the cluster DAG of every variant in parallel workers. */
-export async function buildAllTrees(onProgress) {
-  const sources = VARIANTS.map((v) => generateTree(v));
+/**
+ * Generates every variant and builds its cluster DAG in a worker. Each worker starts as soon as its tree is grown, so
+ * the DAG builds overlap the (main-thread) generation of the next trees. `ui` is the LoadingScreen.
+ */
+export async function buildAllTrees(ui) {
+  const n = VARIANTS.length;
   let done = 0;
-  const results = await Promise.all(
-    sources.map(
-      (src, id) =>
-        new Promise((resolve, reject) => {
-          const w = new Worker(new URL('./dag-worker.js', import.meta.url), { type: 'module' });
-          w.onmessage = (e) => {
-            w.terminate();
-            if (e.data.error) reject(new Error(e.data.error));
-            else {
-              onProgress?.(++done, sources.length);
-              resolve({ ...e.data, radius: src.radius, height: src.height, variant: VARIANTS[id] });
-            }
-          };
-          w.onerror = (e) => reject(new Error(e.message));
-          w.postMessage({ id, bark: src.bark, leaves: src.leaves });
-        }),
-    ),
-  );
-  return results;
+  const jobs = [];
+  for (let id = 0; id < n; id++) {
+    const v = VARIANTS[id];
+    await ui.update(0.06 + (0.24 * id) / n, `Growing ${v.preset}`, false);
+    const t = performance.now();
+    const src = generateTree(v);
+    const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
+    ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+    jobs.push(
+      new Promise((resolve, reject) => {
+        const w = new Worker(new URL('./dag-worker.js', import.meta.url), { type: 'module' });
+        w.onmessage = (e) => {
+          w.terminate();
+          if (e.data.error) return reject(new Error(e.data.error));
+          const st = e.data.stats;
+          done++;
+          ui.update(0.3 + (0.45 * done) / n, `Cluster DAGs ${done}/${n}`, false);
+          ui.note(
+            `DAG ${v.preset}: ${(st.barkClusters + st.leafClusters).toLocaleString()} clusters, ` +
+              `${Math.max(st.barkLevels, st.leafLevels) + 1} levels (${st.ms} ms)`,
+          );
+          resolve({ ...e.data, radius: src.radius, height: src.height, variant: v });
+        };
+        w.onerror = (e) => reject(new Error(e.message));
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves });
+      }),
+    );
+  }
+  await ui.update(0.3, 'Building cluster DAGs in workers', false);
+  return Promise.all(jobs);
 }
