@@ -15,9 +15,10 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, vertexIndex, workgroupId, localId, numWorkgroups,
   uint, float, vec2, vec3, vec4, uvec2, atomicAdd, atomicStore, select, max, min, varying, normalLocal, texture,
-  sin, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, normalViewGeometry,
+  sin, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, normalViewGeometry, cross,
 } from 'three/tsl';
 import { curve } from './planet.js';
+import { IMPOSTOR_CUT } from './impostors.js';
 
 /**
  * Coverage-preserving alpha for the leaf array texture (see coverageScales in main.js): scales alpha by the
@@ -40,6 +41,7 @@ function countFlags(buf) {
   return n;
 }
 
+const TOP_GROW = Number(new URLSearchParams(location.search).get('topgrow') ?? 1.6);
 const MAX_TRIS = 128;
 const WG = 64;
 const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
@@ -382,7 +384,7 @@ export class NaniteForest {
   }
 
   // ------------------------------------------------------------------ impostors (far field)
-  /** atlas: { texture, frames: [{w, h}] } from bakeImpostors; one tile per tree type. */
+  /** atlas: { texture, frames: [{w, h}], renderTarget, coverage } from bakeImpostors + impostorCoverage: per tree type a side tile and a top-down tile. */
   buildImpostorMesh(atlas) {
     const u = this.u;
     const v = this.main;
@@ -397,6 +399,8 @@ export class NaniteForest {
     geo.setIndirect(new THREE.IndirectStorageBufferAttribute(new Uint32Array([6, this.instanceCount, 0, 0]), 4));
     const vUv = varying(vec2(0), 'vImpUv');
     const vTint = varying(float(1), 'vImpTint');
+    const vTop = varying(float(0), 'vImpTop');
+    const vType = varying(float(0), 'vImpType');
     const position = Fn(() => {
       const inst = instanceIndex;
       const on = flags.element(inst).equal(1);
@@ -407,23 +411,51 @@ export class NaniteForest {
       const vi = vertexIndex;
       const cx = select(vi.equal(1).or(vi.equal(2)).or(vi.equal(4)), float(1), float(0));
       const cy = select(vi.equal(2).or(vi.equal(4)).or(vi.equal(5)), float(1), float(0));
-      // cylindrical billboard facing the camera
-      const toCam = u.camPos.sub(a.xyz);
-      const right = vec3(toCam.z, 0, toCam.x.negate()).normalize();
-      const w = frameW.element(type).mul(s), h = frameH.element(type).mul(s);
+      // billboard facing the camera, pivoting about the frame's centre: upright when seen from the side (base on
+      // the ground), lying flat when seen from above, where it shows the top-down tile instead (a cylindrical
+      // billboard would be seen edge-on from above, leaving a bald patch under the camera)
+      const h0 = frameH.element(type).mul(s);
+      const pivot = a.xyz.add(vec3(0, h0.mul(0.5), 0));
+      const dir = u.camPos.sub(pivot).normalize();
+      // seen from above, the coarse cluster LODs it replaces read wider than the full-detail crown in the atlas
+      // (fewer, grown leaf cards): enlarge the top view to match, so the forest doesn't thin out at the switch
+      const grow = mix(float(1), float(TOP_GROW), smoothstep(0.4, 0.8, dir.y));
+      const w = frameW.element(type).mul(s).mul(grow), h = h0.mul(grow);
+      const right = vec3(dir.z, 0, dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize();
+      const up = cross(dir, right);
       const flip = hash(inst).greaterThan(0.5); // mirror half of them for variety
       const ux = select(flip, cx.oneMinus(), cx);
-      vUv.assign(vec2(float(type).add(ux).div(n), cy));
+      vUv.assign(vec2(float(type).add(ux).div(2 * n), cy));
+      vTop.assign(smoothstep(0.4, 0.8, dir.y));
+      vType.assign(float(type));
       vTint.assign(hash(inst).mul(0.35).add(0.8));
-      normalLocal.assign(toCam.normalize());
-      return select(on, curve(a.xyz.add(right.mul(cx.sub(0.5).mul(w))).add(vec3(0, cy.mul(h), 0))), vec3(0));
+      normalLocal.assign(dir);
+      const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(h)));
+      return select(on, curve(p), vec3(0));
     })();
-    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.35 });
+    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
     mat.alphaToCoverage = this.textures.alphaToCoverage;
-    const t = texture(atlas.texture, vUv);
+    // side tiles are the atlas's left half, top-down tiles the right half
+    const tSide = texture(atlas.texture, vUv), tTop = texture(atlas.texture, vUv.add(vec2(0.5, 0)));
+    // coverage-preserving alpha by the sampled mip (see impostorCoverage)
+    const { scales, levels } = atlas.coverage;
+    const scaleArr = uniformArray(Array.from(scales), 'float');
+    const texel = vUv.mul(vec2(atlas.renderTarget.width, atlas.renderTarget.height));
+    const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))), 0, levels - 1.001);
+    const scaleOf = (tile) => {
+      const i0 = tile.mul(levels).add(uint(lod.floor()));
+      return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
+    };
+    const tile = uint(vType.round());
+    // cross-fade side -> top as the union of both silhouettes (mixing their alphas would keep only the overlap and
+    // thin the forest out at mid elevations), colour weighted by each one's share
+    const aSide = tSide.a.mul(scaleOf(tile)).mul(clamp(vTop.oneMinus().mul(2), 0, 1));
+    const aTop = tTop.a.mul(scaleOf(tile.add(n))).mul(clamp(vTop.mul(2), 0, 1));
+    const alpha = min(max(aSide, aTop), 1);
+    const t = tSide.mul(aSide).add(tTop.mul(aTop)).div(max(aSide.add(aTop), 1e-4));
     // baked radiance (linear) with the per-tree tint; debug views paint them flat magenta
     const col = t.rgb.mul(vec3(vTint.mul(0.92).add(0.08), vTint, vTint.mul(0.8).add(0.2)));
-    mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.div(max(t.a, 0.001))), t.a);
+    mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.div(max(t.a, 0.001))), alpha);
     mat.positionNode = position;
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;

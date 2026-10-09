@@ -62,6 +62,9 @@ const VIEWS = {
   inclouds: { x: 0, z: 3000, y: 2260, yaw: 10, pitch: -5 },
   aboveclouds: { x: 0, z: 4000, y: 3200, yaw: 0, pitch: -12 },
   orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
+  topdown: { x: 400, z: 600, agl: 1800, yaw: 0, pitch: -80 },
+  topdown700: { x: 400, z: 600, agl: 500, yaw: 0, pitch: -80 },
+  oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
 };
 const viewNames = args.views ? String(args.views).split(',') : Object.keys(VIEWS);
 

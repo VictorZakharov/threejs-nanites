@@ -4,7 +4,7 @@ import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
 import { NaniteForest, makeLeafAlpha } from './nanite.js';
-import { bakeImpostors } from './impostors.js';
+import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.js';
 import { viewerPos } from './planet.js';
 import { createClouds, CLOUD_BASE } from './clouds.js';
 import { FlyControls } from './controls.js';
@@ -293,8 +293,12 @@ async function start() {
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
   }, { sunColor: sun.color, sunIntensity: sun.intensity, hemiSky: hemi.color, hemiGround: hemi.groundColor, hemiIntensity: hemi.intensity });
+  atlas.coverage = await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
   const impostorMesh = forest.buildImpostorMesh(atlas);
+  demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
+  demo.renderer = renderer;
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
+  if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
 

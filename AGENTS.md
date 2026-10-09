@@ -70,3 +70,9 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
+- Impostors (`src/impostors.js`): the atlas has a side tile and a top-down tile per variant; the quad faces the camera
+  and cross-fades side → top by elevation as the *union* of both silhouettes (mixing alphas thins the forest). A
+  cylindrical billboard is edge-on from above and leaves a bald patch under the camera. The top view is enlarged
+  (`TOP_GROW`, `?topgrow=`) to match the coarse cluster LODs it replaces; compare with `?imppx=100000` (all
+  impostors) vs `?imppx=0` (all geometry) on the `topdown700` harness view. Alpha is coverage-preserving per mip
+  (`impostorCoverage` reads the atlas back once).
