@@ -323,7 +323,7 @@ async function start() {
     leafLayerOf: layerLookup(VARIANTS.map((v) => leafTypes.indexOf(v.leaf))),
     alphaToCoverage: params.get('a2c') !== '0',
   });
-  forest.u.tau.value = Number(params.get('tau') ?? 1.5);
+  forest.u.tau.value = Number(params.get('tau') ?? 1);
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
   if (params.get('wind') === '0') forest.u.wind.value = 0;
@@ -489,11 +489,11 @@ async function start() {
 
     renderer.getDrawingBufferSize(size);
     forest.update(camera, size.y, time, shadowsOn ? sun.shadow.camera : null);
-    // phase 1: terrain, sky, impostors and the trees visible last frame (+ the shadow map)
+    // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);
     camera.layers.set(0);
     renderer.render(scene, camera);
-    // phase 2: HZB from that depth, cull the rest against it, draw what's visible (+ the clouds) on top
+    // phase 2: HZB from that depth, cull the rest and the impostors against it, draw what's visible (+ the clouds)
     forest.occlusion(camera, size.x, size.y);
     const autoClear = renderer.autoClear, shadowAuto = sun.shadow.autoUpdate;
     renderer.autoClear = false;
@@ -555,18 +555,23 @@ async function start() {
     setView(v) {
       let x = v.x, z = v.z, yaw = THREE.MathUtils.degToRad(v.yaw ?? 0), pitch = THREE.MathUtils.degToRad(v.pitch ?? 0);
       let y = v.y ?? heightAt(x, z) + (v.agl ?? 2);
-      if (v.nearTree) {
-        // look at the closest tree from `nearTree` metres away
+      if (v.nearTree || v.trunk) {
+        // the closest tree to (x, z): `nearTree` frames it from that many metres away; `trunk` faces its trunk
+        // from that many metres (from the trunk's axis), level, at `agl` above the tree's base
         let best = 0, bd = Infinity;
         for (let i = 0; i < forest.instanceCount; i++) {
           const d = Math.hypot(instances.a[i * 4] - x, instances.a[i * 4 + 2] - z);
           if (d < bd) { bd = d; best = i; }
         }
         const tx = instances.a[best * 4], tz = instances.a[best * 4 + 2], ty = instances.a[best * 4 + 1];
-        x = tx + Math.sin(yaw) * v.nearTree;
-        z = tz + Math.cos(yaw) * v.nearTree;
-        y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
-        pitch = Math.atan2(ty + 6 - y, v.nearTree);
+        const dist = v.trunk ?? v.nearTree;
+        x = tx + Math.sin(yaw) * dist;
+        z = tz + Math.cos(yaw) * dist;
+        if (v.trunk) y = ty + (v.agl ?? 1.5);
+        else {
+          y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
+          pitch = Math.atan2(ty + 6 - y, v.nearTree);
+        }
       }
       camera.position.set(x, y, z);
       controls.yaw = yaw;

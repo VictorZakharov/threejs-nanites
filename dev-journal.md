@@ -12,23 +12,19 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 
 ## Now
 
-- **Occlusion culling (in progress).** Two-phase, Nanite-style, per tree and per cluster (`src/nanite.js`):
-  phase 1 tests against last frame's HZB, phase 2 retests the failures against this frame's. Works; gains so far:
-  ground view 13.2M -> 10.5M tris, inside the forest 11.8M -> 7.8M. Little gain in grazing views over the canopy
-  (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front, so each tree has a visible
-  part and its big leaf clusters are drawn. Next: impostors aren't occlusion-tested yet; smaller/tighter leaf
-  cluster bounds; then decide whether the zoom case needs a coarser tau instead.
-- **Distant treeline popping/flicker** (user report): `--sweep=lod` on `treeline` shows silhouette pops from the
-  DAG cut (94 jumps at tau 1.5, 3 at tau 0.75). Impostors aren't the cause. Plan: switch to impostors earlier
-  (imppx 14 -> ~40 measured ~3 ms cheaper at equal flicker) and spend that on a finer tau near the camera.
+- **Occlusion culling (in progress).** Two-phase, Nanite-style, per tree, per cluster and per impostor
+  (`src/nanite.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
+  views over the canopy (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front.
+  Next: tighter leaf cluster bounds; then decide whether the zoom case needs a coarser tau instead.
 - **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
   screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
   perf report).
 
 ## Decided (keep)
 
-- Trees become 2-triangle impostors under `impostorPx` (14 px tall); impostors are relit (albedo + normal atlases),
-  dither cross-fade with geometry, never narrower than 2 px. Billboards are what make 1M trees cheap from the air;
+- Trees become 2-triangle impostors under `impostorPx` (40 px tall) and the DAG cut uses tau 1 px: at 14 px / tau
+  1.5 the distant treeline popped (`--sweep=lod` on `treeline`: 94 jumps -> 2) for about the same GPU time.
+  Impostors are relit (albedo + normal atlases), dither cross-fade with geometry, never narrower than 2 px. Billboards are what make 1M trees cheap from the air;
   occlusion culling is for the forest interior and doesn't replace them.
 - Past the shadow map and in the impostor zone, receivers use an average shadow (canopy self-shadow, ground
   darkened by forest density), not full sun: that was the "brightness change of distant trees".
@@ -42,8 +38,8 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 - HUD shows ~23 ms per frame while fps reads 60 (reported by a tester). Probably the `gpu` figure (sum of GPU
   timestamp spans over all passes, which may overlap or include idle gaps) read as frame time, or the HUD's
   ms/fps averaging. Check what each HUD number measures and label them clearly; fold into the perf panel work.
-- Frame time at `orbit` rose ~2 -> ~5 ms with occlusion culling while GPU time stayed ~1 ms: unexplained (CPU side
-  of the second render pass? readbacks?).
+- Frame time at `orbit` is ~2.4 ms with `occ=0`, ~4.6 ms with occlusion, GPU ~1 ms either way: the occlusion
+  frame costs something the timers don't show (13 HZB dispatches + a second render pass; CPU side?).
 
 - Equal-depth draw-order ties give ~20-100 px of frame-to-frame differences (`--flicker`).
 - Bundle is ~4.9 MB (ez-tree's inlined textures).

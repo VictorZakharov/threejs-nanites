@@ -1,10 +1,13 @@
 // The harness's fixed viewpoints. x/z are world metres; the height is either `agl` (above the ground there) or `y`
-// (absolute); yaw/pitch are degrees. `nearTree` frames the closest tree from that many metres away.
+// (absolute); yaw/pitch are degrees. `nearTree` frames the closest tree from that many metres away; `trunk` faces
+// the closest tree's trunk, level, from that many metres off its axis.
 // Add a view here (not in a probe) when a problem needs to be looked at again: every command can then use it.
 export const VIEWS = {
   // in and over the forest
   ground: { x: 20, z: 40, agl: 1.8, yaw: 30, pitch: 4 },
   closeup: { x: 0, z: 0, agl: 3, yaw: 0, pitch: 10, nearTree: 7 },
+  // the screen filled by one trunk: occlusion culling should leave only that tree (see --probe=occlusion)
+  bark: { x: 0, z: 0, agl: 1.5, yaw: 0, pitch: 0, trunk: 1.5, zoom: 5 },
   canopy: { x: -50, z: 200, agl: 45, yaw: -20, pitch: -6 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },

@@ -32,7 +32,7 @@ URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`
 - **Per frame (GPU compute, no readback):** instance cull (frustum, distance) emits work items only for the clusters
   that could possibly be selected (clusters sorted by parent error → binary search), then a cluster pass picks the DAG
   cut (`own error ≤ τ < parent error`, projected to pixels), frustum-culls, and appends to draw lists.
-- **Far field:** trees under ~14 px tall are drawn as camera-facing impostor quads (an atlas baked at startup from
+- **Far field:** trees under ~40 px tall are drawn as camera-facing impostor quads (an atlas baked at startup from
   the full-detail trees), flagged per tree by the instance pass: ~1M trees to the horizon for ~1 ms.
 - **Planet:** the world is bent in the vertex shaders (drop = d²/2R, R = 150 km) so the horizon curves; terrain
   continues as a coarse skirt to ~65 km, and fog takes the sky's colour. A cloud deck sits at ~2.2 km.

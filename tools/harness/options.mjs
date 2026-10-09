@@ -10,7 +10,7 @@ export const HELP = `Nanite Forest harness: headless benchmark, screenshots and 
 views and settings
   --views=a,b        viewpoints from tools/harness/views.mjs (default: ${DEFAULT_VIEWS.join(',')})
   --query=k=v&...    URL parameters of the demo (see README)
-  --zoom=5           look through the right-mouse zoom
+  --zoom=5           look through the right-mouse zoom (default: the view's own, else 1)
   --size=1600x900    viewport;  --frames=120 benchmark frames per view;  --no-shots  skip screenshots
 
 measuring
@@ -50,7 +50,7 @@ export function parseOptions(argv) {
     frames: Number(args.frames ?? 120),
     query: String(args.query ?? ''),
     views,
-    zoom: Number(args.zoom ?? 1),
+    zoom: args.zoom === undefined ? undefined : Number(args.zoom), // (unset: the view's own zoom, else 1)
     url: args.url ? String(args.url) : null,
     shots: !args['no-shots'],
     probes: args.probe ? String(args.probe).split(',') : [],

@@ -41,7 +41,8 @@ const COLUMNS = [
   ['trees', 6, (n, r) => r.instances ?? ''],
   ['shadowTris', 11, (n, r) => r.shadowTris ?? ''],
   ['imposts', 8, (n, r) => r.impostors ?? ''],
-  ['occluded', 8, (n, r) => r.occluded ?? ''],
+  ['occluded', 8, (n, r) => r.occluded ?? ''], // trees drawn neither way: hidden behind nearer ones
+  ['occImp', 7, (n, r) => r.occludedImpostors ?? ''], // impostors dropped the same way
 ];
 const row = (cells) => cells.map((c, i) => (i === 0 ? String(c).padEnd(COLUMNS[i][1]) : String(c).padStart(COLUMNS[i][1]))).join(' ');
 
@@ -53,7 +54,7 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
   const results = {};
   console.log('\n' + row(COLUMNS.map((c) => c[0])));
   for (const name of opts.views) {
-    const view = { ...VIEWS[name], zoom: opts.zoom };
+    const view = { ...VIEWS[name], zoom: opts.zoom ?? VIEWS[name].zoom ?? 1 };
     await page.evaluate((v) => window.__demo.setView(v), view);
     const r = await page.evaluate((n) => window.__demo.bench(n), opts.frames);
     results[name] = r;

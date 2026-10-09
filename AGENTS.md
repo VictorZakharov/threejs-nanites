@@ -86,6 +86,8 @@ first in a new session. Update it as you go, and keep it short and current, not 
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
   pixel's MSAA samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2
-  meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Clouds are on
-  that layer too, so they're drawn after every tree. The HZB lookup reads up to 4x4 texels of a finer level than
+  meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Impostors are
+  drawn there too, tested once against this frame's HZB (they're listed in the retest list with `IMP_BIT`; hidden
+  ones get their flag cleared). Clouds are on that layer too, so they're drawn after every tree. Check with the
+  `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. The HZB lookup reads up to 4x4 texels of a finer level than
   usual: at 2x2 the texels near the horizon take in sky and nothing is ever occluded.

@@ -50,9 +50,10 @@ try {
     }
     if (variant !== null) console.log(`\n=== variant ${k}: ${variant}`);
     const report = { info, query, size: `${opts.width}x${opts.height}`, frames: opts.frames, zoom: opts.zoom };
-    report.views = await runViews(page, opts, { root, outDir, tag: variant === null ? '' : `@${k}` });
-    if (k === 0 && opts.sweep) report.sweeps = await sweeps(page, opts, outDir);
-    if (k === 0 && opts.dolly) report.dolly = await dolly(page, opts, outDir);
+    const tag = variant === null ? '' : `@${k}`;
+    report.views = await runViews(page, opts, { root, outDir, tag });
+    if (opts.sweep) report.sweeps = await sweeps(page, opts, outDir, tag);
+    if (opts.dolly) report.dolly = await dolly(page, opts, outDir, tag);
     reports.push(report);
   }
   writeFileSync(join(outDir, 'report.json'), JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));

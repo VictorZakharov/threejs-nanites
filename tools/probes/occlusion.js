@@ -4,6 +4,8 @@
 //   retestClusters     clusters of phase 1 trees that failed (tested again in phase 2)
 //   phase2Trees/Tris   drawn in phase 2 (failed phase 1, visible against this frame's HZB)
 //   hiddenTrees        trees still hidden after phase 2
+//   impostorsDrawn     impostors drawn (in phase 2, after the occluded ones are dropped)
+//   hiddenImpostors    impostors dropped as occluded
 async (demo) => {
   const f = demo.forest, r = demo.renderer, v = f.main;
   for (let i = 0; i < 3; i++) await demo.renderOnce(); // (phase 1 needs a previous frame's HZB of this view)
@@ -18,5 +20,7 @@ async (demo) => {
     phase2Trees: b[2],
     phase2MTris: mtris(b),
     hiddenTrees: b[3],
+    impostorsDrawn: (await demo.stats()).impostors,
+    hiddenImpostors: b[4],
   };
 }

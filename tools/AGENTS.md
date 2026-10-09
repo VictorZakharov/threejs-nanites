@@ -38,6 +38,7 @@ heatmaps `sweep-*.png` / `dolly-*.png`, probe images `<probe>-<view>.png`.
 ```bash
 npm run harness -- --views=ground,canopy                       # numbers + screenshots
 npm run harness -- --views=zoomref --zoom=5 --probe=occlusion  # zoomed view, occlusion counters
+npm run harness -- --views=bark --probe=occlusion --query=wind=0  # one trunk fills the screen: ~nothing else drawn
 npm run harness -- --ab="imppx=0|imppx=100000" --views=topdown700 --query="farall=1&wind=0"
                                                                # all geometry vs all impostors: colour match
 npm run harness -- --sweep=lod --views=treeline --steps=40 --step=2 --query=wind=0   # LOD popping
@@ -46,6 +47,9 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 ```
 
 - Compare like with like: `--ab` reloads the page per variant in one run, so views, size and GPU state match.
+  `--sweep`/`--dolly` run per variant too (heatmaps tagged `@<k>`).
+- A view can carry its own `zoom` (`bark` uses 5x: the near plane is 0.3 m, so the camera can't get close enough to
+  a trunk to fill the screen without it); `--zoom` overrides it.
 - Popping and flicker tests need `wind=0` (the harness freezes the clouds itself).
 - The table's `gpu` is the render passes' GPU time, `cull` the compute passes', `frame` the pipelined frame time
   (headless, so vsync doesn't cap it). Don't time frames by awaiting `onSubmittedWorkDone` after each one: that

@@ -55,6 +55,9 @@ const WG = 64;
 const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
 const MAX_DIM = 65535;
 const LIST_CAP = 1 << 20; // max visible clusters per list
+// marks an impostor in the phase 2 retest list (tree indices are below it); a tree in the cross-fade band is listed
+// both as geometry and as an impostor
+const IMP_BIT = 0x80000000;
 const HZB_LEVELS = 13;
 const HZB_LEVEL0_MAX = 2048 * 2048; // level 0 texels (half resolution): screens up to 4096 x 4096
 const HZB_FLOATS = Math.ceil(HZB_LEVEL0_MAX * 1.34) + 64;
@@ -75,7 +78,7 @@ export class NaniteForest {
       projScale: uniform(1000),
       tau: uniform(1.0), // max screen-space error in pixels
       maxDist: uniform(3000),
-      impostorPx: uniform(14), // trees drawn shorter than this (pixels) become impostor quads
+      impostorPx: uniform(40), // trees drawn shorter than this (pixels) become impostor quads
       time: uniform(0),
       wind: uniform(1),
       debug: uniform(0, 'uint'),
@@ -174,7 +177,7 @@ export class NaniteForest {
       dispatchAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4),
       barkArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
       leafArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
-      statsAttr: sb(new Uint32Array(4), 1), // bark tris, leaf tris, trees, occluded trees
+      statsAttr: sb(new Uint32Array(5), 1), // bark tris, leaf tris, trees, occluded trees, occluded impostors
       itemCountAttr: sb(new Uint32Array(1), 1),
       barkListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
       leafListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
@@ -183,7 +186,7 @@ export class NaniteForest {
     const dispatchA = storage(set.dispatchAttr, 'uint', 4).toAtomic();
     const barkA = storage(set.barkArgsAttr, 'uint', 4).toAtomic();
     const leafA = storage(set.leafArgsAttr, 'uint', 4).toAtomic();
-    set.statsA = storage(set.statsAttr, 'uint', 4).toAtomic();
+    set.statsA = storage(set.statsAttr, 'uint', 5).toAtomic();
     const barkList = storage(set.barkListAttr, 'uvec2', LIST_CAP);
     const leafList = storage(set.leafListAttr, 'uvec2', LIST_CAP);
 
@@ -205,7 +208,7 @@ export class NaniteForest {
       atomicStore(dispatchA.element(0), uint(0));
       atomicStore(barkA.element(1), uint(0));
       atomicStore(leafA.element(1), uint(0));
-      for (let i = 0; i < 4; i++) atomicStore(set.statsA.element(i), uint(0));
+      for (let i = 0; i < 5; i++) atomicStore(set.statsA.element(i), uint(0));
     })().compute(1, [1]);
 
     /** Emits the work items for tree i (called from an instance pass). */
@@ -327,8 +330,8 @@ export class NaniteForest {
       const retestClusters = storage(v.retestClustersAttr, 'uvec2', LIST_CAP);
       const countA = storage(v.retestCountAttr, 'uint', 4).toAtomic();
       v.retestTree = (i) => {
-        const slot = atomicAdd(countA.element(0), uint(1));
-        retestTrees.element(slot).assign(i);
+        const slot = atomicAdd(countA.element(0), uint(1)).toVar();
+        If(slot.lessThan(n), () => retestTrees.element(slot).assign(i)); // (a tree can be listed twice, see IMP_BIT)
       };
       v.retestCluster = (inst, c) => {
         const slot = atomicAdd(countA.element(1), uint(1)).toVar();
@@ -343,7 +346,7 @@ export class NaniteForest {
       const dT = storage(v.retestTreeDispatch, 'uint', 4), dC = storage(v.retestClusterDispatch, 'uint', 4);
       v.retestArgs = Fn(() => {
         const nc = min(countRW.element(1), uint(LIST_CAP)).toVar();
-        countRW.element(2).assign(countRW.element(0));
+        countRW.element(2).assign(min(countRW.element(0), uint(n)));
         countRW.element(3).assign(nc);
         dT.element(0).assign(countRW.element(0).add(WG - 1).div(WG));
         dC.element(0).assign(nc.add(WG - 1).div(WG));
@@ -378,7 +381,12 @@ export class NaniteForest {
       // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
       const far = px.lessThan(u.impostorPx);
       // (impostors cast no shadow: receivers fall back to an average shadow there, see main.js)
-      if (main) impFlag.element(i).assign(select(visible.and(px.lessThan(u.impostorPx.mul(FADE_HI))), uint(1), uint(0)));
+      if (main) {
+        // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass)
+        const imp = visible.and(px.lessThan(u.impostorPx.mul(FADE_HI))).toVar();
+        impFlag.element(i).assign(select(imp, uint(1), uint(0)));
+        If(imp.and(u.occlusion.equal(1)), () => v.retestTree(i.bitOr(IMP_BIT)));
+      }
       If(visible.and(far.not()), () => {
         if (main) {
           If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))))), () => v.retestTree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
@@ -394,11 +402,21 @@ export class NaniteForest {
       v.retestTreesPass = Fn(() => {
         const k = instanceIndex;
         If(k.lessThan(v.retestCounts.element(2)), () => {
-          const i = v.retestTreesRO.element(k);
+          const e = v.retestTreesRO.element(k);
+          const i = e.bitAnd(IMP_BIT - 1);
           const { ti, s, centerC, r, dCam } = treeInfo(i);
-          If(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s)))), () => {
-            atomicAdd(setB.statsA.element(3), uint(1));
-          }).Else(() => setB.emit(i, ti, s, dCam, r));
+          const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))));
+          If(e.greaterThanEqual(IMP_BIT), () => {
+            // an impostor: drop it if hidden
+            If(hidden, () => {
+              impFlag.element(i).assign(0);
+              atomicAdd(setB.statsA.element(4), uint(1));
+            });
+          })
+            .ElseIf(hidden, () => {
+              atomicAdd(setB.statsA.element(3), uint(1));
+            })
+            .Else(() => setB.emit(i, ti, s, dCam, r));
         });
       })().compute(this.instanceCount, [WG]);
       // ... and the clusters that failed phase 1 (of trees that passed)
@@ -772,6 +790,8 @@ export class NaniteForest {
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
     mesh.name = 'nanite-impostors';
+    // drawn in phase 2, after occlusion() has dropped the hidden ones (with occlusion off, all flagged ones)
+    mesh.layers.set(PHASE2_LAYER);
     return mesh;
   }
 
@@ -812,7 +832,7 @@ export class NaniteForest {
 
   /** Reads back the counters (async, for the overlay/harness), summed over the view's sets. */
   async readStats(view = this.main) {
-    const out = { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0, occluded: 0, phase2: 0 };
+    const out = { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0, occluded: 0, occludedImpostors: 0, phase2: 0 };
     if (!view.ran) return out;
     const get = (a) => this.renderer.getArrayBufferAsync(a);
     const sets = view.sets.filter((s, k) => k === 0 || s.ran);
@@ -828,6 +848,7 @@ export class NaniteForest {
       out.leafTris += s[1];
       out.instances += s[2];
       out.occluded += s[3];
+      out.occludedImpostors += s[4];
       out.items += new Uint32Array(disp)[0];
       if (k === 1) out.phase2 = s[2];
     });
