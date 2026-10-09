@@ -76,3 +76,10 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
   (`TOP_GROW`, `?topgrow=`) to match the coarse cluster LODs it replaces; compare with `?imppx=100000` (all
   impostors) vs `?imppx=0` (all geometry) on the `topdown700` harness view. Alpha is coverage-preserving per mip
   (`impostorCoverage` reads the atlas back once).
+- Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
+  `main.js`): a constant canopy self-shadow on trees (`?treeshade=`), forest-density darkening on the ground
+  (`forestDensity`, `?groundshade=`, `?crown=`), and impostors scaled by `?impshade=`. Fading to fully sunlit made
+  distant forest brighter, with a line where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs
+  the real map on `topdown700`, comparing mean image colour.
+- Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale, but the main view's tau is multiplied by
+  sqrt(zoom) and the shadow view's by zoom (shadow-map resolution doesn't change), else 5x zoom costs ~4x.

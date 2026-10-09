@@ -12,6 +12,7 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | Key | |
 |---|---|
 | WASD / mouse | move / look |
+| Right mouse (hold) | zoom 5× |
 | Space / Ctrl | up / down |
 | Shift | fast (speed also builds up the longer you hold a movement key) |
 | L | debug colours: clusters / DAG level / trees |

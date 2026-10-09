@@ -64,7 +64,13 @@ const VIEWS = {
   orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
   topdown: { x: 400, z: 600, agl: 1800, yaw: 0, pitch: -80 },
   topdown700: { x: 400, z: 600, agl: 500, yaw: 0, pitch: -80 },
+  d1500: { x: 400, z: 600, agl: 1500, yaw: 0, pitch: -89 },
+  d1100: { x: 400, z: 600, agl: 1100, yaw: 0, pitch: -89 },
+  d800: { x: 400, z: 600, agl: 800, yaw: 0, pitch: -89 },
+  d550: { x: 400, z: 600, agl: 550, yaw: 0, pitch: -89 },
+  d350: { x: 400, z: 600, agl: 350, yaw: 0, pitch: -89 },
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
+  zoomref: { x: 0, z: 2600, agl: 300, yaw: 0, pitch: -6 },
 };
 const viewNames = args.views ? String(args.views).split(',') : Object.keys(VIEWS);
 

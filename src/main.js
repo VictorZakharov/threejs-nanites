@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, uint, uniform, vec3, vec4 } from 'three/tsl';
+import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, texture, uint, uniform, vec3, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
@@ -119,6 +119,39 @@ const MAX_ALTITUDE = 9000;
 /** Radius (m) of the forest disc for `count` trees. */
 const forestRadius = (count) => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
 
+/** Canopy cover (0..1) of the ground on a grid over the forest, for the far-field ground darkening. */
+function forestDensity({ a, radius }) {
+  const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
+  const cov = new Float32Array(N * N);
+  const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
+  for (let i = 0; i < a.length; i += 4) {
+    const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
+    if (x >= 0 && z >= 0 && x < N && z < N) cov[z * N + x] += crown * a[i + 3] * a[i + 3];
+  }
+  // two box blurs (~ a few tens of metres), then clamp to full cover
+  let src = cov, dst = new Float32Array(N * N);
+  for (let pass = 0; pass < 4; pass++) {
+    const horiz = pass % 2 === 0;
+    for (let z = 0; z < N; z++)
+      for (let x = 0; x < N; x++) {
+        let sum = 0;
+        for (let k = -2; k <= 2; k++) {
+          const xx = horiz ? Math.min(N - 1, Math.max(0, x + k)) : x, zz = horiz ? z : Math.min(N - 1, Math.max(0, z + k));
+          sum += src[zz * N + xx];
+        }
+        dst[z * N + x] = sum / 5;
+      }
+    [src, dst] = [dst, src];
+  }
+  const data = new Uint8Array(N * N * 4);
+  for (let i = 0; i < N * N; i++) data[i * 4] = Math.round(Math.min(1, src[i]) * 255);
+  const tex = new THREE.DataTexture(data, N, N);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return { texture: tex, extent };
+}
+
 function placeTrees(count) {
   const rnd = mulberry32(42);
   const radius = forestRadius(count);
@@ -233,10 +266,16 @@ async function start() {
   }
   setShadowExtent(110);
   const shadowMatrix = uniform(sun.shadow.matrix);
-  const fadeShadow = Fn(([shadow]) => {
+  // Beyond the shadow map, receivers fade to an *average* shadow instead of none: a constant canopy self-shadow
+  // for trees and a forest-density darkening for the ground (and the impostors carry the same darkening). Fading
+  // to fully lit made distant forest brighter than near forest, with a visible line where the map ends.
+  const farShadowOn = uniform(1); // 0 when shadows are switched off
+  const farEverywhere = uniform(params.get('farall') === '1' ? 1 : 0); // (debug: calibrate against the real map)
+  const treeFarShadow = uniform(Number(params.get('treeshade') ?? 0.35));
+  const makeFadeShadow = (far) => Fn(([shadow]) => {
     const c = shadowMatrix.mul(vec4(positionWorld, 1)).xy;
     const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
-    return mix(shadow, float(1), smoothstep(0.75, 0.97, edge));
+    return mix(shadow, mix(float(1), far, farShadowOn), max(smoothstep(0.75, 0.97, edge), farEverywhere));
   });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
@@ -247,7 +286,6 @@ async function start() {
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
   const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
   const terrain = createTerrain(terrainSize);
-  for (const m of terrain.userData.materials) m.receivedShadowNode = fadeShadow;
   scene.add(terrain);
   const clouds = createClouds();
   scene.add(clouds.group);
@@ -281,7 +319,13 @@ async function start() {
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
   if (params.get('wind') === '0') forest.u.wind.value = 0;
-  forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = fadeShadow));
+  forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = makeFadeShadow(treeFarShadow)));
+  // ground: darkened by how much canopy stands over it
+  const density = forestDensity(instances);
+  const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
+  const cover = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5)).r;
+  const groundFar = float(1).sub(cover.mul(groundShade));
+  for (const m of terrain.userData.materials) m.receivedShadowNode = makeFadeShadow(groundFar);
   scene.add(forest.group);
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
@@ -299,11 +343,14 @@ async function start() {
   demo.renderer = renderer;
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
+  // impostors are baked fully sunlit: darken them like the far-field trees (see makeFadeShadow)
+  const impostorShade = Number(params.get('impshade') ?? 0.8);
   forest.group.add(impostorMesh);
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
 
   // camera + controls
   const controls = new FlyControls(camera, renderer.domElement);
+  demo.controls = controls;
   camera.position.set(20, heightAt(20, 40) + 1.8, 40);
   controls.yaw = THREE.MathUtils.degToRad(30);
   controls.pitch = THREE.MathUtils.degToRad(4);
@@ -311,6 +358,8 @@ async function start() {
   function setShadows(on) {
     shadowsOn = on;
     sun.shadow.intensity = on ? 1 : 0;
+    farShadowOn.value = on ? 1 : 0;
+    forest.u.impostorShade.value = on ? impostorShade : 1;
     sun.shadow.autoUpdate = on;
     sun.shadow.needsUpdate = true; // one last pass (empty when off: the casters are hidden)
     forest.group.traverse((o) => o.isMesh && o.castShadow && (o.visible = on));

@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 // Ctrl+W can't be blocked by a normal page (the browser reserves it). In fullscreen the Keyboard Lock API
 // (Chrome/Edge) captures the flight keys - Ctrl+W included - and elsewhere a "leave site?" prompt is the fallback.
 // Esc is deliberately *not* locked: one press leaves the mouse/fullscreen (a locked Esc must be held for 2 s).
-// F11 toggles fullscreen.
+// F11 toggles fullscreen. Holding the right mouse button zooms in 5x (binoculars).
 const LOCKED_KEYS = [
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyF', 'KeyG', 'KeyH', 'KeyL', 'KeyP', 'KeyN', 'KeyT', 'KeyR',
   'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'Tab', 'BracketLeft', 'BracketRight',
@@ -27,18 +27,33 @@ export class FlyControls {
     this.velocity = new THREE.Vector3();
     this.locked = false;
     this.onKey = null; // (code, event) for app shortcuts
+    this.baseFov = camera.fov;
+    this.zoom = 1;
+    this.zoomTarget = 1;
+    this.zoomMax = 5;
 
     dom.addEventListener('click', () => this.capture());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === dom;
-      if (!this.locked) this.keys.clear();
+      if (!this.locked) {
+        this.keys.clear();
+        this.zoomTarget = 1;
+      }
       document.body.classList.toggle('captured', this.locked);
     });
     document.addEventListener('mousemove', (e) => {
       if (!this.locked) return;
-      this.yaw -= e.movementX * 0.0022;
-      this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * 0.0022, -1.55, 1.55);
+      const sens = 0.0022 / this.zoom; // finer aim while zoomed
+      this.yaw -= e.movementX * sens;
+      this.pitch = THREE.MathUtils.clamp(this.pitch - e.movementY * sens, -1.55, 1.55);
     });
+    document.addEventListener('mousedown', (e) => {
+      if (e.button === 2 && this.locked) this.zoomTarget = this.zoomMax;
+    });
+    document.addEventListener('mouseup', (e) => {
+      if (e.button === 2) this.zoomTarget = 1;
+    });
+    document.addEventListener('contextmenu', (e) => e.preventDefault());
     window.addEventListener('keydown', (e) => {
       if (e.code === 'F11') {
         e.preventDefault();
@@ -121,5 +136,14 @@ export class FlyControls {
     this.velocity.lerp(wish, 1 - Math.exp(-dt * 10));
     this.camera.position.addScaledVector(this.velocity, dt);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
+    // zoom: narrow the field of view (the LOD reads camera.fov, so zoomed trees get their detail back)
+    this.zoom += (this.zoomTarget - this.zoom) * (1 - Math.exp(-dt * 12));
+    if (Math.abs(this.zoom - this.zoomTarget) < 1e-3) this.zoom = this.zoomTarget;
+    this.camera.userData.zoom = this.zoom;
+    const fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.baseFov) / 2) / this.zoom));
+    if (Math.abs(fov - this.camera.fov) > 1e-6) {
+      this.camera.fov = fov;
+      this.camera.updateProjectionMatrix();
+    }
   }
 }

@@ -42,6 +42,7 @@ function countFlags(buf) {
 }
 
 const TOP_GROW = Number(new URLSearchParams(location.search).get('topgrow') ?? 1.6);
+const SHADOW_TAU_MUL = 2.5; // shadow casters may be coarser than what's seen
 const MAX_TRIS = 128;
 const WG = 64;
 const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
@@ -58,6 +59,7 @@ export class NaniteForest {
       tau: uniform(1.0), // max screen-space error in pixels
       maxDist: uniform(3000),
       impostorPx: uniform(14), // trees drawn shorter than this (pixels) become impostor quads
+      impostorShade: uniform(1), // colour scale of the impostors (average shadowing, set by main)
       time: uniform(0),
       wind: uniform(1),
       debug: uniform(0, 'uint'),
@@ -65,7 +67,7 @@ export class NaniteForest {
     this.textures = textures;
     this._buildBuffers(trees, instances);
     this.main = this._buildView('main', 1);
-    this.shadow = this._buildView('shadow', 2.5);
+    this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();
     for (const kind of [0, 1]) {
       this.group.add(this._buildMesh(kind, this.main, false));
@@ -454,7 +456,7 @@ export class NaniteForest {
     const alpha = min(max(aSide, aTop), 1);
     const t = tSide.mul(aSide).add(tTop.mul(aTop)).div(max(aSide.add(aTop), 1e-4));
     // baked radiance (linear) with the per-tree tint; debug views paint them flat magenta
-    const col = t.rgb.mul(vec3(vTint.mul(0.92).add(0.08), vTint, vTint.mul(0.8).add(0.2)));
+    const col = t.rgb.mul(vec3(vTint.mul(0.92).add(0.08), vTint, vTint.mul(0.8).add(0.2))).mul(u.impostorShade).mul(vec3(1, 1, 1.15)); // (the bake reads a little less blue than the live leaves)
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.div(max(t.a, 0.001))), alpha);
     mat.positionNode = position;
     const mesh = new THREE.Mesh(geo, mat);
@@ -487,6 +489,12 @@ export class NaniteForest {
     // both views measure LOD from the camera (the shadow view too, so casters match what's seen)
     for (const v of [this.main, this.shadow]) v.lodPos.value.copy(camera.position).add(v.lodShift);
     u.projScale.value = viewportHeight / (2 * Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2));
+    // a zoomed view (narrow fov) wants more detail on screen, but the shadow map's resolution doesn't change:
+    // keep the shadow casters' LOD where it is unzoomed
+    // the main view gets only part of the zoom's extra detail back (sqrt): a 5x zoom at full detail costs ~4x
+    const zoom = camera.userData.zoom ?? 1;
+    this.shadow.tauMul.value = SHADOW_TAU_MUL * zoom;
+    this.main.tauMul.value = Math.sqrt(zoom);
     this._cull(this.main, camera);
     if (shadowCamera) this._cull(this.shadow, shadowCamera);
   }
