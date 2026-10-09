@@ -414,16 +414,24 @@ async function start() {
     if (code === 'KeyH') document.getElementById('help').classList.toggle('hidden', (showHelp = !showHelp) === false);
   };
 
-  window.addEventListener('resize', () => {
-    camera.aspect = window.innerWidth / window.innerHeight;
+  // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
+  // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
+  const viewSize = new THREE.Vector2();
+  function fitToWindow() {
+    renderer.getSize(viewSize);
+    const w = window.innerWidth, h = window.innerHeight;
+    if (viewSize.x === w && viewSize.y === h) return;
+    camera.aspect = w / h;
     camera.updateProjectionMatrix();
-    renderer.setSize(window.innerWidth, window.innerHeight);
-  });
+    renderer.setSize(w, h);
+  }
+  window.addEventListener('resize', fitToWindow);
 
   // ---------------------------------------------------------------- frame
   let time = 0;
   const size = new THREE.Vector2();
   function frame(dt) {
+    fitToWindow();
     time += dt;
     controls.update(dt);
     // stay above the ground

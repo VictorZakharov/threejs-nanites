@@ -6,6 +6,7 @@
 //   npm run harness -- --views=ground,canopy --frames=200 --query="shadows=0&trees=5000"
 //   npm run harness -- --eval="__demo.stats()"   run an expression in the page after load and print it
 //   npm run harness -- --eval-file=probe.js   same, from a file
+//   npm run harness -- --resize-during-load=1280x1000   resize the window while the demo is loading
 //   npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/   test the deployed site
 //   npm run harness -- --loading-shots      also screenshot the loading screen (tools/out/loading-N.png)
 //   npm run harness -- --flicker --query=wind=0   still camera must render identical frames
@@ -186,6 +187,12 @@ try {
   });
 
   await page.goto(`${url}?harness=1${query ? '&' + query : ''}`);
+  if (args['resize-during-load']) {
+    // e.g. --resize-during-load=1280x1000: a fullscreen toggle while the demo is still loading
+    const [rw, rh] = String(args['resize-during-load']).split('x').map(Number);
+    await new Promise((r) => setTimeout(r, 1500));
+    await page.setViewportSize({ width: rw, height: rh });
+  }
   if (args['loading-shots']) {
     // screenshots of the loading screen while it runs
     for (let i = 0; i < 12 && !(await page.evaluate(() => window.__demo?.ready || window.__demo?.error)); i++) {
