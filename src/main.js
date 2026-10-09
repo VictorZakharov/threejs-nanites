@@ -1,5 +1,5 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, texture, uint, uniform, vec3, vec4 } from 'three/tsl';
+import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, texture, length, uint, uniform, vec3, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
@@ -272,10 +272,15 @@ async function start() {
   const farShadowOn = uniform(1); // 0 when shadows are switched off
   const farEverywhere = uniform(params.get('farall') === '1' ? 1 : 0); // (debug: calibrate against the real map)
   const treeFarShadow = uniform(Number(params.get('treeshade') ?? 0.35));
+  // The same goes where the trees are impostors (which cast no shadow): judged by the screen height of a typical
+  // tree at the receiver's distance, against the impostor threshold. (Called once the forest exists.)
   const makeFadeShadow = (far) => Fn(([shadow]) => {
     const c = shadowMatrix.mul(vec4(positionWorld, 1)).xy;
     const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
-    return mix(shadow, mix(float(1), far, farShadowOn), max(smoothstep(0.75, 0.97, edge), farEverywhere));
+    const typicalPx = float(20).mul(forest.u.projScale).div(max(length(positionWorld.sub(cameraPosition)), 1));
+    const impostors = smoothstep(forest.u.impostorPx.mul(1.1), forest.u.impostorPx.mul(0.7), typicalPx);
+    const fade = max(max(smoothstep(0.75, 0.97, edge), impostors), farEverywhere);
+    return mix(shadow, mix(float(1), far, farShadowOn), fade);
   });
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
@@ -336,15 +341,15 @@ async function start() {
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
-  }, { sunColor: sun.color, sunIntensity: sun.intensity, hemiSky: hemi.color, hemiGround: hemi.groundColor, hemiIntensity: hemi.intensity });
+  });
   atlas.coverage = await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
   const impostorMesh = forest.buildImpostorMesh(atlas);
+  impostorMesh.receiveShadow = true;
+  impostorMesh.material.receivedShadowNode = makeFadeShadow(treeFarShadow);
   demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
   demo.renderer = renderer;
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
-  // impostors are baked fully sunlit: darken them like the far-field trees (see makeFadeShadow)
-  const impostorShade = Number(params.get('impshade') ?? 0.8);
   forest.group.add(impostorMesh);
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
 
@@ -359,7 +364,6 @@ async function start() {
     shadowsOn = on;
     sun.shadow.intensity = on ? 1 : 0;
     farShadowOn.value = on ? 1 : 0;
-    forest.u.impostorShade.value = on ? impostorShade : 1;
     sun.shadow.autoUpdate = on;
     sun.shadow.needsUpdate = true; // one last pass (empty when off: the casters are hidden)
     forest.group.traverse((o) => o.isMesh && o.castShadow && (o.visible = on));

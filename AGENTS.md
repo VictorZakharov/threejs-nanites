@@ -84,3 +84,10 @@ an empty scene look like 5 ms. Use the timestamp numbers or the pipelined frame 
 - Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
   shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
   to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.
+- Impostors are *relit*, not baked lit: the bake writes an albedo atlas and a tree-local normal atlas (leaves cut
+  out with Discard and alpha 1 so MSAA gives true coverage), and the impostor material is Lambert with the same
+  lights, fog and shadow fade as the real leaves. Render-target textures are stored flipped (v = 1 - y).
+  `IMP_GAIN` (`?impgain=`) matches colour to the geometry from above (the real trees' sub-pixel leaves read paler).
+- Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
+  Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
+  per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
