@@ -13,14 +13,14 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 |---|---|
 | WASD / mouse | move / look |
 | Space / Ctrl | up / down |
-| Shift | fast |
+| Shift | fast (speed also builds up the longer you hold a movement key) |
 | L | debug colours: clusters / DAG level / trees |
 | F | freeze culling (fly around and inspect what was selected) |
 | [ ] | error threshold in pixels (turns auto quality off) |
 | Q | auto quality on/off (keeps GPU time under budget) |
 | P / G / H | shadows / wind / help |
 
-URL params: `trees=1000000`, `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
+URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
 
 ## How it works
 
@@ -31,6 +31,10 @@ URL params: `trees=1000000`, `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms
 - **Per frame (GPU compute, no readback):** instance cull (frustum, distance) emits work items only for the clusters
   that could possibly be selected (clusters sorted by parent error → binary search), then a cluster pass picks the DAG
   cut (`own error ≤ τ < parent error`, projected to pixels), frustum-culls, and appends to draw lists.
+- **Far field:** trees under ~14 px tall are drawn as camera-facing impostor quads (an atlas baked at startup from
+  the full-detail trees), flagged per tree by the instance pass: ~1M trees to the horizon for ~1 ms.
+- **Planet:** the world is bent in the vertex shaders (drop = d²/2R, R = 150 km) so the horizon curves; terrain
+  continues as a coarse skirt to ~65 km, and fog takes the sky's colour. A cloud deck sits at ~2.2 km.
 - **Draw:** two indirect draws (bark, leaves); every draw instance is a cluster and the vertex shader pulls its
   triangles from storage buffers. The sun's shadow map gets its own cull pass (light frustum, coarser LOD).
 

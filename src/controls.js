@@ -17,7 +17,12 @@ export class FlyControls {
     this.yaw = 0;
     this.pitch = 0;
     this.speed = 12;
-    this.fastMul = 6;
+    this.fastMul = 4; // Shift
+    // holding a movement key builds speed: x(1 + (t/rampTime)^2), capped
+    this.rampTime = 1.6;
+    this.maxRamp = 40;
+    this.maxSpeed = 900; // m/s
+    this.held = 0;
     this.keys = new Set();
     this.velocity = new THREE.Vector3();
     this.locked = false;
@@ -105,9 +110,13 @@ export class FlyControls {
     if (k.has('KeyA')) wish.sub(right);
     if (k.has('Space')) wish.y += 1;
     if (k.has('ControlLeft') || k.has('ControlRight')) wish.y -= 1;
-    if (wish.lengthSq() > 0) wish.normalize();
+    const moving = wish.lengthSq() > 0;
+    if (moving) wish.normalize();
     const fast = k.has('ShiftLeft') || k.has('ShiftRight');
-    wish.multiplyScalar(this.speed * (fast ? this.fastMul : 1));
+    // the longer you hold, the faster (Shift ramps up quicker too); letting go resets
+    this.held = moving ? this.held + dt * (fast ? 1.6 : 1) : 0;
+    const ramp = Math.min(this.maxRamp, 1 + (this.held / this.rampTime) ** 2);
+    wish.multiplyScalar(Math.min(this.maxSpeed, this.speed * ramp * (fast ? this.fastMul : 1)));
     // smooth acceleration
     this.velocity.lerp(wish, 1 - Math.exp(-dt * 10));
     this.camera.position.addScaledVector(this.velocity, dt);

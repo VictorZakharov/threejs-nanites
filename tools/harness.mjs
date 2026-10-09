@@ -58,6 +58,10 @@ const VIEWS = {
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
   high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },
+  belowclouds: { x: 0, z: 3000, y: 1500, yaw: 10, pitch: 8 },
+  inclouds: { x: 0, z: 3000, y: 2260, yaw: 10, pitch: -5 },
+  aboveclouds: { x: 0, z: 4000, y: 3200, yaw: 0, pitch: -12 },
+  orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
 };
 const viewNames = args.views ? String(args.views).split(',') : Object.keys(VIEWS);
 
@@ -193,7 +197,7 @@ try {
   }
 
   const report = { info, query, size: `${W}x${H}`, frames, views: {} };
-  console.log(`\n${'view'.padEnd(10)} ${'frame'.padStart(7)} ${'gpu'.padStart(7)} ${'cull'.padStart(7)} ${'cpu'.padStart(7)} ${'clusters'.padStart(9)} ${'tris'.padStart(10)} ${'inst'.padStart(6)} ${'shadowTris'.padStart(11)}`);
+  console.log(`\n${'view'.padEnd(10)} ${'frame'.padStart(7)} ${'gpu'.padStart(7)} ${'cull'.padStart(7)} ${'cpu'.padStart(7)} ${'clusters'.padStart(9)} ${'tris'.padStart(10)} ${'inst'.padStart(6)} ${'shadowTris'.padStart(11)} ${'imposts'.padStart(8)}`);
   for (const name of viewNames) {
     const view = VIEWS[name];
     if (!view) {
@@ -204,7 +208,7 @@ try {
     const r = await page.evaluate((n) => window.__demo.bench(n), frames);
     report.views[name] = r;
     console.log(
-      `${name.padEnd(10)} ${r.frameMs.toFixed(2).padStart(7)} ${r.gpuRenderMs.toFixed(2).padStart(7)} ${r.gpuComputeMs.toFixed(2).padStart(7)} ${r.cpuMs.toFixed(2).padStart(7)} ${String(r.clusters).padStart(9)} ${String(r.tris).padStart(10)} ${String(r.instances ?? '').padStart(6)} ${String(r.shadowTris ?? '').padStart(11)}`,
+      `${name.padEnd(10)} ${r.frameMs.toFixed(2).padStart(7)} ${r.gpuRenderMs.toFixed(2).padStart(7)} ${r.gpuComputeMs.toFixed(2).padStart(7)} ${r.cpuMs.toFixed(2).padStart(7)} ${String(r.clusters).padStart(9)} ${String(r.tris).padStart(10)} ${String(r.instances ?? '').padStart(6)} ${String(r.shadowTris ?? '').padStart(11)} ${String(r.impostors ?? '').padStart(8)}`,
     );
     if (args.flicker) {
       // a still camera (run with wind=0) must give identical frames; anything else is nondeterminism

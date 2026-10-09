@@ -1,9 +1,12 @@
 import * as THREE from 'three/webgpu';
-import { Fn, float, max, abs, mix, positionWorld, select, smoothstep, uint, uniform, vec4 } from 'three/tsl';
+import { Fn, attribute, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, select, smoothstep, uint, uniform, vec3, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { createTerrain, heightAt } from './terrain.js';
 import { buildAllTrees, VARIANTS } from './trees.js';
-import { NaniteForest } from './nanite.js';
+import { NaniteForest, makeLeafAlpha } from './nanite.js';
+import { bakeImpostors } from './impostors.js';
+import { viewerPos } from './planet.js';
+import { createClouds, CLOUD_BASE } from './clouds.js';
 import { FlyControls } from './controls.js';
 import { LoadingScreen } from './loading.js';
 
@@ -112,6 +115,7 @@ function layerLookup(layers) {
 
 /** Scatters trees over the hills: jittered grid, noisy clearings, pines higher up. */
 const TREE_SPACING = 9;
+const MAX_ALTITUDE = 9000;
 /** Radius (m) of the forest disc for `count` trees. */
 const forestRadius = (count) => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
 
@@ -154,6 +158,7 @@ async function start() {
   if (lim.maxStorageBuffersPerShaderStage < 10) throw new Error('GPU supports too few storage buffers per stage.');
   const renderer = new THREE.WebGPURenderer({
     antialias: params.get('aa') !== '0',
+    reversedDepthBuffer: params.get('rdb') === '1', // (breaks the terrain/fog here; off)
     powerPreference: 'high-performance',
     trackTimestamp: true, // GPU time drives the auto quality (and the harness numbers)
     requiredLimits: {
@@ -179,12 +184,13 @@ async function start() {
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
-  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.1, 9000);
+  const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
   // sky + sun
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 32), THREE.MathUtils.degToRad(215));
   const sky = new SkyMesh();
-  sky.scale.setScalar(5000);
+  sky.scale.setScalar(120000);
+  sky.cloudCoverage.value = 0; // the real cloud deck (clouds.js) replaces the dome's painted clouds
   sky.turbidity.value = 4;
   sky.rayleigh.value = 1.2;
   sky.mieCoefficient.value = 0.004;
@@ -194,8 +200,21 @@ async function start() {
   if (HARNESS) sky.cloudSpeed.value = 0; // still clouds: frame-to-frame comparisons only see the forest
   scene.add(sky);
 
-  const fogColor = new THREE.Color(0xa9bccb);
-  scene.fog = new THREE.Fog(fogColor, 300, 3400);
+  // Fog takes the sky's own colour in the view direction (from a small cube capture of the sky), so fully fogged
+  // terrain and trees melt into the sky instead of meeting it at a grey band. Below the horizon it uses the horizon.
+  const skyCapture = new THREE.Scene();
+  const sky2 = new SkyMesh();
+  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'sunPosition', 'cloudCoverage', 'cloudDensity', 'cloudElevation'])
+    sky2[k].value = sky[k].value.clone?.() ?? sky[k].value;
+  sky2.cloudSpeed.value = 0;
+  sky2.scale.setScalar(100);
+  skyCapture.add(sky2);
+  const skyCube = new THREE.CubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const cubeCam = new THREE.CubeCamera(1, 1000, skyCube);
+  const fogNear = uniform(400), fogFar = uniform(4000);
+  const viewDir = positionWorld.sub(cameraPosition).normalize();
+  const horizonDir = vec3(viewDir.x, max(viewDir.y, 0.015), viewDir.z).normalize();
+  scene.fogNode = fog(cubeTexture(skyCube.texture, horizonDir).level(2).rgb, rangeFogFactor(fogNear, fogFar));
 
   const hemi = new THREE.HemisphereLight(0xbcd3ec, 0x4a4632, 1.3);
   scene.add(hemi);
@@ -226,9 +245,13 @@ async function start() {
 
   await ui.update(0.04, 'Raising hills, sky and sun');
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
-  const terrain = createTerrain(Math.max(7000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000)));
-  terrain.material.receivedShadowNode = fadeShadow;
+  const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
+  const terrain = createTerrain(terrainSize);
+  for (const m of terrain.userData.materials) m.receivedShadowNode = fadeShadow;
   scene.add(terrain);
+  const clouds = createClouds();
+  scene.add(clouds.group);
+  clouds.group.visible = params.get('clouds') !== '0'; // (debug switch)
 
   // trees
   const t0 = performance.now();
@@ -255,11 +278,25 @@ async function start() {
     alphaToCoverage: params.get('a2c') !== '0',
   });
   forest.u.tau.value = Number(params.get('tau') ?? 1.5);
-  forest.u.maxDist.value = scene.fog.far; // beyond the fog a tree is invisible: don't even cull its clusters
+  forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
   if (params.get('wind') === '0') forest.u.wind.value = 0;
   forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = fadeShadow));
   scene.add(forest.group);
+
+  await ui.update(0.82, 'Baking far-field impostors and the sky');
+  cubeCam.update(renderer, skyCapture);
+  const atlas = bakeImpostors(renderer, trees, {
+    bark: barkTex,
+    leaf: leafTex,
+    barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
+    leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
+    leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
+  }, { sunColor: sun.color, sunIntensity: sun.intensity, hemiSky: hemi.color, hemiGround: hemi.groundColor, hemiIntensity: hemi.intensity });
+  const impostorMesh = forest.buildImpostorMesh(atlas);
+  impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
+  forest.group.add(impostorMesh);
+  ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
 
   // camera + controls
   const controls = new FlyControls(camera, renderer.domElement);
@@ -335,7 +372,20 @@ async function start() {
     // stay above the ground
     const gy = heightAt(camera.position.x, camera.position.z) + 0.6;
     if (camera.position.y < gy) camera.position.y = gy;
+    // stay over the world: below the edge of space, and over the forest's land
+    camera.position.y = Math.min(camera.position.y, MAX_ALTITUDE);
+    const lim = forestRadius(TREE_COUNT) * 2;
+    camera.position.x = THREE.MathUtils.clamp(camera.position.x, -lim, lim);
+    camera.position.z = THREE.MathUtils.clamp(camera.position.z, -lim, lim);
+    viewerPos.value.copy(camera.position);
+    clouds.update(time, camera);
     camera.updateMatrixWorld();
+
+    // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
+    const altitude = Math.max(0, camera.position.y - gy);
+    fogFar.value = Math.min(70000, 4000 + altitude * 14);
+    fogNear.value = Math.min(6000, 400 + altitude * 3);
+    forest.u.maxDist.value = fogFar.value;
 
     // shadow map: centred on the ground the camera looks at, extent from altitude
     const agl = Math.max(0, camera.position.y - gy);
@@ -369,7 +419,8 @@ async function start() {
     const tris = gs.barkTris + gs.leafTris;
     hud.textContent =
       `${fps.toFixed(0)} fps  ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms\n` +
-      `trees      ${gs.instances} / ${forest.instanceCount} visible\n` +
+      `trees      ${(gs.instances + gs.impostors).toLocaleString()} / ${forest.instanceCount.toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors)\n` +
+      `altitude   ${Math.round(camera.position.y - heightAt(camera.position.x, camera.position.z))} m   speed ${Math.round(controls.velocity.length())} m/s\n` +
       `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
       `triangles  ${(tris / 1e6).toFixed(2)} M\n` +
       `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +

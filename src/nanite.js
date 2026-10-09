@@ -17,6 +17,28 @@ import {
   uint, float, vec2, vec3, vec4, uvec2, atomicAdd, atomicStore, select, max, min, varying, normalLocal, texture,
   sin, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, normalViewGeometry,
 } from 'three/tsl';
+import { curve } from './planet.js';
+
+/**
+ * Coverage-preserving alpha for the leaf array texture (see coverageScales in main.js): scales alpha by the
+ * precomputed factor of the mip level being sampled, so cut-out leaves keep their density at any size.
+ */
+export function makeLeafAlpha(leafTex, uvNode) {
+  const levels = leafTex.userData.levels;
+  const scaleArr = uniformArray(leafTex.userData.alphaScales, 'float');
+  return (a, layer) => {
+    const lod = clamp(log2(max(length(dFdx(uvNode)), length(dFdy(uvNode))).mul(leafTex.image.width)), 0, levels - 1.001);
+    const i0 = uint(layer).mul(levels).add(uint(lod.floor()));
+    return a.mul(mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract()));
+  };
+}
+
+function countFlags(buf) {
+  const f = new Uint32Array(buf);
+  let n = 0;
+  for (let i = 0; i < f.length; i++) n += f[i];
+  return n;
+}
 
 const MAX_TRIS = 128;
 const WG = 64;
@@ -33,6 +55,7 @@ export class NaniteForest {
       projScale: uniform(1000),
       tau: uniform(1.0), // max screen-space error in pixels
       maxDist: uniform(3000),
+      impostorPx: uniform(14), // trees drawn shorter than this (pixels) become impostor quads
       time: uniform(0),
       wind: uniform(1),
       debug: uniform(0, 'uint'),
@@ -120,6 +143,10 @@ export class NaniteForest {
       leafArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
       statsAttr: sb(new Uint32Array(4), 1),
       itemCountAttr: sb(new Uint32Array(1), 1),
+      // per tree: drawn as an impostor this frame? (a flag per tree instead of an appended list: 900k threads
+      // appending through one atomic counter took ~5 ms; the impostor draw covers every tree and the vertex shader
+      // collapses the unflagged ones, which is far cheaper)
+      impFlagAttr: sb(new Uint32Array(name === 'main' ? this.instanceCount : 1), 1),
       barkListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
       leafListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
     };
@@ -129,6 +156,7 @@ export class NaniteForest {
     const barkA = storage(v.barkArgsAttr, 'uint', 4).toAtomic();
     const leafA = storage(v.leafArgsAttr, 'uint', 4).toAtomic();
     const statsA = storage(v.statsAttr, 'uint', 4).toAtomic();
+    const impFlag = storage(v.impFlagAttr, 'uint', name === 'main' ? this.instanceCount : 1);
     const barkList = storage(v.barkListAttr, 'uvec2', LIST_CAP);
     const leafList = storage(v.leafListAttr, 'uvec2', LIST_CAP);
 
@@ -156,9 +184,15 @@ export class NaniteForest {
       const ti = this.typeInfo.element(uint(b.z));
       const s = a.w;
       const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
+      const centerC = curve(center); // where the planet's curvature puts it on screen
       const r = ti.z.mul(s);
       const dCam = length(center.sub(v.lodPos));
-      If(sphereVisible(center, r).and(dCam.sub(r).lessThan(u.maxDist)), () => {
+      const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1)); // projected tree height
+      const far = px.lessThan(u.impostorPx);
+      const visible = sphereVisible(centerC, r).and(dCam.sub(r).lessThan(u.maxDist)).toVar();
+      // (no shadow for far trees: they're outside the shadow map anyway)
+      if (name === 'main') impFlag.element(i).assign(select(visible.and(far), uint(1), uint(0)));
+      If(visible.and(far.not()), () => {
         // clusters whose parent error (local units) is below this can never be selected for this tree
         const thr = tau.mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
         const start = uint(ti.x);
@@ -216,7 +250,7 @@ export class NaniteForest {
         const cut = projErr(lod, e.x).lessThanEqual(tau).and(projErr(par, e.y).greaterThan(tau));
         If(cut, () => {
           const cw = a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s));
-          If(sphereVisible(cw, cs.w.mul(s)), () => {
+          If(sphereVisible(curve(cw), cs.w.mul(s)), () => {
             const tris = this.cMeta.element(c).y;
             If(e.w.lessThan(0.5), () => {
               const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
@@ -296,17 +330,10 @@ export class NaniteForest {
         const levelRamp = mix(vec3(0.1, 0.9, 0.2), vec3(1.0, 0.15, 0.1), clamp(float(m.z).div(8), 0, 1));
         vDebug.assign(select(u.debug.equal(2), levelRamp, palette));
       }
-      return select(valid, world, vec3(0));
+      return select(valid, curve(world), vec3(0));
     })();
 
-    // coverage-preserving alpha: scale by the precomputed factor of the mip level being sampled
-    const levels = textures.leaf.userData.levels;
-    const scaleArr = uniformArray(textures.leaf.userData.alphaScales, 'float');
-    const leafAlpha = (a, layer) => {
-      const lod = clamp(log2(max(length(dFdx(vUv)), length(dFdy(vUv))).mul(textures.leaf.image.width)), 0, levels - 1.001);
-      const i0 = uint(layer).mul(levels).add(uint(lod.floor()));
-      return a.mul(mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract()));
-    };
+    const leafAlpha = makeLeafAlpha(textures.leaf, vUv);
     // the layer index must be exact: an interpolated 2.9999 truncates to the wrong texture (aspen speckles on pines,
     // shimmering from frame to frame)
     const layerI = vLayer.round();
@@ -354,6 +381,56 @@ export class NaniteForest {
     return mesh;
   }
 
+  // ------------------------------------------------------------------ impostors (far field)
+  /** atlas: { texture, frames: [{w, h}] } from bakeImpostors; one tile per tree type. */
+  buildImpostorMesh(atlas) {
+    const u = this.u;
+    const v = this.main;
+    const flags = storage(v.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
+    const n = atlas.frames.length;
+    const frameW = uniformArray(atlas.frames.map((f) => f.w), 'float');
+    const frameH = uniformArray(atlas.frames.map((f) => f.h), 'float');
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
+    // one instance per tree; trees not flagged as impostors this frame collapse to a point
+    geo.setIndirect(new THREE.IndirectStorageBufferAttribute(new Uint32Array([6, this.instanceCount, 0, 0]), 4));
+    const vUv = varying(vec2(0), 'vImpUv');
+    const vTint = varying(float(1), 'vImpTint');
+    const position = Fn(() => {
+      const inst = instanceIndex;
+      const on = flags.element(inst).equal(1);
+      const a = this.instA.element(inst), b = this.instB.element(inst);
+      const type = uint(b.z);
+      const s = a.w;
+      // corners of a quad, two triangles: (0,0) (1,0) (1,1) / (0,0) (1,1) (0,1)
+      const vi = vertexIndex;
+      const cx = select(vi.equal(1).or(vi.equal(2)).or(vi.equal(4)), float(1), float(0));
+      const cy = select(vi.equal(2).or(vi.equal(4)).or(vi.equal(5)), float(1), float(0));
+      // cylindrical billboard facing the camera
+      const toCam = u.camPos.sub(a.xyz);
+      const right = vec3(toCam.z, 0, toCam.x.negate()).normalize();
+      const w = frameW.element(type).mul(s), h = frameH.element(type).mul(s);
+      const flip = hash(inst).greaterThan(0.5); // mirror half of them for variety
+      const ux = select(flip, cx.oneMinus(), cx);
+      vUv.assign(vec2(float(type).add(ux).div(n), cy));
+      vTint.assign(hash(inst).mul(0.35).add(0.8));
+      normalLocal.assign(toCam.normalize());
+      return select(on, curve(a.xyz.add(right.mul(cx.sub(0.5).mul(w))).add(vec3(0, cy.mul(h), 0))), vec3(0));
+    })();
+    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.35 });
+    mat.alphaToCoverage = this.textures.alphaToCoverage;
+    const t = texture(atlas.texture, vUv);
+    // baked radiance (linear) with the per-tree tint; debug views paint them flat magenta
+    const col = t.rgb.mul(vec3(vTint.mul(0.92).add(0.08), vTint, vTint.mul(0.8).add(0.2)));
+    mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.div(max(t.a, 0.001))), t.a);
+    mat.positionNode = position;
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false;
+    mesh.name = 'nanite-impostors';
+    return mesh;
+  }
+
   // ------------------------------------------------------------------ per frame
   _cull(view, camera) {
     camera.updateMatrixWorld();
@@ -361,6 +438,7 @@ export class NaniteForest {
     const f = new THREE.Frustum().setFromProjectionMatrix(projView);
     f.planes.forEach((p, i) => view.planes.array[i].set(p.normal.x, p.normal.y, p.normal.z, p.constant));
     const r = this.renderer;
+    view.ran = true; // (its buffers exist on the GPU from now on)
     r.compute(view.reset);
     r.compute(view.instances);
     r.compute(view.clampDispatch);
@@ -383,13 +461,15 @@ export class NaniteForest {
 
   /** Reads back the counters (async, for the overlay/harness). */
   async readStats(view = this.main) {
-    const [bark, leaf, st, disp] = await Promise.all([
+    if (!view.ran) return { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0 };
+    const [bark, leaf, st, disp, flags] = await Promise.all([
       this.renderer.getArrayBufferAsync(view.barkArgsAttr),
       this.renderer.getArrayBufferAsync(view.leafArgsAttr),
       this.renderer.getArrayBufferAsync(view.statsAttr),
       this.renderer.getArrayBufferAsync(view.itemCountAttr),
+      view === this.main ? this.renderer.getArrayBufferAsync(view.impFlagAttr) : new ArrayBuffer(4),
     ]);
     const b = new Uint32Array(bark), l = new Uint32Array(leaf), s = new Uint32Array(st);
-    return { barkClusters: b[1], leafClusters: l[1], barkTris: s[0], leafTris: s[1], instances: s[2], items: new Uint32Array(disp)[0] };
+    return { barkClusters: b[1], leafClusters: l[1], barkTris: s[0], leafTris: s[1], instances: s[2], items: new Uint32Array(disp)[0], impostors: countFlags(flags) };
   }
 }

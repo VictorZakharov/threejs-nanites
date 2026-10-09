@@ -91,7 +91,7 @@ export async function buildAllTrees(ui) {
             `DAG ${v.preset}: ${(st.barkClusters + st.leafClusters).toLocaleString()} clusters, ` +
               `${Math.max(st.barkLevels, st.leafLevels) + 1} levels (${st.ms} ms)`,
           );
-          resolve({ ...e.data, radius: src.radius, height: src.height, variant: v });
+          resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
         };
         w.onerror = (e) => reject(new Error(e.message));
         w.postMessage({ id, bark: src.bark, leaves: src.leaves });
