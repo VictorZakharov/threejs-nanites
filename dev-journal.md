@@ -39,6 +39,12 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
 
 ## Known issues
 
+- HUD shows ~23 ms per frame while fps reads 60 (reported by a tester). Probably the `gpu` figure (sum of GPU
+  timestamp spans over all passes, which may overlap or include idle gaps) read as frame time, or the HUD's
+  ms/fps averaging. Check what each HUD number measures and label them clearly; fold into the perf panel work.
+- Frame time at `orbit` rose ~2 -> ~5 ms with occlusion culling while GPU time stayed ~1 ms: unexplained (CPU side
+  of the second render pass? readbacks?).
+
 - Equal-depth draw-order ties give ~20-100 px of frame-to-frame differences (`--flicker`).
 - Bundle is ~4.9 MB (ez-tree's inlined textures).
 - Haze is strong at high altitude; clouds are flat sheets without shadows.
