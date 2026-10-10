@@ -1,7 +1,7 @@
 // Where the trees stand: a jittered scatter over the hills with clearings and a ragged edge, and the canopy cover
 // map the far-field ground shading uses.
 import * as THREE from 'three/webgpu';
-import { heightAt } from './terrain.ts';
+import { heightAt, fbm } from './terrain.ts';
 import { VARIANTS, isBush } from './trees.ts';
 
 const params = new URLSearchParams(location.search);
@@ -98,7 +98,26 @@ export function placeTrees(count: number): TreeInstances {
 const BUSHES_PER_TREE = Number(params.get('bushes') ?? (matchMedia('(pointer: coarse)').matches ? 0.5 : 1.5));
 
 /** Clearing field (the tree scatter skips where it's over 0.75): bushes gather along its edges. */
-const clearingAt = (x: number, z: number): number => Math.sin(x * 0.011 + 1.3) * Math.cos(z * 0.013 - 0.7) + Math.sin(x * 0.031 + z * 0.027) * 0.4;
+/**
+ * Clearing field: over 0.75 is a clearing (about CLEARING_SHARE of the land), the edges just under it. Domain-warped
+ * fractal noise, so clearings come in all sizes and shapes; it was a sum of sines, and from the air the forest was a
+ * lattice of same-sized gaps (the user: "pattern of trees looks repetitive").
+ */
+const CLEARING_SHARE = 0.1;
+const clearingNoise = (x: number, z: number): number => {
+  const wx = fbm(x / 900 + 3.1, z / 900 - 1.7, 2) - 0.5, wz = fbm(x / 900 - 5.3, z / 900 + 8.2, 2) - 0.5;
+  return fbm(x / 320 + wx * 1.6 + 19.7, z / 320 + wz * 1.6 - 4.4, 4);
+};
+let clearingCut = NaN; // the noise's (1 - CLEARING_SHARE) quantile, sampled once
+const clearingAt = (x: number, z: number): number => {
+  if (Number.isNaN(clearingCut)) {
+    const rnd = mulberry32(99), v: number[] = [];
+    for (let i = 0; i < 8192; i++) v.push(clearingNoise((rnd() - 0.5) * 16000, (rnd() - 0.5) * 16000));
+    v.sort((a, b) => a - b);
+    clearingCut = v[Math.floor(v.length * (1 - CLEARING_SHARE))];
+  }
+  return 0.75 + (clearingNoise(x, z) - clearingCut) * 2.5;
+};
 
 /**
  * Scatters bushes over the forest: thickest along the clearings' edges and the forest edge (where the light gets in),

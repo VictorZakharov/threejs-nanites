@@ -115,6 +115,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   menu switch); `floor.ts` puts the litter where the canopy is dense and within ~200 m (applied everywhere, its
   average brown turned the whole forest floor brown from the air), and the meadow keeps its plain colour (the litter's
   pattern in it read as pale stamped leaves). `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
+- Clearings (`clearingAt` in `placement.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
+  land). They were a sum of sines: from the air a lattice of same-sized gaps (the user: "repetitive"; `aerial` view).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

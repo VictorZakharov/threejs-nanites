@@ -17,7 +17,7 @@ function valueNoise(x: number, y: number): number {
   const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
   return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
 }
-function fbm(x: number, y: number, oct: number): number {
+export function fbm(x: number, y: number, oct: number): number {
   let s = 0, amp = 1, f = 1, n = 0;
   for (let i = 0; i < oct; i++) {
     s += valueNoise(x * f, y * f) * amp;

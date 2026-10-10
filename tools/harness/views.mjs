@@ -30,6 +30,8 @@ export const VIEWS = {
   orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
   // looking down (impostor top views, coverage)
+  // the forest from ~2.5 km at an angle (user: "from up top pattern of trees looks repetitive")
+  aerial: { x: 0, z: 2500, agl: 2500, yaw: 0, pitch: -50 },
   topdown: { x: 400, z: 600, agl: 1800, yaw: 0, pitch: -80 },
   topdown700: { x: 400, z: 600, agl: 500, yaw: 0, pitch: -80 },
   d1500: { x: 400, z: 600, agl: 1500, yaw: 0, pitch: -89 },
