@@ -14,13 +14,13 @@
       #corner { position: fixed; top: 10px; left: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; z-index: 3; }
       /* the overlays share the performance panel's look (dark teal glass, dim labels, bright numbers) */
       #hud, #help {
-        position: fixed; z-index: 3; padding: 10px 12px 9px; color: rgb(220 244 237 / 52%); font-size: 0.66rem; font-weight: 700;
+        position: fixed; z-index: 3; padding: 10px 12px 9px; color: rgb(220 244 237 / 52%); font-size: 0.85rem; font-weight: 700;
         letter-spacing: 0.06em; line-height: 1.6; white-space: pre; pointer-events: none;
         background: linear-gradient(145deg, rgb(3 13 15 / 82%), rgb(4 9 12 / 68%)); border: 1px solid rgb(139 231 209 / 15%);
         border-radius: 4px; box-shadow: 0 14px 40px rgb(0 0 0 / 26%); backdrop-filter: blur(14px);
       }
-      #hud { top: 10px; right: 10px; }
-      #hud i, #help i { display: inline-block; width: 7.5em; color: #8ee6d0; font-style: normal; letter-spacing: 0.12em; }
+      #hud { top: 10px; right: 10px; box-sizing: border-box; } /* (min-width set from offsetWidth: src/hud.ts) */
+      #hud i, #help i { display: inline-block; width: 6.8em; color: #8ee6d0; font-style: normal; letter-spacing: 0.12em; }
       #hud b, #help b { color: rgb(220 244 237 / 85%); font-variant-numeric: tabular-nums; }
       /* ---- performance panel (src/perf-panel.js, after cape-physics) */
       .perf {
@@ -44,6 +44,15 @@
       .perf .perf__copy { margin-top: 7px; color: rgb(220 244 237 / 36%); font-size: 0.5rem; }
       .perf[data-copy="copied"] .perf__copy { color: rgb(142 230 208 / 90%); }
       .perf[data-copy="failed"] .perf__copy { color: #f6b66e; }
+      /* (lines never wrap and keep their height: a number changing width moved everything under it) */
+      .perf small:not(.perf__hw) { min-height: 1.45em; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+      /* desktop: bigger type (the user: "too small on desktop"); touch keeps the compact sizes */
+      body:not(.touch) .perf { width: 400px; padding: 12px 14px 11px; }
+      body:not(.touch) .perf strong { font-size: 2.1rem; }
+      body:not(.touch) .perf strong i { font-size: 0.8rem; }
+      body:not(.touch) .perf > span, body:not(.touch) .perf small { font-size: 0.82rem; }
+      body:not(.touch) .perf .perf__copy { font-size: 0.74rem; }
+      body:not(.touch) .perf svg { height: 40px; }
       #help { bottom: 10px; left: 10px; }
       #start { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #start div { padding: 12px 18px; background: rgba(8, 14, 20, 0.7); border-radius: 8px; font-size: 15px; }

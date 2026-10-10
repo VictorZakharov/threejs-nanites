@@ -80,7 +80,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
-  Off under the harness unless `?perf=1` (`--probe=perf` prints the report).
+  Off under the harness unless `?perf=1` (`--probe=perf` prints the report). Bigger type on desktop; its lines never
+  wrap, and the HUD on the right only ever widens (`minWidth`): numbers changing width shifted the layout (the user).
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
   time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
@@ -100,7 +101,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades). ~0.3 ms on the dev GPU.
   Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
   that moved with the camera (the user). Blades: 4 segments, normals rounded across the width, colour per pixel
-  (root to tip, midrib, edges, dry tip): `grassclose` view.
+  (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
+  the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
+  ahead (the user).
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). ~+1.9 ms on the dev

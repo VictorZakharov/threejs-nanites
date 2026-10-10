@@ -44,6 +44,8 @@ export function createHud(ctx: HudContext) {
   const el = document.getElementById('hud')!; // (index.html)
   let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, shadowTris = 0;
   let gs: ForestStats | null = null;
+  let widest = 0;
+  const millions = (n: number): string => `${+(n / 1e6).toFixed(2)}M`;
   const agl = () => camera.position.y - heightAt(camera.position.x, camera.position.z);
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
@@ -70,15 +72,20 @@ export function createHud(ctx: HudContext) {
     const tris = gs.barkTris + gs.leafTris;
     const rows = [
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
-      ['plants', `${(gs.instances + gs.impostors).toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors) of ${forest.treeCount.toLocaleString()} trees + ${(forest.instanceCount - forest.treeCount).toLocaleString()} bushes`],
-      ['altitude', `${Math.round(agl())} m   speed ${Math.round(controls.velocity.length())} m/s`],
-      ['clusters', `${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})`],
-      ['triangles', `${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)`],
-      ['error', `${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}`],
-      ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${ctx.shadowsOn() ? 'on' : 'off'}   taa ${taa.enabled ? 'on' : 'off'}`],
+      // (short lines: the panel is as wide as the longest; the user: "wasting space")
+      ['plants', `${(gs.instances + gs.impostors).toLocaleString()} shown · ${gs.impostors.toLocaleString()} impostors`],
+      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount)} bushes`],
+      ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
+      ['clusters', `${(gs.barkClusters + gs.leafClusters).toLocaleString()} (${gs.barkClusters.toLocaleString()} bark)`],
+      ['triangles', `${(tris / 1e6).toFixed(2)} M + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M software`],
+      ['error', `${forest.u.tau.value.toFixed(2)} px ${auto.on ? `auto · ${auto.budget} ms` : 'manual'}${forest.frozen ? ' · FROZEN' : ''}`],
+      ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]} · shadows ${ctx.shadowsOn() ? 'on' : 'off'} · taa ${taa.enabled ? 'on' : 'off'}`],
     ];
     // (labels in the accent colour, numbers bright: the performance panel's style)
     el.innerHTML = rows.map(([k, v]) => `<i>${k.toUpperCase()}</i>${v.replace(/\d[\d,]*(?:\.\d+)?/g, '<b>$&</b>')}`).join('\n');
+    // it only ever grows (numbers changing width moved its left edge: layout shift)
+    widest = Math.max(widest, el.offsetWidth);
+    el.style.minWidth = `${widest}px`;
   }
 
   return {

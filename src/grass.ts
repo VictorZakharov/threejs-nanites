@@ -16,6 +16,9 @@ import type { ForestUniforms } from './nanite/types.ts';
 
 const params = new URLSearchParams(location.search);
 const SEGS = 4; // segments per blade: 2 * SEGS + 1 vertices, 2 * SEGS - 1 triangles
+/** A blade grows in over this share of its keep chance (`?grassgrow=`, 0 = pops): popping in whole, walking forward
+ * showed grass appearing ahead (the user). */
+const GROW = Number(params.get('grassgrow') ?? 0.3);
 
 /** The rings: cell size (m) and outer radius (m); each fades in over the last 20% of the ring inside it. */
 const RINGS = [
@@ -111,12 +114,16 @@ export function createGrass(ctx: GrassContext) {
       // look alike (a straight switch was a line in the grass that moved along with the camera: the user)
       const next = RINGS[k + 1];
       const m = next ? mix(1, next.cell / ring.cell, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
-      const alive = r(2).lessThan(fadeIn.mul(fadeOut).mul(density).div(m.mul(m)));
+      const keep = fadeIn.mul(fadeOut).mul(density).div(m.mul(m));
+      const alive = r(2).lessThan(keep);
+      // how far it's grown: from nothing where it's just kept to full size a share GROW of the chance further in, so
+      // the blades that come and go with the distance rise out of the ground and sink back instead of popping
+      const grown = GROW > 0 ? clamp(keep.sub(r(2)).div(keep.mul(GROW).max(1e-4)), 0, 1) : float(1);
 
       // the blade: height, width (wider in the outer rings: same covered fraction), facing, lean
       const lush = smoothstep(0.3, 0.8, patch);
-      const height = mix(0.22, 0.6, r(3)).mul(mix(0.6, 1.15, lush));
-      const width = float(cell * 0.6).mul(m).mul(float(1).sub(t.mul(t))); // tapering to the tip
+      const height = mix(0.22, 0.6, r(3)).mul(mix(0.6, 1.15, lush)).mul(grown);
+      const width = float(cell * 0.6).mul(m).mul(sqrt(grown)).mul(float(1).sub(t.mul(t))); // tapering to the tip
       const yaw = r(4).mul(6.2832);
       const across = vec3(cos(yaw), 0, sin(yaw)), lean = vec3(sin(yaw).negate(), 0, cos(yaw));
       const bend = t.mul(t).mul(height).mul(mix(0.1, 0.45, r(5)));
