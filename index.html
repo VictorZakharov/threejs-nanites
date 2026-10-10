@@ -57,17 +57,29 @@
       }
       .loading::after { position: absolute; inset: 0; content: ""; pointer-events: none; background: radial-gradient(circle, transparent 5%, rgb(0 0 0 / 66%) 105%); }
       .loading > * { position: relative; z-index: 1; }
-      .loading__mark { display: flex; align-items: end; gap: 7px; height: 46px; margin-bottom: 22px; }
-      .loading__mark span {
-        display: block; width: 18px; height: 34px; transform-origin: 50% 100%;
-        background: linear-gradient(rgb(170 226 150), rgb(62 112 58 / 25%));
-        clip-path: polygon(50% 0, 100% 100%, 0 100%);
-        filter: drop-shadow(0 0 10px rgb(150 222 130 / 45%));
-        animation: sway 2.2s ease-in-out infinite alternate;
+      /* emblem: a badge with the sun behind pine ridges; the front pine is drawn as its cluster mesh */
+      .logo { width: clamp(150px, 30vw, 196px); margin-bottom: 14px; overflow: visible; filter: drop-shadow(0 0 22px rgb(140 220 150 / 22%)); }
+      .logo .ring { transform-origin: 100px 100px; animation: spin 60s linear infinite; }
+      .logo .ring2 { transform-origin: 100px 100px; animation: spin 90s linear infinite reverse; }
+      .logo .sun { transform-origin: 100px 84px; animation: glow 4s ease-in-out infinite alternate; }
+      .logo .mesh { stroke-dasharray: 900; stroke-dashoffset: 900; animation: draw 3.2s 0.3s cubic-bezier(.6, 0, .3, 1) forwards, pulse 3s 3.5s ease-in-out infinite alternate; }
+      .logo .mote { animation: rise 6s linear infinite; opacity: 0; }
+      @keyframes spin { to { transform: rotate(360deg); } }
+      @keyframes glow { from { opacity: 0.75; transform: scale(0.96); } to { opacity: 1; transform: scale(1.05); } }
+      @keyframes draw { to { stroke-dashoffset: 0; } }
+      @keyframes pulse { from { stroke-opacity: 0.55; } to { stroke-opacity: 1; } }
+      @keyframes rise { 0% { opacity: 0; transform: translateY(0); } 20% { opacity: 1; } 100% { opacity: 0; transform: translateY(-46px); } }
+      .loading h1 {
+        margin: 0 0 4px; font: 600 clamp(1.4rem, 4.4vw, 2.3rem) Cinzel, Georgia, serif; letter-spacing: 0.3em; text-indent: 0.3em;
+        background: linear-gradient(100deg, #9fd98a 0%, #f2e6b8 35%, #fff8dc 45%, #f2e6b8 55%, #9fd98a 100%) 0 0 / 250% 100%;
+        -webkit-background-clip: text; background-clip: text; color: transparent;
+        filter: drop-shadow(0 0 14px rgb(220 200 130 / 30%)); animation: shimmer 7s ease-in-out infinite;
       }
-      .loading__mark span:nth-child(2) { width: 24px; height: 46px; animation-delay: -0.7s; }
-      .loading__mark span:nth-child(3) { width: 15px; height: 27px; animation-delay: -1.4s; }
-      .loading h1 { margin: 0 0 6px; font: 600 clamp(1.05rem, 2.6vw, 1.5rem) Cinzel, Georgia, serif; letter-spacing: 0.32em; text-indent: 0.32em; }
+      @keyframes shimmer { 0%, 100% { background-position: 100% 0; } 50% { background-position: 0 0; } }
+      .loading__rule { display: flex; align-items: center; gap: 10px; width: min(300px, 70vw); margin-bottom: 10px; color: rgb(220 200 130 / 70%); font-size: 8px; }
+      .loading__rule::before, .loading__rule::after { flex: 1; height: 1px; content: ""; background: linear-gradient(90deg, transparent, rgb(220 200 130 / 55%)); }
+      .loading__rule::after { background: linear-gradient(270deg, transparent, rgb(220 200 130 / 55%)); }
+      @media (prefers-reduced-motion: reduce) { .logo *, .loading h1 { animation: none !important; stroke-dashoffset: 0; } }
       .loading p { margin: 0 0 18px; color: rgb(205 228 200 / 45%); font: 500 clamp(0.6rem, 1.2vw, 0.72rem) Cinzel, Georgia, serif; letter-spacing: 0.24em; }
       .loading__track, .loading small, .loading__log { width: min(560px, 88vw); }
       .loading__track { height: 1px; background: rgb(190 225 180 / 10%); }
@@ -93,7 +105,6 @@
       .loading__error[hidden] { display: none; }
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
-      @keyframes sway { from { opacity: 0.45; transform: rotate(-3deg) scaleY(0.94); } to { opacity: 1; transform: rotate(3deg) scaleY(1); } }
       body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       .hidden { display: none !important; }
       /* ---- touch controls (src/touch.js) */
@@ -119,8 +130,35 @@
   </head>
   <body>
     <section class="loading" data-loading role="status" aria-live="polite">
-      <div class="loading__mark" aria-hidden="true"><span></span><span></span><span></span></div>
+      <svg class="logo" viewBox="0 0 200 200" aria-hidden="true">
+        <defs>
+          <radialGradient id="lg-sky" cx="50%" cy="40%" r="60%"><stop offset="0" stop-color="#2c4a34" /><stop offset="1" stop-color="#08120c" /></radialGradient>
+          <radialGradient id="lg-sun"><stop offset="0" stop-color="#fff6d8" /><stop offset="0.35" stop-color="#ffd98a" stop-opacity="0.9" /><stop offset="1" stop-color="#ffb35c" stop-opacity="0" /></radialGradient>
+          <linearGradient id="lg-ring" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#f2e6b8" /><stop offset="0.5" stop-color="#7cc48a" stop-opacity="0.35" /><stop offset="1" stop-color="#f2e6b8" /></linearGradient>
+          <linearGradient id="lg-pine" x1="0" y1="0" x2="0" y2="1"><stop offset="0" stop-color="#3d7a4a" /><stop offset="1" stop-color="#0f2416" /></linearGradient>
+          <clipPath id="lg-clip"><circle cx="100" cy="100" r="80" /></clipPath>
+        </defs>
+        <circle class="ring" cx="100" cy="100" r="92" fill="none" stroke="url(#lg-ring)" stroke-width="1.2" stroke-dasharray="2 5" />
+        <circle class="ring2" cx="100" cy="100" r="86" fill="none" stroke="url(#lg-ring)" stroke-width="0.8" stroke-dasharray="40 8 4 8" opacity="0.7" />
+        <g clip-path="url(#lg-clip)">
+          <circle cx="100" cy="100" r="80" fill="url(#lg-sky)" />
+          <circle class="sun" cx="100" cy="84" r="44" fill="url(#lg-sun)" />
+          <circle cx="100" cy="84" r="11" fill="#fff4cf" />
+          <path fill="#2a4f34" d="M20 150 L34 112 L44 132 L56 98 L70 130 L80 116 L92 140 L108 140 L120 112 L132 130 L146 96 L158 128 L168 110 L182 150 Z" />
+          <path fill="#1a3824" d="M20 165 L40 124 L52 146 L64 118 L76 150 L124 150 L136 120 L148 146 L160 126 L180 165 Z" />
+          <path fill="url(#lg-pine)" d="M100 40 L114 70 L108 70 L124 102 L116 102 L134 138 L104 138 L104 152 L96 152 L96 138 L66 138 L84 102 L76 102 L92 70 L86 70 Z" />
+          <path class="mesh" fill="none" stroke="#b8f0c0" stroke-width="0.9" stroke-linejoin="round" d="M100 40 L114 70 L86 70 Z M100 40 L100 70 M93 55 L107 55 L100 70 L93 55 M92 70 L108 70 L124 102 L76 102 Z M92 70 L100 102 L108 70 M84 86 L116 86 M84 86 L100 102 L116 86 M84 102 L116 102 L134 138 L66 138 Z M84 102 L88 138 L100 102 L112 138 L116 102 M75 120 L125 120 M88 138 L100 120 L112 138 M75 120 L88 138 M125 120 L112 138" />
+          <path fill="#07100a" d="M20 200 L20 150 Q100 132 180 150 L180 200 Z" />
+          <circle class="mote" cx="70" cy="140" r="1.2" fill="#e8ffb0" />
+          <circle class="mote" style="animation-delay: -1.5s" cx="130" cy="146" r="1" fill="#e8ffb0" />
+          <circle class="mote" style="animation-delay: -3.0s" cx="56" cy="150" r="0.9" fill="#e8ffb0" />
+          <circle class="mote" style="animation-delay: -4.5s" cx="146" cy="140" r="1.3" fill="#e8ffb0" />
+        </g>
+        <circle cx="100" cy="100" r="80" fill="none" stroke="#f2e6b8" stroke-opacity="0.55" stroke-width="1.5" />
+        <path d="M100 4 L104 12 L100 20 L96 12 Z M100 180 L104 188 L100 196 L96 188 Z" fill="#f2e6b8" opacity="0.8" />
+      </svg>
       <h1>NANITE FOREST</h1>
+      <div class="loading__rule" aria-hidden="true">◆</div>
       <p>cluster LOD · WebGPU · three.js</p>
       <div class="loading__track"><i data-loading-bar></i></div>
       <small><span data-loading-status>Waking the GPU</span><span data-loading-progress>0%</span></small>
