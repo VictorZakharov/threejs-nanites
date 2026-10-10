@@ -31,14 +31,17 @@ export function createHud(ctx) {
   async function update() {
     gs = await forest.readStats();
     const tris = gs.barkTris + gs.leafTris;
-    el.textContent =
-      (perf ? '' : `${fps.toFixed(0)} fps  ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms\n`) +
-      `trees      ${(gs.instances + gs.impostors).toLocaleString()} / ${forest.instanceCount.toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors)\n` +
-      `altitude   ${Math.round(agl())} m   speed ${Math.round(controls.velocity.length())} m/s\n` +
-      `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
-      `triangles  ${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)\n` +
-      `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${ctx.shadowsOn() ? 'on' : 'off'}   taa ${taa.enabled ? 'on' : 'off'}`;
+    const rows = [
+      ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
+      ['trees', `${(gs.instances + gs.impostors).toLocaleString()} / ${forest.instanceCount.toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors)`],
+      ['altitude', `${Math.round(agl())} m   speed ${Math.round(controls.velocity.length())} m/s`],
+      ['clusters', `${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})`],
+      ['triangles', `${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)`],
+      ['error', `${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}`],
+      ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${ctx.shadowsOn() ? 'on' : 'off'}   taa ${taa.enabled ? 'on' : 'off'}`],
+    ];
+    // (labels in the accent colour, numbers bright: the performance panel's style)
+    el.innerHTML = rows.map(([k, v]) => `<i>${k.toUpperCase()}</i>${v.replace(/\d[\d,]*(?:\.\d+)?/g, '<b>$&</b>')}`).join('\n');
   }
 
   return {

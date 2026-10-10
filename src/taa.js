@@ -70,9 +70,13 @@ export class TAA {
     // ... through a light unsharp mask (4 neighbours) when TAA is on
     const px = vec2(1).div(screenSize);
     const c = this.outputTex.rgb;
-    const ring = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => this.outputTex.sample(screenUV.add(px.mul(vec2(x, y)))).rgb);
+    // (in a compressed space, x / (1 + x): in linear HDR the sun's disc, far above 1, pulled the pixels around it
+    // below zero, a black ring round the sun, and isolated dark specks against the sky went black)
+    const squash = (v) => v.div(v.add(1));
+    const ring = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => squash(this.outputTex.sample(screenUV.add(px.mul(vec2(x, y)))).rgb));
     const avg = ring.reduce((a, b) => a.add(b)).mul(0.25);
-    this.displayNode = max(c.add(c.sub(avg).mul(this.u.sharpen)), vec3(0));
+    const t = clamp(squash(c).add(squash(c).sub(avg).mul(this.u.sharpen)), 0, 0.999);
+    this.displayNode = t.div(t.oneMinus());
     // (?taadebug=1: shows the trees' wind motion instead, x red / y green, x200)
     if (params.get('taadebug') === '2') this.displayNode = this.outputTex.rgb;
     if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenCoordinate.xy)).xyz).mul(200);

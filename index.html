@@ -12,7 +12,16 @@
       html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb8cf; font: 13px/1.45 ui-monospace, Consolas, monospace; color: #e8eef2; }
       canvas { display: block; width: 100%; height: 100%; }
       #corner { position: fixed; top: 10px; left: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; z-index: 3; }
-      #hud { padding: 8px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; white-space: pre; pointer-events: none; min-width: 250px; }
+      /* the overlays share the performance panel's look (dark teal glass, dim labels, bright numbers) */
+      #hud, #help {
+        position: fixed; z-index: 3; padding: 10px 12px 9px; color: rgb(220 244 237 / 52%); font-size: 0.66rem; font-weight: 700;
+        letter-spacing: 0.06em; line-height: 1.6; white-space: pre; pointer-events: none;
+        background: linear-gradient(145deg, rgb(3 13 15 / 82%), rgb(4 9 12 / 68%)); border: 1px solid rgb(139 231 209 / 15%);
+        border-radius: 4px; box-shadow: 0 14px 40px rgb(0 0 0 / 26%); backdrop-filter: blur(14px);
+      }
+      #hud { top: 10px; right: 10px; }
+      #hud i, #help i { display: inline-block; width: 7.5em; color: #8ee6d0; font-style: normal; letter-spacing: 0.12em; }
+      #hud b, #help b { color: rgb(220 244 237 / 85%); font-variant-numeric: tabular-nums; }
       /* ---- performance panel (src/perf-panel.js, after cape-physics) */
       .perf {
         width: min(250px, calc(100vw - 28px)); padding: 10px 12px 9px; color: #8ee6d0; text-align: left; font: inherit;
@@ -35,7 +44,7 @@
       .perf .perf__copy { margin-top: 7px; color: rgb(220 244 237 / 36%); font-size: 0.5rem; }
       .perf[data-copy="copied"] .perf__copy { color: rgb(142 230 208 / 90%); }
       .perf[data-copy="failed"] .perf__copy { color: #f6b66e; }
-      #help { position: fixed; bottom: 10px; left: 10px; padding: 8px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; white-space: pre; pointer-events: none; }
+      #help { bottom: 10px; left: 10px; }
       #start { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #start div { padding: 12px 18px; background: rgba(8, 14, 20, 0.7); border-radius: 8px; font-size: 15px; }
       body.captured #start { display: none; }
@@ -85,7 +94,7 @@
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
       @keyframes sway { from { opacity: 0.45; transform: rotate(-3deg) scaleY(0.94); } to { opacity: 1; transform: rotate(3deg) scaleY(1); } }
-      body:not(.is-ready) #corner, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
+      body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       .hidden { display: none !important; }
       /* ---- touch controls (src/touch.js) */
       #help-touch { display: none; }
@@ -121,11 +130,13 @@
         <span>This demo needs WebGPU: a recent Chrome or Edge on desktop works best.</span>
       </div>
     </section>
-    <div id="corner"><div id="hud"></div></div>
-    <div id="help">WASD move · Space up · Ctrl down · Shift fast · mouse look · right mouse zoom 5×
-L  debug colours (cluster / DAG level / tree / type / rasterizer)
-F  freeze culling     [ ]  error threshold (px)   Q  auto quality
-P  shadows   T  anti-aliasing   G  wind   H  hide help   F11  fullscreen   Esc  release mouse</div>
+    <div id="corner"></div>
+    <div id="hud"></div>
+    <div id="help"><i>FLY</i>WASD move · Space up · Ctrl down · Shift fast · mouse look · right mouse zoom 5×
+<i>L</i>debug colours (cluster / DAG level / tree / type / rasterizer)
+<i>F  [ ]  Q</i>freeze culling · error threshold (px) · auto quality
+<i>P  T  G</i>shadows · anti-aliasing · wind
+<i>H  F11  ESC</i>hide help · fullscreen · release mouse</div>
     <div id="start"><div>Click to fly</div></div>
     <div id="help-touch">left thumb: move · right thumb: look · ▲▼ up/down · 5× zoom</div>
     <script type="module" src="/src/main.js"></script>
