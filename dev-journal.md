@@ -20,6 +20,15 @@ Done, waiting for the user's check on the live site:
   correlated with the cross-fade dither (coverage up to 50 points off inside the band; now `ditherAlt`), and
   impostors were 5-8/255 brighter than geometry in the distant rows (`impcov` 0.85 was calibrated with the TAA bug;
   now 0.9: ~1/255 left; 0.94 matches but flickers more when turning).
+- **Ghosted peaks** (user screenshot: far pine tips pale against the sky). TAA averaged in linear light: sub-pixel
+  dark specks on bright sky read far too pale. Now blended in sqrt space (`peaks` view vs `taa=0&pr=2`: ridge blue
+  182 -> 169, reference 160). Tried and dropped: wider/no clipping box (no effect), per-triangle dither rotation
+  (overlapping cards then go solid), sharper software-leaf coverage.
+- **Fog-line step still visible** (user, after the fixes above). Impostors vs geometry by row on `fogline`: the
+  switch rows (~400-480) want `impcov` ~1.05, `slope` wants ~0.9; 1.0 costs ~30% more turning flicker on `slope`.
+  Kept 0.9 (switch rows +1-2/255). A view-dependent density difference underneath; need the user's screenshot/spot.
+- **Phone perf** (user, Samsung S25: 17 fps, gpu 68 ms at 252 m, auto tau already 8 px). Asked for a cape-physics
+  style performance toolbar with copy-to-clipboard stats: next.
 - **Mobile controls** (GitHub issue #1): `src/touch.js`, checked with `--probe=touch --query=touch=1` headless; not
   yet tried on a real phone (WebGPU on mobile: Chrome Android, Safari 26).
 

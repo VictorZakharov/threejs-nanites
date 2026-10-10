@@ -69,6 +69,9 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - Is it a regression? Build the last good commit in a worktree under `tools/tmp/` (`git worktree add`, then
   `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
   and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
+- TAA vs a supersampled reference: `--size=800x450 --views=peaks --ab="taa=0&pr=2|taa=1"`, then
+  `img.mjs mean ... --rect=` on the far ridge. Don't judge TAA from a single frame (`taafeedback=1`): the output's
+  unsharp mask turns isolated dark specks black there (`sharpen=0`).
 - `?taadebug=2` shows where each pixel's history is fetched from (x0.1 px, red x, green y): black with a still camera.
 - `swTris` counts the triangles the software rasterizer took (`tris` is the hardware ones); `cull` includes its
   compute passes. `--flicker` prints how many pixels differ between still frames (hardware: ~100-900 px of

@@ -9,6 +9,8 @@ export const VIEWS = {
   // the screen filled by one trunk: occlusion culling should leave only that tree (see --probe=occlusion)
   bark: { x: 0, z: 0, agl: 1.5, yaw: 0, pitch: 0, trunk: 1.5, zoom: 5 },
   canopy: { x: -50, z: 200, agl: 45, yaw: -20, pitch: -6 },
+  // treetops against the sky from below (user: "ghosted peaks": pale pine tips)
+  peaks: { x: 560, z: 120, agl: 12, yaw: 0, pitch: 4 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
   high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },

@@ -29,6 +29,13 @@ const JITTER = Array.from({ length: 8 }, (_, i) => [(halton(i + 1, 2) - 0.5) * S
 /** Colour <-> YCoCg (the neighbourhood box is tighter around foliage greens in it than in RGB). */
 const toYCoCg = (c) => vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
 const toRGB = (y) => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.sub(y.y).sub(y.z));
+// The history is blended in a perceptual space (the square root of linear light, near the display's gamma), not in
+// linear light: half a dark needle against the bright sky averaged in linear light reads much brighter than half on
+// screen, and the far crowns' tips, sub-pixel speckles that the jitter moves, turned into pale ghosts against the
+// sky (the user: "ghosted peaks"). `?taaspace=linear` for the old blend.
+const PERCEPTUAL = params.get('taaspace') !== 'linear';
+const enc = (c) => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
+const dec = (c) => (PERCEPTUAL ? c.mul(c) : c);
 
 export class TAA {
   /** `sceneRT`: the MSAA scene target (colour + depth texture), `samples` its sample count. */
@@ -77,7 +84,7 @@ export class TAA {
     const invTwoR = 1 / (2 * PLANET_RADIUS);
     return Fn(() => {
       const p = ivec2(screenCoordinate.xy);
-      const cur = textureLoad(colour, p).rgb.toVar();
+      const cur = enc(textureLoad(colour, p).rgb).toVar();
       // neighbourhood: colour mean and spread (variance clipping box, in YCoCg) and the nearest depth (dilated:
       // thin twigs reproject with the depth of what they are, not of the sky behind them)
       const m1 = vec3(0).toVar(), m2 = vec3(0).toVar();
@@ -85,7 +92,7 @@ export class TAA {
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++) {
           const q = p.add(ivec2(dx, dy));
-          const c = toYCoCg(textureLoad(colour, q).rgb);
+          const c = toYCoCg(enc(textureLoad(colour, q).rgb));
           m1.addAssign(c);
           m2.addAssign(c.mul(c));
           zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
@@ -114,7 +121,7 @@ export class TAA {
         .sub(textureLoad(wind, p).xy);
       const onScreen = prevUv.x.greaterThanEqual(0).and(prevUv.x.lessThanEqual(1)).and(prevUv.y.greaterThanEqual(0)).and(prevUv.y.lessThanEqual(1));
       // history, clipped towards the mean into the box (clipping, not clamping: no colour shift at the box corners)
-      const hist = toYCoCg(this._catmullRom(prevUv));
+      const hist = toYCoCg(enc(this._catmullRom(prevUv)));
       const d = hist.sub(mean);
       const ext = max(boxMax.sub(mean), vec3(1e-4));
       const t = max(max(abs(d.x).div(ext.x), abs(d.y).div(ext.y)), abs(d.z).div(ext.z));
@@ -126,7 +133,7 @@ export class TAA {
       const out = cur.mul(wc).add(clipped.mul(wh)).div(max(wc.add(wh), 1e-5));
       // (?taadebug=2: how far each pixel's history is fetched from, in pixels x 0.1: red x, green y)
       if (params.get('taadebug') === '2') return vec4(abs(prevUv.sub(screenUV).mul(screenSize)).mul(0.1), 0, 1);
-      return vec4(clamp(out, 0, 65000), 1);
+      return vec4(clamp(dec(out), 0, 65000), 1);
     })();
   }
 

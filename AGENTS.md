@@ -127,7 +127,9 @@ first in a new session. Update it as you go, and keep it short and current, not 
   history up to half a pixel off with the camera standing still, every frame, and 3 km away through the 5x zoom the
   blur plus the clipping turned crowns into ghosts (the user: "distant trees are washed"; `?taadebug=2` shows the
   offsets, all zero when still; `?taafeedback=1` turns the accumulation off). History: Catmull-Rom lookup (bilinear blurred the swaying leaves), clipped to the 3x3 neighbourhood's
-  colour spread (YCoCg), blended 10% per frame in tone-mapped space; the output adds a light unsharp mask
+  colour spread (YCoCg), blended 10% per frame in a perceptual space (square root of linear light, `?taaspace=linear`
+  for the old blend): averaged in linear light, the far pines' tips (sub-pixel specks against the bright sky) came
+  out as pale ghosts (the user: "ghosted peaks"; `peaks` view, ridge colour vs `taa=0&pr=2` at 800x450); the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
   visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
 - Far shimmer under TAA: distant trees were hard cut-outs (impostor alpha sharpened by `impostorCoverage`, software
