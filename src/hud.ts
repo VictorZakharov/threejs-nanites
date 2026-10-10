@@ -17,8 +17,9 @@ export interface AutoQuality {
   gpuMs: number;
   renderMs?: number;
   computeMs?: number;
-  frameMs?: number; // (without timestamp queries)
+  frameMs?: number; // eased frame time
   busy: boolean;
+  busySince?: number; // (when the pending timestamp readback started)
   onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)
 }
 

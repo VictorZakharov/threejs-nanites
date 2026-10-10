@@ -209,14 +209,15 @@ async function start() {
       else return;
       lastAdjust = now;
     };
-    if (!gpuBackend(renderer).trackTimestamp) {
-      // no timestamp queries: fall back to frame time against 60 fps
-      auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
-      if (auto.on) step(auto.frameMs / 16.7);
-      return;
-    }
-    if (auto.busy) return;
+    // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
+    // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
+    auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
+    const timed = gpuBackend(renderer).trackTimestamp, now = performance.now();
+    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (timed ? 50 : 16.7));
+    if (!timed) return;
+    if (auto.busy && now - (auto.busySince ?? 0) < 1000) return; // (a readback that never settles is dropped)
     auto.busy = true;
+    auto.busySince = now;
     Promise.all([renderer.resolveTimestampsAsync('render'), renderer.resolveTimestampsAsync('compute')]).then(([r, c]) => {
       auto.busy = false;
       if (r === undefined || !(r >= 0)) return;
@@ -226,6 +227,9 @@ async function start() {
       auto.computeMs = ease(auto.computeMs, c || 0);
       auto.onSample?.(r, c || 0);
       if (auto.on) step(auto.gpuMs / auto.budget);
+    }, (err) => {
+      auto.busy = false;
+      console.warn('GPU timestamp readback failed', err);
     });
   }
 
