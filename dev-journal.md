@@ -40,8 +40,8 @@ Done, waiting for the user's check on the live site:
 
 ## Ground (user, 2026-10-10: "make ground fancier... grass and bushes")
 
-- Grass (rings of instanced blades) and bushes (ez-tree bush presets as Nanite variants) are in. Next asked: a
-  parallax ground shader like last-stand's.
+- Grass (rings of instanced blades), bushes (ez-tree bush presets as Nanite variants) and last-stand's forest floor
+  with parallax relief are in. Waiting for the user's look. The floor under dense canopy reads dark (shade).
 - Tree impostor gains have drifted (typematch on `d550`: pines 1.17/1.16/1.47, before the bushes too): recalibrate
   the trees with `--typematch=calibrate` and check the fog line again.
 

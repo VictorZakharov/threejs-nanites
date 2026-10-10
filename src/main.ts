@@ -1,7 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
-import { createTerrain, heightAt, TERRAIN_SEGMENTS } from './terrain.ts';
+import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour } from './terrain.ts';
 import { createGrass } from './grass.ts';
+import { loadFloorMaps, applyFloor } from './ground/floor.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
@@ -87,6 +88,7 @@ async function start() {
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
   const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
   const terrain = createTerrain(terrainSize);
+  const floorMaps = loadFloorMaps(); // (a worker: the forest floor's maps, src/ground/)
   scene.add(terrain);
   const clouds = createClouds();
   scene.add(clouds.group);
@@ -135,6 +137,9 @@ async function start() {
   const cover = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5)).r;
   const groundFar = float(1).sub(cover.mul(groundShade));
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
+  // the forest floor near the viewer: leaf litter under the canopy, parallax relief (src/ground/)
+  const nearGround = terrain.getObjectByName('terrain') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
+  applyFloor(nearGround.material, await floorMaps, meadowColour(), cover);
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,

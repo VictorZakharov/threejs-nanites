@@ -8,6 +8,7 @@ import type { TAA } from './taa.ts';
 import type { GodRays } from './godrays.ts';
 import type { AutoQuality } from './hud.ts';
 import type { PerfPanel } from './perf-panel.ts';
+import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 export interface MenuContext {
   controls: FlyControls;
@@ -59,6 +60,7 @@ export function createMenu(ctx: MenuContext) {
     { label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v) => (rays.enabled = v) },
     { label: 'Wind', key: 'KeyG', get: () => u.wind.value > 0, set: (v) => (u.wind.value = v ? 1 : 0) },
     { label: 'Grass', get: () => ctx.grass.visible, set: (v) => (ctx.grass.visible = v) },
+    { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
     { label: 'Occlusion culling', get: () => u.occlusion.value > 0, set: (v) => (u.occlusion.value = v ? 1 : 0) },
     ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),

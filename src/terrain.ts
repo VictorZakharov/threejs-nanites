@@ -62,15 +62,20 @@ function terrainGeometry(size: number, seg: number, lowerInside = 0): THREE.Plan
   return geo;
 }
 
-function terrainMaterial(): THREE.MeshStandardNodeMaterial {
-  const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 });
+/** The ground's own colour: grass, dirt on the slopes (src/ground/floor.ts adds the forest floor near the viewer). */
+export function meadowColour() {
   const n1 = mx_noise_float(positionWorld.xz.mul(0.05)).mul(0.5).add(0.5);
   const n2 = mx_noise_float(positionWorld.xz.mul(0.6)).mul(0.5).add(0.5);
   const grassA = vec3(0.16, 0.22, 0.07);
   const grassB = vec3(0.24, 0.27, 0.1);
   const dirt = vec3(0.27, 0.22, 0.16);
   const grass = mix(grassA, grassB, n1).mul(float(0.85).add(n2.mul(0.3)));
-  mat.colorNode = mix(grass, dirt, smoothstep(0.2, 0.8, attribute('slope', 'float').add(n2.mul(0.25).sub(0.1))));
+  return mix(grass, dirt, smoothstep(0.2, 0.8, attribute('slope', 'float').add(n2.mul(0.25).sub(0.1))));
+}
+
+function terrainMaterial(): THREE.MeshStandardNodeMaterial {
+  const mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.95, metalness: 0 });
+  mat.colorNode = meadowColour();
   mat.positionNode = curve(positionLocal); // meshes sit at the origin: local = world
   return mat;
 }

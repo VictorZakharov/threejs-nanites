@@ -29,7 +29,7 @@ The panel at the top left shows average FPS and the 1% low over the last 15 s, f
 culling) and the quality; click or tap it to copy a performance report to paste into an issue. Settings → Profile GPU adds a breakdown
 (GPU time with each feature switched off in turn) to that report.
 
-URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms; 14 on touch devices), `grass=1` (ring scale, 0 = off), `bushes=1.5` (per tree), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
+URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms; 14 on touch devices), `grass=1` (ring scale, 0 = off), `bushes=1.5` (per tree), `relief=16` (ground parallax steps, 0 = off), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
 
 ## How it works
 

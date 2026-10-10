@@ -103,6 +103,12 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
   colours are nine hues 40 degrees apart (typematch classifies within 20). Gains are linear: a measured sRGB ratio r
   needs about r^2.
+- Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural leaf litter (soil, three
+  leaf layers, twigs, pebbles; 5 m tile, height in the red channel) built in a worker; `relief.ts` is its parallax
+  occlusion in TSL (up to 16 steps, 4.5 cm deep, fades by 40 m; `reliefSteps` uniform: `?relief=0`, off on touch, a
+  menu switch); `floor.ts` puts the litter where the canopy is dense and within ~200 m (applied everywhere, its
+  average brown turned the whole forest floor brown from the air), and the meadow keeps its colour with the litter's
+  detail relative to its mean. `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.
