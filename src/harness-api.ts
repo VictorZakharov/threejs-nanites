@@ -29,6 +29,7 @@ export interface HarnessContext {
   frame(dt: number): void;
   loop(): void;
   setShadows(on: boolean): void;
+  setScale(s: number): void;
   shadowsOn(): boolean;
   updateHud(): Promise<void>;
   setBenchMs(ms: number): void;
@@ -129,7 +130,10 @@ Object.assign(demo, {
     auto.on = true;
     auto.budget = budget;
     auto.gpuMs = 0;
-    forest.u.tau.value = 1;
+    // (?autostart=low: from the lowest quality, as after the orbit: does it come back up?)
+    const low = new URLSearchParams(location.search).get('autostart') === 'low';
+    forest.u.tau.value = low ? auto.maxTau : 1;
+    ctx.setScale(low ? 0.5 : 1);
     const fwd = () => controls.keys.add('KeyW');
     controls.speed = speed;
     fwd();

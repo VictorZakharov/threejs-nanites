@@ -73,7 +73,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
   devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
-  at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. It's off
+  at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
+  the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
+  after the orbit). It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
   `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
@@ -96,6 +98,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. A dropped
   blade collapses onto its root (collapsing per vertex, or to the origin, drew streaks across the screen). Double-sided
   Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades). ~0.3 ms on the dev GPU.
+  Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
+  that moved with the camera (the user). Blades: 4 segments, normals rounded across the width, colour per pixel
+  (root to tip, midrib, edges, dry tip): `grassclose` view.
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). ~+1.9 ms on the dev
@@ -105,10 +110,11 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   needs about r^2.
 - Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural leaf litter (soil, three
   leaf layers, twigs, pebbles; 5 m tile, height in the red channel) built in a worker; `relief.ts` is its parallax
-  occlusion in TSL (up to 16 steps, 4.5 cm deep, fades by 40 m; `reliefSteps` uniform: `?relief=0`, off on touch, a
+  occlusion in TSL (up to 32 steps, more up close, then 5 bisections: linear steps alone left terraces on the leaves'
+  edges; 3 cm deep, fades by 40 m, only in the litter; `reliefSteps` uniform: `?relief=0`, off on touch, a
   menu switch); `floor.ts` puts the litter where the canopy is dense and within ~200 m (applied everywhere, its
-  average brown turned the whole forest floor brown from the air), and the meadow keeps its colour with the litter's
-  detail relative to its mean. `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
+  average brown turned the whole forest floor brown from the air), and the meadow keeps its plain colour (the litter's
+  pattern in it read as pale stamped leaves). `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

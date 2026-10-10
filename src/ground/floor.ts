@@ -11,7 +11,7 @@ import type { PBRData } from './floor-maps.ts';
 import { reliefUv } from './relief.ts';
 
 const TILE = 5; // m a tile (1024 px: ~5 mm a texel)
-const RELIEF = { depth: 0.045, tile: TILE, fade: 40 };
+const RELIEF = { depth: 0.03, tile: TILE, fade: 40 };
 
 export interface FloorMaps {
   map: THREE.DataTexture;
@@ -55,7 +55,8 @@ export function loadFloorMaps(): Promise<FloorMaps> {
 export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, cover: Float): void {
   const sample = (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2): Float => texture(t, p).grad(dx, dy).r;
   const uv0 = positionWorld.xz.div(TILE);
-  const uv = reliefUv(maps.height, uv0, RELIEF, sample);
+  const under = smoothstep(0.3, 0.75, cover).mul(float(1).sub(smoothstep(80, 200, positionWorld.sub(cameraPosition).length())));
+  const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
   const dx = uv0.dFdx(), dy = uv0.dFdy();
   const litter = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
   const nm = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)
@@ -68,13 +69,10 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   // under the canopy the litter, near the viewer (far away the ground's own colour, darkened by the far shading as
   // before: the litter's average brown turned the whole forest floor brown from the air); in the open the meadow
   // colour, varied by the litter's detail (its luminance relative to the mean, so the average stays the meadow's)
-  const dist = positionWorld.sub(cameraPosition).length();
-  const under = smoothstep(0.3, 0.75, cover).mul(float(1).sub(smoothstep(80, 200, dist)));
-  const lum = litter.dot(vec3(0.3, 0.55, 0.15));
-  const meadowDetail = meadow.mul(lum.div(maps.meanLum * 2).mul(0.5).add(0.5)); // (the litter is the map x 2)
-  mat.colorNode = mix(meadowDetail, floor, under);
+  // (the meadow keeps its plain colour: the litter's pattern in it read as pale stamped leaves up close)
+  mat.colorNode = mix(meadow, floor, under);
   // the maps' normals on the terrain's (v runs along +z: dh/dz = g)
-  const nW = normalWorld.add(vec3(nm.x, 0, nm.y.negate()).mul(0.8)).normalize();
+  const nW = normalWorld.add(vec3(nm.x, 0, nm.y.negate()).mul(under.mul(0.8))).normalize();
   mat.normalNode = cameraViewMatrix.mul(vec4(nW, 0)).xyz.normalize();
   mat.roughness = 0.95;
 }

@@ -214,11 +214,15 @@ async function start() {
     const tau = forest.u.tau;
     const step = (over: number): void => {
       const now = performance.now();
-      if (now - lastAdjust < (auto.scale < 1 ? 1500 : 500)) return;
+      // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
+      if (now - lastAdjust < (auto.scale < 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
       if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(1.3, over));
       else if (over > 1.1 && auto.scale > 0.5) setScale(Math.max(0.5, auto.scale * 0.85));
-      else if (over < 0.6 && auto.scale < 1) setScale(Math.min(1, auto.scale / 0.85));
-      else if (over < 0.6) tau.value = Math.max(1, tau.value / 1.1);
+      // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
+      // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
+      // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
+      else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
+      else if (over < 0.75 && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / 1.1); // (not before the resolution is back: it ate the room)
       else return;
       lastAdjust = now;
     };
@@ -367,7 +371,7 @@ async function start() {
 
   // ---------------------------------------------------------------- harness API
   installHarnessApi(demo, {
-    renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud,
+    renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, setScale, updateHud,
     shadowsOn: () => shadowsOn,
     setBenchMs: (m) => hud.setBenchMs(m),
   });

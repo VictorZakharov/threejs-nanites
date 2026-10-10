@@ -15,7 +15,7 @@ import type { Float, Vec2, Vec3 } from './types.ts';
 import type { ForestUniforms } from './nanite/types.ts';
 
 const params = new URLSearchParams(location.search);
-const SEGS = 3; // segments per blade: 2 * SEGS + 1 vertices, 2 * SEGS - 1 triangles
+const SEGS = 4; // segments per blade: 2 * SEGS + 1 vertices, 2 * SEGS - 1 triangles
 
 /** The rings: cell size (m) and outer radius (m); each fades in over the last 20% of the ring inside it. */
 const RINGS = [
@@ -89,7 +89,8 @@ export function createGrass(ctx: GrassContext) {
     const N = Math.ceil((radius * 2) / cell) + 1;
     const origin = uniform(new THREE.Vector2()); // the grid's corner cell (whole cells)
 
-    const vColour = varying(vec3(0), 'vGrassColour');
+    const vColour = varying(vec3(0), 'vGrassColour'); // the blade's tip colour
+    const vBlade = varying(vec2(0), 'vGrassBlade'); // (along 0..1, across -1..1)
     const vClip = varying(vec4(0, 0, 0, 1), 'vGrassClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vGrassPrevClip');
 
     const position = Fn(() => {
@@ -106,12 +107,16 @@ export function createGrass(ctx: GrassContext) {
       const fadeOut = float(1).sub(smoothstep(radius * 0.8, radius, d));
       const patch = mx_noise_float(xz.mul(0.045)).mul(0.5).add(0.5);
       const density = float(1).sub(coverAt(xz).mul(0.6)).mul(float(1).sub(smoothstep(0.45, 0.8, g.slope))).mul(smoothstep(0.05, 0.45, patch));
-      const alive = r(2).lessThan(fadeIn.mul(fadeOut).mul(density));
+      // morph towards the next ring across this one: fewer, wider blades, so where they hand over (the last 20%) both
+      // look alike (a straight switch was a line in the grass that moved along with the camera: the user)
+      const next = RINGS[k + 1];
+      const m = next ? mix(1, next.cell / ring.cell, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
+      const alive = r(2).lessThan(fadeIn.mul(fadeOut).mul(density).div(m.mul(m)));
 
       // the blade: height, width (wider in the outer rings: same covered fraction), facing, lean
       const lush = smoothstep(0.3, 0.8, patch);
       const height = mix(0.22, 0.6, r(3)).mul(mix(0.6, 1.15, lush));
-      const width = float(cell * 0.6).mul(float(1).sub(t.mul(t))); // tapering to the tip
+      const width = float(cell * 0.6).mul(m).mul(float(1).sub(t.mul(t))); // tapering to the tip
       const yaw = r(4).mul(6.2832);
       const across = vec3(cos(yaw), 0, sin(yaw)), lean = vec3(sin(yaw).negate(), 0, cos(yaw));
       const bend = t.mul(t).mul(height).mul(mix(0.1, 0.45, r(5)));
@@ -126,11 +131,13 @@ export function createGrass(ctx: GrassContext) {
       const world = curve(base.add(local).add(windAt(u.time)));
       const prevWorld = curve(base.add(local).add(windAt(u.prevTime)));
       // soft normal: the blade's face bent most of the way up (grass lit like a surface, not like flat cards)
-      normalLocal.assign(mix(lean, vec3(0, 1, 0), 0.8).normalize());
+      // rounded across the width (smooth shading over each blade instead of flat facets)
+      normalLocal.assign(mix(lean, vec3(0, 1, 0), 0.75).add(across.mul(side.mul(0.55))).normalize());
+      vBlade.assign(vec2(t, side));
       // colour: dark at the root, lighter and a little yellow at the tip, patches of drier grass
       const dry = smoothstep(0.55, 0.9, mx_noise_float(xz.mul(0.11).add(17)).mul(0.5).add(0.5)).mul(0.6).add(r(7).mul(0.25));
       const tip = mix(vec3(0.36, 0.5, 0.13), vec3(0.58, 0.54, 0.25), dry);
-      vColour.assign(mix(vec3(0.16, 0.21, 0.06), tip, t.mul(0.7).add(0.3)).mul(mix(0.85, 1.1, r(8))));
+      vColour.assign(tip.mul(mix(0.85, 1.1, r(8))));
       const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
       vClip.assign(viewProj.mul(vec4(world, 1)));
       vPrevClip.assign(viewProj.mul(vec4(prevWorld, 1)));
@@ -142,7 +149,13 @@ export function createGrass(ctx: GrassContext) {
 
     const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide });
     mat.positionNode = position;
-    mat.colorNode = vColour;
+    // per pixel: dark root to the tip colour, a pale midrib, darker edges, drying at the very tip
+    const along = vBlade.x, acrossB = vBlade.y.abs();
+    const body = mix(vec3(0.12, 0.17, 0.05), vColour, smoothstep(0, 0.75, along));
+    const rib = float(1).sub(smoothstep(0.04, 0.16, acrossB)).mul(0.18).mul(smoothstep(0.1, 0.4, along));
+    const edge = float(1).sub(acrossB.mul(acrossB).mul(0.3));
+    const dryTip = smoothstep(0.85, 1, along).mul(0.35);
+    mat.colorNode = mix(body.mul(edge).add(rib.mul(0.12)), vec3(0.45, 0.4, 0.2), dryTip);
     mat.normalNode = normalViewGeometry; // (keep the up-bent normal on both faces: the default flips it on the back)
     mat.receivedShadowNode = ctx.receivedShadow as typeof mat.receivedShadowNode;
     const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
