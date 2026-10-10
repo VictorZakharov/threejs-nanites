@@ -15,6 +15,7 @@ import { arrayTexture, layerLookup } from './textures.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.ts';
 import { createLighting } from './lighting.ts';
 import { runProfile } from './profile.ts';
+import { createMenu } from './menu.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
 import type { AutoQuality } from './hud.ts';
@@ -233,20 +234,6 @@ async function start() {
     });
   }
 
-  let showHelp = true;
-  controls.onKey = (code) => {
-    if (code === 'KeyL') forest.u.debug.value = (forest.u.debug.value + 1) % 6;
-    if (code === 'KeyF') forest.frozen = !forest.frozen;
-    if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (forest.u.tau.value = Math.max(0.25, forest.u.tau.value / 1.5));
-    if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
-    if (code === 'KeyQ') auto.on = !auto.on;
-    if (code === 'KeyR') rays.enabled = !rays.enabled;
-    if (code === 'KeyP') setShadows(!shadowsOn);
-    if (code === 'KeyT') (taa.enabled = !taa.enabled), (taa.reset = true);
-    if (code === 'KeyG') forest.u.wind.value = forest.u.wind.value > 0 ? 0 : 1;
-    if (code === 'KeyH') document.getElementById('help')?.classList.toggle('hidden', (showHelp = !showHelp) === false);
-  };
-
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
   // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
@@ -352,7 +339,8 @@ async function start() {
     (label, i, n) => hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`),
   );
   demo.profile = profile;
-  hud.perf?.onProfile(profile);
+  // settings menu + keyboard shortcuts (src/menu.ts)
+  createMenu({ controls, forest, taa, rays, clouds: clouds.group, auto, perf: hud.perf, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
   let prev = performance.now();
   function loop() {

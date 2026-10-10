@@ -79,10 +79,14 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report).
-  Its PROFILE GPU button (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
+  The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
   time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
   (`?aa=0`).
+- Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
+  the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
+  the same switches): add a new switch there once and it gets both. Esc while flying is the browser's (it releases the
+  mouse, no key event), so losing the pointer lock opens the menu. `--probe=menu` clicks every switch and reads it back.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

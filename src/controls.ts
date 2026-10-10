@@ -30,6 +30,7 @@ export class FlyControls {
   readonly velocity = new THREE.Vector3();
   locked = false;
   onKey: ((code: string, event: KeyboardEvent) => void) | null = null; // app shortcuts
+  onUnlock: (() => void) | null = null; // the mouse was released (Esc): the settings menu opens
   readonly baseFov: number;
   zoom = 1;
   zoomTarget = 1;
@@ -43,8 +44,10 @@ export class FlyControls {
     this.baseFov = camera.fov;
     dom.addEventListener('click', () => this.touchMode || this.capture());
     document.addEventListener('pointerlockchange', () => {
+      const was = this.locked;
       this.locked = document.pointerLockElement === dom;
       if (!this.locked) {
+        if (was) this.onUnlock?.();
         this.keys.clear();
         this.zoomTarget = 1;
       }

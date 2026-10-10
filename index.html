@@ -41,8 +41,6 @@
       .perf.has-drop { color: #f6b66e; border-color: rgb(246 182 110 / 28%); }
       .perf.is-warming > strong, .perf.is-warming > small, .perf.is-warming > svg { opacity: 0.55; }
       .perf .perf__hw { overflow-wrap: anywhere; }
-      .perf.perf__profile { display: block; margin-top: 6px; padding: 6px 12px; font-size: 0.5rem; font-weight: 700; letter-spacing: 0.12em; color: rgb(220 244 237 / 55%); cursor: pointer; }
-      .perf.perf__profile:disabled { opacity: 0.5; }
       .perf .perf__copy { margin-top: 7px; color: rgb(220 244 237 / 36%); font-size: 0.5rem; }
       .perf[data-copy="copied"] .perf__copy { color: rgb(142 230 208 / 90%); }
       .perf[data-copy="failed"] .perf__copy { color: #f6b66e; }
@@ -108,6 +106,57 @@
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
       body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
+      /* ---- settings menu (src/menu.ts; layout after gd-clone's pause menu) */
+      #menu { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 12px; box-sizing: border-box; overflow: auto; background: rgb(2 6 4 / 55%); backdrop-filter: blur(3px); }
+      .menu-box {
+        position: relative; width: min(720px, 100%); max-height: calc(100vh - 24px); overflow: auto; box-sizing: border-box; padding: 18px 28px 18px;
+        color: rgb(220 244 237 / 80%); font-size: 12px; animation: menu-in 0.25s ease;
+        background: radial-gradient(ellipse 60% 140px at 50% 0, rgb(120 160 80 / 22%), transparent), linear-gradient(rgb(8 18 13 / 96%), rgb(3 8 6 / 96%));
+        border: 1px solid rgb(242 230 184 / 22%); border-radius: 4px; box-shadow: 0 20px 60px rgb(0 0 0 / 70%);
+      }
+      .menu-box::before { position: absolute; inset: 5px; content: ""; pointer-events: none; border: 1px solid rgb(242 230 184 / 10%); border-radius: 2px; }
+      @keyframes menu-in { from { opacity: 0; } }
+      .menu-box h2 {
+        margin: 0; text-align: center; font: 600 clamp(1.3rem, 4vw, 1.9rem) Cinzel, Georgia, serif; letter-spacing: 0.3em; text-indent: 0.3em;
+        background: linear-gradient(100deg, #9fd98a, #f2e6b8 45%, #fff8dc 50%, #f2e6b8 55%, #9fd98a); -webkit-background-clip: text; background-clip: text; color: transparent;
+      }
+      .menu-rule { display: flex; align-items: center; gap: 10px; width: min(320px, 70%); margin: 4px auto 10px; color: rgb(220 200 130 / 70%); font-size: 8px; }
+      .menu-rule::before, .menu-rule::after { flex: 1; height: 1px; content: ""; background: linear-gradient(90deg, transparent, rgb(220 200 130 / 55%)); }
+      .menu-rule::after { background: linear-gradient(270deg, transparent, rgb(220 200 130 / 55%)); }
+      .menu-cols { display: grid; grid-template-columns: 1fr 1fr; }
+      .menu-cols section { min-width: 0; padding: 0 20px; }
+      .menu-cols section + section { border-left: 1px solid; border-image: linear-gradient(transparent, rgb(242 230 184 / 30%), transparent) 1; }
+      .menu-box h3 { margin: 12px 0 6px; color: #8ee6d0; font-size: 0.62rem; font-weight: 700; letter-spacing: 0.18em; text-transform: uppercase; }
+      .menu-box .opt { display: flex; align-items: center; gap: 9px; padding: 4px 0; cursor: pointer; }
+      .menu-box .opt input { width: 15px; height: 15px; margin: 0; accent-color: #c9b878; cursor: pointer; }
+      .menu-box .opt span { flex: 1; }
+      .menu-box kbd { min-width: 1.4em; padding: 0 4px; color: rgb(242 230 184 / 70%); font: 600 0.62rem ui-monospace, Consolas, monospace; text-align: center; border: 1px solid rgb(242 230 184 / 25%); border-radius: 2px; }
+      .seg { display: inline-flex; flex-wrap: wrap; border: 1px solid rgb(242 230 184 / 30%); border-radius: 3px; overflow: hidden; }
+      .seg button { padding: 5px 10px; color: rgb(220 244 237 / 60%); font: inherit; text-transform: capitalize; background: rgb(0 0 0 / 30%); border: none; border-left: 1px solid rgb(242 230 184 / 15%); cursor: pointer; }
+      .seg button:first-child { border-left: none; }
+      [data-seg="debug"] button { padding: 5px 7px; }
+      .seg button:hover { color: #e8eef2; }
+      .seg button.active { color: #fff3c8; background: linear-gradient(rgb(110 96 40 / 70%), rgb(50 42 14 / 70%)); box-shadow: inset 0 0 0 1px rgb(242 230 184 / 55%); }
+      .menu-btn { display: block; width: 100%; margin: 6px 0; padding: 9px 14px; color: #e8eef2; font: 600 0.8rem Cinzel, Georgia, serif; letter-spacing: 0.08em; text-align: left; cursor: pointer;
+        background: linear-gradient(rgb(30 44 36), rgb(14 22 18)); border: 1px solid rgb(0 0 0 / 60%); border-radius: 3px; box-shadow: inset 0 0 0 1px rgb(142 230 208 / 22%); }
+      .menu-btn:hover { filter: brightness(1.3); }
+      .menu-btn small { display: block; margin-top: 2px; color: rgb(220 244 237 / 45%); font: 0.62rem ui-monospace, Consolas, monospace; letter-spacing: 0; }
+      .menu-btn.primary { color: #fff3c8; text-align: center; background: linear-gradient(rgb(96 84 34), rgb(44 36 12)); box-shadow: inset 0 0 0 1px rgb(242 230 184 / 55%), 0 0 14px rgb(220 200 130 / 18%); }
+      .menu-box dl { display: grid; grid-template-columns: auto 1fr; gap: 3px 12px; margin: 0; }
+      .menu-box dt { color: rgb(242 230 184 / 75%); font-weight: 700; }
+      .menu-box dd { margin: 0; color: rgb(220 244 237 / 60%); }
+      .menu-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
+      .menu-actions .menu-btn { margin: 0; text-align: center; }
+      @media (max-width: 600px) {
+        .menu-cols { grid-template-columns: 1fr; }
+        .menu-cols section { padding: 0 4px; }
+        .menu-cols section + section { border-left: none; border-top: 1px solid rgb(242 230 184 / 20%); margin-top: 10px; }
+        .menu-box { padding: 14px 16px; }
+      }
+      body.menu-open #start { display: none; }
+      body.touch .menu-box kbd { display: none; }
+      .touch-btn.touch-menu { position: fixed; right: calc(max(14px, env(safe-area-inset-right)) + 52px); top: max(10px, env(safe-area-inset-top)); width: 42px; height: 42px; font-size: 20px; }
+      body:not(.is-ready) .touch-menu { visibility: hidden; }
       .hidden { display: none !important; }
       /* ---- touch controls (src/touch.js) */
       #help-touch { display: none; }
@@ -176,8 +225,8 @@
 <i>L</i>debug colours (cluster / DAG level / tree / type / rasterizer)
 <i>F  [ ]  Q</i>freeze culling · error threshold (px) · auto quality
 <i>P  T  G  R</i>shadows · anti-aliasing · wind · god rays
-<i>H  F11  ESC</i>hide help · fullscreen · release mouse</div>
-    <div id="start"><div>Click to fly</div></div>
+<i>H  F11  ESC</i>hide help · fullscreen · settings</div>
+    <div id="start"><div>Click to fly · Esc for settings</div></div>
     <div id="help-touch">left thumb: move · right thumb: look · ▲▼ up/down · 5× zoom</div>
     <script type="module" src="/src/main.ts"></script>
   </body>

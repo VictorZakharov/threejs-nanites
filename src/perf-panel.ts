@@ -57,8 +57,7 @@ export class PerfPanel {
   readonly k: Record<Label, HTMLElement>;
   readonly paths: { avg: SVGPathElement; low: SVGPathElement };
   copyTimer = 0;
-  profileText = ''; // the last GPU profile (src/profile.ts), appended to the report
-  profiling = false;
+  profileText = ''; // the last GPU profile (src/profile.ts, from the settings menu), appended to the report
 
   constructor(details: () => PerfDetails) {
     this.details = details;
@@ -218,32 +217,6 @@ export class PerfPanel {
   /** A status line in place of the copy hint (the profile's progress). */
   status(text: string): void {
     this.k.copy.textContent = text;
-  }
-
-  /** Adds the PROFILE GPU button under the panel: runs `run`, keeps its text for the report. */
-  onProfile(run: () => Promise<string>): void {
-    const b = document.createElement('button');
-    b.type = 'button';
-    b.className = 'perf perf__profile';
-    b.textContent = 'PROFILE GPU (~1 MIN, HOLD STILL)';
-    b.addEventListener('pointerdown', (e) => e.stopPropagation());
-    b.addEventListener('click', async (e) => {
-      e.stopPropagation();
-      if (this.profiling) return;
-      this.profiling = true;
-      b.disabled = true;
-      try {
-        this.profileText = await run();
-        this.status('PROFILED: TAP TO COPY THE REPORT');
-      } catch (err) {
-        this.status('PROFILE FAILED');
-        console.warn(err);
-      } finally {
-        this.profiling = false;
-        b.disabled = false;
-      }
-    });
-    this.el.after(b);
   }
 
   async copy(): Promise<void> {
