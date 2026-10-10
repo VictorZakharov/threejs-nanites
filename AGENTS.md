@@ -147,6 +147,11 @@ first in a new session. Update it as you go, and keep it short and current, not 
   cross-fade band it passed almost all or almost none of a tree's pixels (a darker band at the switch on the fog line).
   Turning test (`--dolly --step=0 --turn=0.2`, numbers drift between setups: compare A/B in one run): fogline ~2050,
   slope ~1125 flicker events with TAA, slope ~3840 without.
+- God rays (`src/godrays.js`, R, `?rays=` strength, `?raydecay=`): screen-space radial march towards the sun over
+  the depth buffer at half resolution, open sky near the sun's disc as the source. Added to the scene colour inside
+  the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
+  40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.
+- The output's unsharp mask runs in x/(1+x): in linear HDR it made a black ring round the sun.
 - Touch controls (`src/touch.js`, GitHub issue #1): a floating stick under the left thumb, look drag on the right,
   hold buttons for up / down / zoom; they feed `FlyControls.analog` and yaw/pitch. On by `(pointer: coarse)`, or
   `?touch=1|0`; the harness only with `touch=1` (`--probe=touch` fires synthetic finger events and checks each

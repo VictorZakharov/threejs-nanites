@@ -40,7 +40,7 @@ Done, waiting for the user's check on the live site:
    hidden ~4 ms (see Known issues). HUD ms vs fps mismatch. Quality presets by GPU; test Mac Chrome, Safari, Firefox.
 2. Startup: 4.9 MB bundle (ez-tree textures), seconds of shader/compute compile.
 3. Visuals: flat clouds without shadows, strong haze high up, TAA ghosting behind clouds, equal-depth flicker,
-   screen-edge shimmer when turning; god rays and the perf panel were asked for.
+   screen-edge shimmer when turning.
 4. Open-source hygiene: no LICENSE (package.json says ISC from the template; check ez-tree and texture licences),
    README for newcomers (how it works, browser support, screenshots/video), ~26 URL tuning params scattered across
    modules -> one options object, decide whether AGENTS.md / CLAUDE.md / dev-journal.md stay public.
@@ -74,9 +74,7 @@ Done, waiting for the user's check on the live site:
   behind fast-moving clouds (they're reprojected as sky).
 - **Startup:** "Compiling shaders" now steps through groups with a status each (`[loading]` lines in the harness
   `console.log`). The compute passes dominate: culling ~0.6 s, occlusion ~0.45 s, software raster ~0.3 s.
-- **Asked for, not started:** god rays (sun through the canopy; the scene now renders into its own target, so a
-  screen-space pass fits after it); a performance panel like cape-physics (fps graph, 1% lows, click copies a
-  perf report).
+- **God rays (new):** screen-space, fed through TAA (`src/godrays.js`). Next if wanted: clouds blocking them.
 
 ## Decided (keep)
 

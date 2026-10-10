@@ -19,7 +19,7 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | F | freeze culling (fly around and inspect what was selected) |
 | [ ] | error threshold in pixels (turns auto quality off) |
 | Q | auto quality on/off (keeps GPU time under budget) |
-| P / T / G / H | shadows / anti-aliasing (TAA) / wind / help |
+| P / T / G / R / H | shadows / anti-aliasing (TAA) / wind / god rays / help |
 
 On a phone or tablet: the left thumb is a movement stick (push further to go faster), the right thumb drags to look,
 and buttons on the right hold up / down / 5× zoom (`touch=1` / `touch=0` forces the touch controls on / off).

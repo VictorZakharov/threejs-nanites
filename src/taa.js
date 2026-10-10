@@ -38,8 +38,12 @@ const enc = (c) => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
 const dec = (c) => (PERCEPTUAL ? c.mul(c) : c);
 
 export class TAA {
-  /** `sceneRT`: the MSAA scene target (colour + depth texture), `samples` its sample count. */
-  constructor(renderer, sceneRT, samples, { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1) } = {}) {
+  /**
+   * `sceneRT`: the MSAA scene target (colour + depth texture), `samples` its sample count. `extra(uv)`: light added
+   * to the scene before the resolve (the god rays: their noisy march is averaged with the rest).
+   */
+  constructor(renderer, sceneRT, samples, { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1), extra = null } = {}) {
+    this.extra = extra;
     this.renderer = renderer;
     this.sceneRT = sceneRT;
     this.enabled = enabled;
@@ -56,6 +60,7 @@ export class TAA {
       feedback: uniform(feedback), // share of the new frame
       resetting: uniform(1),
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
+      off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
     };
     this.viewProj = new THREE.Matrix4();
     this.prevViewProjCPU = new THREE.Matrix4();
@@ -69,7 +74,7 @@ export class TAA {
     this.outputTex = texture(sceneRT.texture);
     // ... through a light unsharp mask (4 neighbours) when TAA is on
     const px = vec2(1).div(screenSize);
-    const c = this.outputTex.rgb;
+    const c = extra ? this.outputTex.rgb.add(extra(screenUV).mul(this.u.off)) : this.outputTex.rgb;
     // (in a compressed space, x / (1 + x): in linear HDR the sun's disc, far above 1, pulled the pixels around it
     // below zero, a black ring round the sun, and isolated dark specks against the sky went black)
     const squash = (v) => v.div(v.add(1));
@@ -88,7 +93,11 @@ export class TAA {
     const invTwoR = 1 / (2 * PLANET_RADIUS);
     return Fn(() => {
       const p = ivec2(screenCoordinate.xy);
-      const cur = enc(textureLoad(colour, p).rgb).toVar();
+      const sceneAt = (q) => {
+        const c = textureLoad(colour, q).rgb;
+        return this.extra ? c.add(this.extra(vec2(q).add(0.5).div(screenSize))) : c;
+      };
+      const cur = enc(sceneAt(p)).toVar();
       // neighbourhood: colour mean and spread (variance clipping box, in YCoCg) and the nearest depth (dilated:
       // thin twigs reproject with the depth of what they are, not of the sky behind them)
       const m1 = vec3(0).toVar(), m2 = vec3(0).toVar();
@@ -96,7 +105,7 @@ export class TAA {
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++) {
           const q = p.add(ivec2(dx, dy));
-          const c = toYCoCg(enc(textureLoad(colour, q).rgb));
+          const c = toYCoCg(enc(sceneAt(q)));
           m1.addAssign(c);
           m2.addAssign(c.mul(c));
           zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
@@ -175,6 +184,7 @@ export class TAA {
     camera.updateMatrixWorld();
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     this.u.sharpen.value = this.enabled ? Number(params.get('sharpen') ?? 0.25) : 0;
+    this.u.off.value = this.enabled ? 0 : 1;
     if (!this.enabled) {
       ditherShift.value.set(0, 0);
       return;

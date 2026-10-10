@@ -17,6 +17,7 @@ import { createLighting } from './lighting.js';
 import { installHarnessApi } from './harness-api.js';
 import { TAA } from './taa.js';
 import { createHud } from './hud.js';
+import { GodRays } from './godrays.js';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -65,7 +66,7 @@ async function start() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
-  const { sky, sun, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
+  const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
@@ -216,6 +217,7 @@ async function start() {
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (forest.u.tau.value = Math.max(0.25, forest.u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (forest.u.tau.value = Math.min(64, forest.u.tau.value * 1.5));
     if (code === 'KeyQ') auto.on = !auto.on;
+    if (code === 'KeyR') rays.enabled = !rays.enabled;
     if (code === 'KeyP') setShadows(!shadowsOn);
     if (code === 'KeyT') (taa.enabled = !taa.enabled), (taa.reset = true);
     if (code === 'KeyG') forest.u.wind.value = forest.u.wind.value > 0 ? 0 : 1;
@@ -234,8 +236,10 @@ async function start() {
   const sceneMRT = mrt({ output: colourOutput, wind: vec4(0) }); // (still everywhere but the trees)
   sceneMRT.setClearColor('wind', 0x000000, 0);
   sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
+  // light shafts through the canopy (src/godrays.js; R or ?rays=0), added to the scene before the TAA resolve
+  const rays = new GodRays(renderer, sceneRT.depthTexture, sunDir, { enabled: params.get('rays') !== '0' });
   // temporal anti-aliasing (src/taa.js): the output shows its resolved history
-  const taa = new TAA(renderer, sceneRT, samples, { enabled: params.get('taa') !== '0' });
+  const taa = new TAA(renderer, sceneRT, samples, { enabled: params.get('taa') !== '0', extra: rays.at });
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
   const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
   forest.setDepthSource(sceneRT.depthTexture, samples);
@@ -304,6 +308,7 @@ async function start() {
     sun.shadow.autoUpdate = shadowAuto;
     renderer.autoClear = autoClear;
     renderer.setMRT(null);
+    rays.render(camera, size.x, size.y);
     taa.resolve(camera, camera.position);
     renderer.setRenderTarget(null);
     output.render();
