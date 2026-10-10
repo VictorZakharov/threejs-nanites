@@ -16,4 +16,6 @@ A probe file holds one JavaScript expression, an async function `(demo, view) =>
 | `occlusion` | occlusion culling counters: trees and clusters failing phase 1, trees hidden after phase 2, draws per phase |
 | `hzb` | the depth pyramid: levels, and a sparse sample of level 0 and 5 (to see that it holds the scene) |
 | `atlas` | the impostor atlas (albedo) as a PNG, cut-out alpha shown blue |
+| `perf` | the performance panel (`--query=perf=1`): its report text and whether it's on screen |
+| `auto` | auto quality in the real loop for 8 s against `?autobudget=` (default 3 ms): settled tau, resolution scale, GPU ms (use `--timeout=120`) |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |

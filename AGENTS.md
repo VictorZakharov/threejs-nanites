@@ -58,7 +58,12 @@ first in a new session. Update it as you go, and keep it short and current, not 
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`main.js`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms).
+- Auto quality (`main.js`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
+  devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
+  at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU.
+- Performance panel (`src/perf-panel.js`, wired in `src/hud.js`, after cape-physics): FPS avg / 1% low over 15 s,
+  frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
+  Off under the harness unless `?perf=1` (`--probe=perf` prints the report).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

@@ -11,7 +11,30 @@
     <style>
       html, body { margin: 0; height: 100%; overflow: hidden; background: #9fb8cf; font: 13px/1.45 ui-monospace, Consolas, monospace; color: #e8eef2; }
       canvas { display: block; width: 100%; height: 100%; }
-      #hud { position: fixed; top: 10px; left: 10px; padding: 8px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; white-space: pre; pointer-events: none; min-width: 250px; }
+      #corner { position: fixed; top: 10px; left: 10px; display: flex; flex-direction: column; align-items: flex-start; gap: 8px; z-index: 3; }
+      #hud { padding: 8px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; white-space: pre; pointer-events: none; min-width: 250px; }
+      /* ---- performance panel (src/perf-panel.js, after cape-physics) */
+      .perf {
+        width: min(250px, calc(100vw - 28px)); padding: 10px 12px 9px; color: #8ee6d0; text-align: left; font: inherit;
+        background: linear-gradient(145deg, rgb(3 13 15 / 82%), rgb(4 9 12 / 68%)); border: 1px solid rgb(139 231 209 / 15%);
+        border-radius: 4px; box-shadow: 0 14px 40px rgb(0 0 0 / 26%); backdrop-filter: blur(14px); cursor: copy; touch-action: manipulation;
+      }
+      .perf:hover { border-color: rgb(139 231 209 / 34%); }
+      .perf strong { display: block; font-size: 1.34rem; font-variant-numeric: tabular-nums; line-height: 1; letter-spacing: 0.025em; }
+      .perf strong b { font: inherit; }
+      .perf strong i { color: rgb(220 244 237 / 45%); font-size: 0.52rem; font-style: normal; letter-spacing: 0.13em; }
+      .perf > span, .perf small { display: block; margin-top: 5px; color: rgb(220 244 237 / 50%); font-size: 0.56rem; font-weight: 700; letter-spacing: 0.1em; }
+      .perf small b { color: rgb(220 244 237 / 78%); font-variant-numeric: tabular-nums; }
+      .perf svg { display: block; width: 100%; height: 32px; margin-top: 7px; overflow: visible; }
+      .perf svg line { stroke: rgb(220 244 237 / 9%); stroke-width: 1; }
+      .perf svg path { fill: none; stroke: currentColor; stroke-width: 1.4; stroke-linejoin: round; vector-effect: non-scaling-stroke; }
+      .perf svg .low { stroke: #f6b66e; stroke-dasharray: 2.5 2.5; opacity: 0.82; }
+      .perf.has-drop { color: #f6b66e; border-color: rgb(246 182 110 / 28%); }
+      .perf.is-warming > strong, .perf.is-warming > small, .perf.is-warming > svg { opacity: 0.55; }
+      .perf .perf__hw { overflow-wrap: anywhere; }
+      .perf .perf__copy { margin-top: 7px; color: rgb(220 244 237 / 36%); font-size: 0.5rem; }
+      .perf[data-copy="copied"] .perf__copy { color: rgb(142 230 208 / 90%); }
+      .perf[data-copy="failed"] .perf__copy { color: #f6b66e; }
       #help { position: fixed; bottom: 10px; left: 10px; padding: 8px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; white-space: pre; pointer-events: none; }
       #start { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #start div { padding: 12px 18px; background: rgba(8, 14, 20, 0.7); border-radius: 8px; font-size: 15px; }
@@ -62,14 +85,16 @@
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
       @keyframes sway { from { opacity: 0.45; transform: rotate(-3deg) scaleY(0.94); } to { opacity: 1; transform: rotate(3deg) scaleY(1); } }
-      body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
+      body:not(.is-ready) #corner, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       .hidden { display: none !important; }
       /* ---- touch controls (src/touch.js) */
       #help-touch { display: none; }
       body.touch #help, body.touch #start { display: none; }
       body.touch #help-touch { display: block; position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); padding: 6px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; font-size: 11px; white-space: nowrap; pointer-events: none; transition: opacity 1.5s; }
       body.touch #help-touch.faded { opacity: 0; }
-      body.touch #hud { font-size: 9px; min-width: 0; padding: 5px 7px; top: max(6px, env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left)); }
+      body.touch #corner { top: max(6px, env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left)); }
+      body.touch #hud { display: none; } /* (the panel has the key numbers; its report has the rest) */
+      body.touch .perf { width: min(210px, calc(100vw - 80px)); padding: 7px 9px; }
       body.touch { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
       .touch-stick { position: fixed; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(8, 14, 20, 0.25); pointer-events: none; opacity: 0; transition: opacity 120ms; }
       .touch-stick.on { opacity: 1; }
@@ -96,7 +121,7 @@
         <span>This demo needs WebGPU: a recent Chrome or Edge on desktop works best.</span>
       </div>
     </section>
-    <div id="hud"></div>
+    <div id="corner"><div id="hud"></div></div>
     <div id="help">WASD move · Space up · Ctrl down · Shift fast · mouse look · right mouse zoom 5×
 L  debug colours (cluster / DAG level / tree / type / rasterizer)
 F  freeze culling     [ ]  error threshold (px)   Q  auto quality

@@ -27,8 +27,10 @@ Done, waiting for the user's check on the live site:
 - **Fog-line step still visible** (user, after the fixes above). Impostors vs geometry by row on `fogline`: the
   switch rows (~400-480) want `impcov` ~1.05, `slope` wants ~0.9; 1.0 costs ~30% more turning flicker on `slope`.
   Kept 0.9 (switch rows +1-2/255). A view-dependent density difference underneath; need the user's screenshot/spot.
-- **Phone perf** (user, Samsung S25: 17 fps, gpu 68 ms at 252 m, auto tau already 8 px). Asked for a cape-physics
-  style performance toolbar with copy-to-clipboard stats: next.
+- **Phone perf** (user, Samsung S25: 17 fps, gpu 68 ms at 252 m, auto tau already 8 px). Done: the performance
+  panel (copy report), and auto quality lowers the resolution past tau 8 (budget 14 ms on touch). Waiting for the
+  user's report from the phone: draw vs compute split decides the next step (fill: MSAA/TAA off on mobile; compute:
+  the 1M-instance passes, shadows).
 - **Mobile controls** (GitHub issue #1): `src/touch.js`, checked with `--probe=touch --query=touch=1` headless; not
   yet tried on a real phone (WebGPU on mobile: Chrome Android, Safari 26).
 

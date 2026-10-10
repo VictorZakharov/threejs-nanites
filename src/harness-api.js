@@ -92,7 +92,7 @@ Object.assign(demo, {
     await new Promise((r) => setTimeout(r, ms));
     renderer.setAnimationLoop(null);
     controls.keys.clear();
-    return { tau: +forest.u.tau.value.toFixed(2), gpuMs: +auto.gpuMs.toFixed(2), fps: +((n * 1000) / (performance.now() - t0)).toFixed(1), budget };
+    return { tau: +forest.u.tau.value.toFixed(2), scale: +auto.scale.toFixed(2), size: `${size.x}x${size.y}`, gpuMs: +auto.gpuMs.toFixed(2), fps: +((n * 1000) / (performance.now() - t0)).toFixed(1), budget };
   },
   async bench(n = 120) {
     const device = renderer.backend.device;

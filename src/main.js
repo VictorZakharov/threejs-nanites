@@ -16,6 +16,7 @@ import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placeme
 import { createLighting } from './lighting.js';
 import { installHarnessApi } from './harness-api.js';
 import { TAA } from './taa.js';
+import { createHud } from './hud.js';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -25,7 +26,6 @@ if (HARNESS) document.body.classList.add('harness');
 // shadowShift: debug offset of the shadow-map centre (harness sweeps)
 const demo = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });
 const ui = new LoadingScreen();
-const hud = document.getElementById('hud');
 
 // ---------------------------------------------------------------- setup
 async function start() {
@@ -165,16 +165,27 @@ async function start() {
   setShadows(shadowsOn);
 
   // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
-  const auto = { on: params.get('auto') !== '0' && !HARNESS, budget: Number(params.get('budget') ?? 8), gpuMs: 0, busy: false };
+  // (a phone's budget is a 60 fps frame: its GPU is far from the 8 ms a desktop one is steered to)
+  const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 8));
+  const auto = { on: params.get('auto') !== '0' && !HARNESS, budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
-  // controller that twitches every frame makes the whole forest shimmer.
+  // controller that twitches every frame makes the whole forest shimmer. Past the coarsest tau it lowers the
+  // resolution instead (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of
+  // the cost doesn't depend on detail (MSAA + TAA fill, the culling of 1M trees), and phones hit that.
   let lastAdjust = 0;
+  const setScale = (s) => {
+    auto.scale = s;
+    renderer.setPixelRatio(pixelRatio * s);
+    fitToWindow();
+  };
   function autoQuality(dt) {
     const tau = forest.u.tau;
     const step = (over) => {
       const now = performance.now();
-      if (now - lastAdjust < 500) return;
-      if (over > 1.1) tau.value = Math.min(8, tau.value * Math.min(1.3, over));
+      if (now - lastAdjust < (auto.scale < 1 ? 1500 : 500)) return;
+      if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(1.3, over));
+      else if (over > 1.1 && auto.scale > 0.5) setScale(Math.max(0.5, auto.scale * 0.85));
+      else if (over < 0.6 && auto.scale < 1) setScale(Math.min(1, auto.scale / 0.85));
       else if (over < 0.6) tau.value = Math.max(1, tau.value / 1.1);
       else return;
       lastAdjust = now;
@@ -190,8 +201,10 @@ async function start() {
     Promise.all([renderer.resolveTimestampsAsync('render'), renderer.resolveTimestampsAsync('compute')]).then(([r, c]) => {
       auto.busy = false;
       if (!(r >= 0)) return;
-      const g = r + (c || 0);
-      auto.gpuMs = auto.gpuMs ? auto.gpuMs * 0.9 + g * 0.1 : g;
+      const g = r + (c || 0), ease = (a, b) => (a ? a * 0.9 + b * 0.1 : b);
+      auto.gpuMs = ease(auto.gpuMs, g);
+      auto.renderMs = ease(auto.renderMs, r);
+      auto.computeMs = ease(auto.computeMs, c || 0);
       if (auto.on) step(auto.gpuMs / auto.budget);
     });
   }
@@ -296,20 +309,15 @@ async function start() {
     output.render();
   }
 
-  // HUD
-  let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, gs = null;
-  async function updateHud() {
-    gs = await forest.readStats();
-    const tris = gs.barkTris + gs.leafTris;
-    hud.textContent =
-      `${fps.toFixed(0)} fps  ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms\n` +
-      `trees      ${(gs.instances + gs.impostors).toLocaleString()} / ${forest.instanceCount.toLocaleString()} visible (${gs.impostors.toLocaleString()} as impostors)\n` +
-      `altitude   ${Math.round(camera.position.y - heightAt(camera.position.x, camera.position.z))} m   speed ${Math.round(controls.velocity.length())} m/s\n` +
-      `clusters   ${(gs.barkClusters + gs.leafClusters).toLocaleString()} (bark ${gs.barkClusters.toLocaleString()}, leaf ${gs.leafClusters.toLocaleString()})\n` +
-      `triangles  ${(tris / 1e6).toFixed(2)} M   + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M in software (${(gs.swClusters ?? 0).toLocaleString()} clusters)\n` +
-      `error      ${forest.u.tau.value.toFixed(2)} px ${auto.on ? `(auto, ${auto.budget} ms budget)` : '(manual)'}${forest.frozen ? '   [CULLING FROZEN]' : ''}\n` +
-      `debug      ${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]}   shadows ${shadowsOn ? 'on' : 'off'}   taa ${taa.enabled ? 'on' : 'off'}`;
-  }
+  // HUD and performance panel
+  const hud = createHud({
+    renderer, camera, controls, forest, taa, auto, size, samples, shadowsOn: () => shadowsOn,
+    harness: HARNESS && params.get('perf') !== '1', // (?perf=1: the panel under the harness too)
+    adapterName: [ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown adapter',
+  });
+  const updateHud = hud.update;
+  demo.perfReport = () => hud.perf?.report();
+  demo.hud = hud;
 
   let prev = performance.now();
   function loop() {
@@ -318,23 +326,14 @@ async function start() {
     prev = now;
     frame(dt);
     autoQuality(dt);
-    frames++;
-    acc += dt;
-    if (now - last > 500) {
-      fps = frames / acc;
-      ms = (acc / frames) * 1000;
-      frames = 0;
-      acc = 0;
-      last = now;
-      updateHud();
-    }
+    hud.frame(now, dt);
   }
 
   // ---------------------------------------------------------------- harness API
   installHarnessApi(demo, {
     renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud,
     shadowsOn: () => shadowsOn,
-    setBenchMs: (m) => { ms = m; fps = 1000 / m; },
+    setBenchMs: (m) => hud.setBenchMs(m),
   });
 
   // Compile everything before revealing. three.js builds a material's shaders the first time it draws it, which
