@@ -19,6 +19,7 @@ export interface AutoQuality {
   computeMs?: number;
   frameMs?: number; // (without timestamp queries)
   busy: boolean;
+  onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)
 }
 
 export interface HudContext {

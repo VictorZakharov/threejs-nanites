@@ -116,6 +116,15 @@ Object.assign(demo, {
     return out;
   },
   /** Runs the real loop (auto quality on, flying forward) for `ms`, reports where the controller settled. */
+  /** Runs the real frame loop (timestamps, auto quality) while `run` is pending (the profile probe). */
+  async withLoop<T>(run: () => Promise<T>): Promise<T> {
+    renderer.setAnimationLoop(loop);
+    try {
+      return await run();
+    } finally {
+      renderer.setAnimationLoop(null);
+    }
+  },
   async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
     auto.on = true;
     auto.budget = budget;

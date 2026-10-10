@@ -14,6 +14,7 @@ import { LoadingScreen } from './loading.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.ts';
 import { createLighting } from './lighting.ts';
+import { runProfile } from './profile.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
 import type { AutoQuality } from './hud.ts';
@@ -223,6 +224,7 @@ async function start() {
       auto.gpuMs = ease(auto.gpuMs, g);
       auto.renderMs = ease(auto.renderMs, r);
       auto.computeMs = ease(auto.computeMs, c || 0);
+      auto.onSample?.(r, c || 0);
       if (auto.on) step(auto.gpuMs / auto.budget);
     });
   }
@@ -340,6 +342,13 @@ async function start() {
   const updateHud = hud.update;
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
+  // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
+  const profile = (): Promise<string> => runProfile(
+    { auto, forest, taa, rays, clouds: clouds.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale },
+    (label, i, n) => hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`),
+  );
+  demo.profile = profile;
+  hud.perf?.onProfile(profile);
 
   let prev = performance.now();
   function loop() {
