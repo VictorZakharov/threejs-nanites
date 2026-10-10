@@ -3,12 +3,13 @@ import * as THREE from 'three/webgpu';
 // Free-fly camera: click to capture the mouse, WASD move, Space up, Ctrl down, Shift faster.
 // Ctrl+W can't be blocked by a normal page (the browser reserves it). In fullscreen the Keyboard Lock API
 // (Chrome/Edge) captures the flight keys - Ctrl+W included - and elsewhere a "leave site?" prompt is the fallback.
-// Esc is deliberately *not* locked: one press leaves the mouse/fullscreen (a locked Esc must be held for 2 s).
+// Esc is locked too: in fullscreen a press opens the settings menu (the user: Esc left fullscreen instead); holding it
+// leaves fullscreen (the browser's rule for a locked Esc). Outside fullscreen Esc releases the mouse, which opens it.
 // F11 toggles fullscreen. Holding the right mouse button zooms in 5x (binoculars).
 const LOCKED_KEYS = [
   'KeyW', 'KeyA', 'KeyS', 'KeyD', 'KeyQ', 'KeyE', 'KeyF', 'KeyG', 'KeyH', 'KeyL', 'KeyP', 'KeyN', 'KeyT', 'KeyR',
   'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'Tab', 'BracketLeft', 'BracketRight',
-  'Minus', 'Equal', 'F11',
+  'Minus', 'Equal', 'F11', 'Escape',
 ];
 /** The Keyboard Lock API (Chrome/Edge; not in TypeScript's DOM types yet). */
 const keyboard = (navigator as Navigator & { keyboard?: { lock?(codes: string[]): Promise<void> } }).keyboard;
@@ -112,6 +113,11 @@ export class FlyControls {
         /* ignore */
       }
     }
+  }
+
+  /** Gives the mouse back (the settings menu opens with Esc while flying). */
+  release(): void {
+    if (this.locked) document.exitPointerLock();
   }
 
   async toggleFullscreen(): Promise<void> {

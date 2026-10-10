@@ -85,8 +85,10 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   (`?aa=0`).
 - Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
   the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
-  the same switches): add a new switch there once and it gets both. Esc while flying is the browser's (it releases the
-  mouse, no key event), so losing the pointer lock opens the menu. `--probe=menu` clicks every switch and reads it back.
+  the same switches): add a new switch there once and it gets both. Esc is in the Keyboard Lock keys, so in fullscreen a press
+  reaches the page (opens the menu, releases the mouse) instead of leaving fullscreen (hold Esc to leave). Outside
+  fullscreen Esc is the browser's (it releases the mouse), so losing the pointer lock opens the menu. Headless can't
+  test the fullscreen path: check it by hand. `--probe=menu` clicks every switch and reads it back.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

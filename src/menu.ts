@@ -170,7 +170,11 @@ export function createMenu(ctx: MenuContext) {
   }
 
   // Esc while flying: the browser releases the mouse (no key event), so losing the lock opens the menu
-  controls.onUnlock = () => setOpen(true);
+  let unlockedAt = 0;
+  controls.onUnlock = () => {
+    unlockedAt = performance.now();
+    setOpen(true);
+  };
   if (ctx.touch) {
     const gear = document.createElement('button');
     gear.className = 'touch-btn touch-menu';
@@ -183,7 +187,13 @@ export function createMenu(ctx: MenuContext) {
 
   // keyboard shortcuts (the same switches)
   controls.onKey = (code) => {
-    if (code === 'Escape') return setOpen(!open);
+    if (code === 'Escape') {
+      // (outside fullscreen the browser may release the mouse, which already opened the menu, before this key)
+      if (performance.now() - unlockedAt < 300) return;
+      if (open) return resume();
+      setOpen(true);
+      return controls.release(); // (fullscreen: Esc is locked, so the mouse is still captured)
+    }
     for (const t of [...scene, ...overlays]) if (t.key === code) t.set(!t.get());
     if (code === 'KeyL') u.debug.value = (u.debug.value + 1) % DEBUG.length;
     if (code === 'KeyF') forest.frozen = !forest.frozen;
