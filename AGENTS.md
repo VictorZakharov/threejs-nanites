@@ -81,7 +81,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   12 statues facing its middle (the user's idea). Placement keeps trees/bushes off it; a half-float distance map
   (25 cm texels; 32-bit float filtering is optional in WebGPU) feeds the grass (none on it) and the floor
   (`ground/cobbles.ts`: Voronoi stones in TSL, domed normals, average colour where finer than the pixels).
-  `?plaza=0` drops the ring. Views `plaza`, `plazaair`, `roadair`, `statue`.
+  `?plaza=0` drops the ring. Views `plaza`, `plazaair`, `roadair`, `statue`. A waypoint to the plaza's middle
+  (`src/waypoint.ts`, the user's): an HTML overlay projected each frame, clamped to the screen's edge with an arrow
+  when off screen (`spawnback` view), faded on arrival; a menu switch; hidden under the harness unless `?waypoint=1`.
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster

@@ -66,6 +66,7 @@ export function createMenu(ctx: MenuContext) {
     ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),
   ];
   const overlays: Toggle[] = [
+    { label: 'Waypoint to the statues', get: shown('waypoint'), set: show('waypoint') },
     ...(perf ? [{ label: 'Performance panel', get: shown('corner'), set: show('corner') }] : []),
     ...(ctx.touch ? [] : [{ label: 'Scene details', get: shown('hud'), set: show('hud') }]),
     ...(ctx.touch ? [] : [{ label: 'Help', key: 'KeyH', get: shown('help'), set: show('help') }]),

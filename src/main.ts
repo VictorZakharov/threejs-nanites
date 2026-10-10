@@ -33,6 +33,7 @@ declare global {
 }
 import { TAA } from './taa.ts';
 import { createHud } from './hud.ts';
+import { createWaypoint } from './waypoint.ts';
 import { GodRays } from './godrays.ts';
 
 const params = new URLSearchParams(location.search);
@@ -299,6 +300,7 @@ async function start() {
 
   // ---------------------------------------------------------------- frame
   let time = 0;
+  const waypoint = createWaypoint(HARNESS && params.get('waypoint') !== '1');
   function frame(dt: number): void {
     fitToWindow();
     time += dt;
@@ -317,6 +319,7 @@ async function start() {
     grass.update(camera);
     litter.update(camera.position, camera.position.y - heightAt(camera.position.x, camera.position.z));
     camera.updateMatrixWorld();
+    waypoint.update(camera);
     renderer.getDrawingBufferSize(size);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
 

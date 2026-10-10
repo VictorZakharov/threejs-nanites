@@ -115,6 +115,20 @@
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
       body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
+      /* ---- the waypoint to the plaza (src/waypoint.ts): placed by transform at the target, the marker centred on it */
+      #waypoint { position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none; will-change: transform; transition: opacity 0.3s; color: #f2e6b8; }
+      #waypoint.hidden, body:not(.is-ready) #waypoint { display: none; }
+      .wp__mark { position: absolute; left: -19px; top: -19px; width: 38px; height: 38px; animation: wp-bob 1.6s ease-in-out infinite; }
+      .wp__mark i { position: absolute; inset: 9px; border: 2px solid currentColor; background: rgb(242 230 184 / 22%); transform: rotate(45deg); box-shadow: 0 0 10px rgb(242 230 184 / 60%), inset 0 0 6px rgb(242 230 184 / 50%); }
+      .wp__mark b { position: absolute; inset: 0; border: 2px solid currentColor; border-radius: 50%; animation: wp-ping 1.6s ease-out infinite; }
+      #waypoint span { position: absolute; left: -50px; width: 100px; top: 24px; text-align: center; font: 600 0.95rem/1 ui-monospace, Consolas, monospace; letter-spacing: 0.06em; text-shadow: 0 1px 3px rgb(0 0 0 / 90%); font-variant-numeric: tabular-nums; }
+      .wp__arrow { position: absolute; display: none; }
+      .wp__arrow::after { content: ''; position: absolute; left: 26px; top: -9px; border: 9px solid transparent; border-left: 14px solid currentColor; filter: drop-shadow(0 0 3px rgb(0 0 0 / 70%)); animation: wp-nudge 0.9s ease-in-out infinite; }
+      .wp--off .wp__arrow { display: block; }
+      .wp--off .wp__mark { animation: none; }
+      @keyframes wp-bob { 50% { transform: translateY(-6px); } }
+      @keyframes wp-ping { from { transform: scale(0.5); opacity: 0.9; } to { transform: scale(1.9); opacity: 0; } }
+      @keyframes wp-nudge { 50% { transform: translateX(5px); } }
       /* ---- settings menu (src/menu.ts; layout after gd-clone's pause menu) */
       #menu { position: fixed; inset: 0; z-index: 20; display: grid; place-items: center; padding: 12px; box-sizing: border-box; overflow: auto; background: rgb(2 6 4 / 55%); backdrop-filter: blur(3px); }
       .menu-box {

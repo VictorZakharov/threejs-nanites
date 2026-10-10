@@ -32,6 +32,8 @@ export const VIEWS = {
   plazaair: { x: -5.2, z: -3.7, agl: 30, yaw: 30, pitch: -28 },
   // the road from the spawn point, from above and behind
   roadair: { x: 45, z: 85, agl: 40, yaw: 30, pitch: -25 },
+  // the spawn point turned away from the road: the waypoint (src/waypoint.ts, --query=waypoint=1) on the screen's edge
+  spawnback: { x: 20, z: 40, agl: 1.8, yaw: 160, pitch: 4 },
   // a statue up close (a million triangles: Nanite detail)
   statue: { x: -23.7, z: -35.8, agl: 2, yaw: 210, pitch: 14 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
