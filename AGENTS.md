@@ -122,7 +122,11 @@ first in a new session. Update it as you go, and keep it short and current, not 
   frame too. The resolve rebuilds where each pixel was from the depth buffer and last frame's camera (undoing the
   planet curvature's shift with the viewer), minus the trees' own wind motion: the scene target has a second output
   `wind` (MRT), written by the tree materials (`mrtNode`, from `_vertex`'s `prevWorld` at `prevTime`), 0
-  elsewhere. History: Catmull-Rom lookup (bilinear blurred the swaying leaves), clipped to the 3x3 neighbourhood's
+  elsewhere. The reprojection is one matrix (last frame's view-projection x this frame's inverse) multiplied on the
+  CPU in double precision: rebuilding the world position on the GPU in float32 from a depth near 1 fetched the
+  history up to half a pixel off with the camera standing still, every frame, and 3 km away through the 5x zoom the
+  blur plus the clipping turned crowns into ghosts (the user: "distant trees are washed"; `?taadebug=2` shows the
+  offsets, all zero when still; `?taafeedback=1` turns the accumulation off). History: Catmull-Rom lookup (bilinear blurred the swaying leaves), clipped to the 3x3 neighbourhood's
   colour spread (YCoCg), blended 10% per frame in tone-mapped space; the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
   visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
@@ -130,9 +134,16 @@ first in a new session. Update it as you go, and keep it short and current, not 
   leaves by the a2c smoothstep), so each few-pixel crown was a blob that hit or missed pixels, and TAA's history
   clipping let that through when turning. With TAA on, impostors and software-rasterized leaves instead draw each
   pixel with the probability of its filtered alpha (= its coverage) against the moving dither, and TAA averages it
-  (`?impalpha=dither|cut`, `?leafalpha=dither|a2c`; scales `?impcov=0.85`, `?leafcov=0.9` keep the old mean colour).
-  Turning test (`--dolly --step=0 --turn=0.2`): fogline 2275 -> 855, slope 1911 -> 531 flicker events; a 4x
-  supersampled render (`pr=2`, no TAA) scores 1082 / 441, i.e. about the floor of that metric.
+  (`?impalpha=dither|cut`, `?leafalpha=dither|a2c`; scales `?impcov=0.9`, `?leafcov=0.9` match the geometry's mean colour;
+  `impcov` 0.94 matches exactly but the turning test flickers ~15% more). That alpha test uses `ditherAlt`, a pattern
+  independent of the cross-fade's `dither`: an offset copy of the same noise is nearly the same pattern, and in the
+  cross-fade band it passed almost all or almost none of a tree's pixels (a darker band at the switch on the fog line).
+  Turning test (`--dolly --step=0 --turn=0.2`, numbers drift between setups: compare A/B in one run): fogline ~2050,
+  slope ~1125 flicker events with TAA, slope ~3840 without.
+- Touch controls (`src/touch.js`, GitHub issue #1): a floating stick under the left thumb, look drag on the right,
+  hold buttons for up / down / zoom; they feed `FlyControls.analog` and yaw/pitch. On by `(pointer: coarse)`, or
+  `?touch=1|0`; the harness only with `touch=1` (`--probe=touch` fires synthetic finger events and checks each
+  control responds).
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
 - Occlusion culling (`src/nanite/culling.js`, `hzb.js`, main view only): two phases per frame. Phase 1 tests trees and clusters

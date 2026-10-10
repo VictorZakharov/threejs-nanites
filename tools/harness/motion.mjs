@@ -74,7 +74,7 @@ export async function dolly(page, opts, outDir, tag = '') {
     for (let k = 0; k < steps; k++) {
       at(`dolly ${name}: step ${k + 1}/${steps}`);
       const yaw = (v.yaw ?? 0) + k * (opts.turn ?? 0);
-      await page.evaluate((vv) => window.__demo.setView(vv), { ...v, zoom: opts.zoom ?? v.zoom ?? 1, x: v.x + fx * k * step, z: v.z + fz * k * step, yaw });
+      await page.evaluate((vv) => window.__demo.setView(vv), { ...v, zoom: opts.zoom ?? v.zoom ?? 1, x: v.x + fx * k * step, z: v.z + fz * k * step, yaw, agl: v.agl + k * (opts.rise ?? 0) });
       await page.evaluate(() => window.__demo.renderOnce());
       frames.push(tileLuma(await page.screenshot()));
     }

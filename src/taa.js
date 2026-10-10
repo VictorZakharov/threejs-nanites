@@ -32,7 +32,7 @@ const toRGB = (y) => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.sub(y.y).sub(
 
 export class TAA {
   /** `sceneRT`: the MSAA scene target (colour + depth texture), `samples` its sample count. */
-  constructor(renderer, sceneRT, samples, { enabled = true, feedback = 0.1 } = {}) {
+  constructor(renderer, sceneRT, samples, { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1) } = {}) {
     this.renderer = renderer;
     this.sceneRT = sceneRT;
     this.enabled = enabled;
@@ -43,6 +43,7 @@ export class TAA {
     this.u = {
       invViewProj: uniform(new THREE.Matrix4()), // this frame, unjittered
       prevViewProj: uniform(new THREE.Matrix4()), // last frame, unjittered
+      reproject: uniform(new THREE.Matrix4()), // prevViewProj x invViewProj (this frame's clip -> last frame's)
       viewer: uniform(new THREE.Vector3()),
       prevViewer: uniform(new THREE.Vector3()),
       feedback: uniform(feedback), // share of the new frame
@@ -66,6 +67,7 @@ export class TAA {
     const avg = ring.reduce((a, b) => a.add(b)).mul(0.25);
     this.displayNode = max(c.add(c.sub(avg).mul(this.u.sharpen)), vec3(0));
     // (?taadebug=1: shows the trees' wind motion instead, x red / y green, x200)
+    if (params.get('taadebug') === '2') this.displayNode = this.outputTex.rgb;
     if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenCoordinate.xy)).xyz).mul(200);
   }
 
@@ -91,17 +93,22 @@ export class TAA {
       for (let k = 1; k < samples; k++) zMin.assign(min(zMin, textureLoad(depth, p, int(k)).x));
       const mean = m1.div(9);
       const sigma = sqrt(max(m2.div(9).sub(mean.mul(mean)), vec3(0)));
-      const boxMin = mean.sub(sigma.mul(1.25)), boxMax = mean.add(sigma.mul(1.25));
-      // where this pixel was last frame
+      const boxMax = mean.add(sigma.mul(1.25)); // (the clipping box: mean +- 1.25 sigma)
+      // where this pixel was last frame: one matrix from this frame's clip space to last frame's, multiplied on
+      // the CPU in double precision (rebuilding the world position in float32 from a depth near 1 was off by up to
+      // half a pixel with the camera standing still: 3 km away through the 5x zoom, every frame blurred the
+      // history and the clipping then thinned the distant crowns)
       const ndc = vec4(screenUV.x.mul(2).sub(1), screenUV.y.mul(-2).add(1), zMin, 1);
       const w4 = u.invViewProj.mul(ndc);
-      const world = w4.xyz.div(w4.w).toVar();
+      const world = w4.xyz.div(w4.w);
       const drop = (pos, v) => {
         const dx = pos.x.sub(v.x), dz = pos.z.sub(v.z);
         return dx.mul(dx).add(dz.mul(dz)).mul(invTwoR);
       };
-      world.y.addAssign(drop(world, u.viewer).sub(drop(world, u.prevViewer))); // (flat, then last frame's curve)
-      const prevClip = u.prevViewProj.mul(vec4(world, 1));
+      // (the planet's curve moves with the viewer: undo this frame's drop, apply last frame's; small, so the
+      // imprecise world position is good enough for it)
+      const lift = drop(world, u.viewer).sub(drop(world, u.prevViewer)).mul(w4.w);
+      const prevClip = u.reproject.mul(ndc).add(u.prevViewProj.mul(vec4(0, lift, 0, 0)));
       // (minus the trees' own motion in the wind: depth only knows where the scenery was)
       const prevUv = vec2(prevClip.x.div(prevClip.w).mul(0.5).add(0.5), prevClip.y.div(prevClip.w).mul(-0.5).add(0.5))
         .sub(textureLoad(wind, p).xy);
@@ -117,6 +124,8 @@ export class TAA {
       const wc = a.div(cur.x.add(cur.y).add(cur.z).div(3).add(1));
       const wh = a.oneMinus().div(clipped.x.add(clipped.y).add(clipped.z).div(3).add(1));
       const out = cur.mul(wc).add(clipped.mul(wh)).div(max(wc.add(wh), 1e-5));
+      // (?taadebug=2: how far each pixel's history is fetched from, in pixels x 0.1: red x, green y)
+      if (params.get('taadebug') === '2') return vec4(abs(prevUv.sub(screenUV).mul(screenSize)).mul(0.1), 0, 1);
       return vec4(clamp(out, 0, 65000), 1);
     })();
   }
@@ -185,6 +194,7 @@ export class TAA {
     const u = this.u;
     u.invViewProj.value.copy(this.viewProj).invert();
     u.prevViewProj.value.copy(this.reset ? this.viewProj : this.prevViewProjCPU);
+    u.reproject.value.multiplyMatrices(u.prevViewProj.value, u.invViewProj.value);
     u.viewer.value.copy(viewer);
     u.prevViewer.value.copy(this.reset ? viewer : this.prevViewer);
     u.resetting.value = this.reset ? 1 : 0;

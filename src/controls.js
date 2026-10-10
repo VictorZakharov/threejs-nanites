@@ -24,6 +24,7 @@ export class FlyControls {
     this.maxSpeed = 900; // m/s
     this.held = 0;
     this.keys = new Set();
+    this.analog = new THREE.Vector3(); // touch input (src/touch.js): x strafe, y up/down, z forward, each -1..1
     this.velocity = new THREE.Vector3();
     this.locked = false;
     this.onKey = null; // (code, event) for app shortcuts
@@ -32,7 +33,8 @@ export class FlyControls {
     this.zoomTarget = 1;
     this.zoomMax = 5;
 
-    dom.addEventListener('click', () => this.capture());
+    this.touchMode = false; // (src/touch.js: no pointer lock on a tap)
+    dom.addEventListener('click', () => this.touchMode || this.capture());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === dom;
       if (!this.locked) {
@@ -125,8 +127,13 @@ export class FlyControls {
     if (k.has('KeyA')) wish.sub(right);
     if (k.has('Space')) wish.y += 1;
     if (k.has('ControlLeft') || k.has('ControlRight')) wish.y -= 1;
-    const moving = wish.lengthSq() > 0;
-    if (moving) wish.normalize();
+    if (wish.lengthSq() > 0) wish.normalize();
+    // (the touch stick: how far it's pushed sets the speed share)
+    const a = this.analog;
+    wish.addScaledVector(fwd, a.z).addScaledVector(right, a.x);
+    wish.y += a.y;
+    if (wish.lengthSq() > 1) wish.normalize();
+    const moving = wish.lengthSq() > 1e-4;
     const fast = k.has('ShiftLeft') || k.has('ShiftRight');
     // the longer you hold, the faster (Shift ramps up quicker too); letting go resets
     this.held = moving ? this.held + dt * (fast ? 1.6 : 1) : 0;

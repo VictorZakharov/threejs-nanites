@@ -10,6 +10,35 @@ A three.js WebGPU tech demo: 1M ez-tree trees, Nanite-style cluster LOD, free fl
 on one planet-curved world (R = 150 km). Smooth (8 ms GPU budget on an RTX 40), and it must *look* right: no
 popping, flicker, brightness seams or missing trees. The user tests on the live site and reports by screenshot.
 
+## Immediate (user, 2026-10-10): fix these first, then decide on the roadmap below
+
+Done, waiting for the user's check on the live site:
+- **5x zoom: distant trees washed out** (user: "the opposite of intended"). A TAA bug, not fog: the reprojection
+  rebuilt world positions in float32 from depth and fetched the history up to half a pixel off with a still camera;
+  blur + clipping made crowns ghostly (worst far away through the zoom). Now one double-precision CPU matrix.
+- **Switch line on the fog line while climbing/descending.** Two causes: the impostor/software-leaf alpha dither was
+  correlated with the cross-fade dither (coverage up to 50 points off inside the band; now `ditherAlt`), and
+  impostors were 5-8/255 brighter than geometry in the distant rows (`impcov` 0.85 was calibrated with the TAA bug;
+  now 0.9: ~1/255 left; 0.94 matches but flickers more when turning).
+- **Mobile controls** (GitHub issue #1): `src/touch.js`, checked with `--probe=touch --query=touch=1` headless; not
+  yet tried on a real phone (WebGPU on mobile: Chrome Android, Safari 26).
+
+## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
+
+1. Performance off the dev GPU: tuned only on an RTX 40; forest views 6-11 ms vs the 8 ms budget. Occlusion's
+   hidden ~4 ms (see Known issues). HUD ms vs fps mismatch. Quality presets by GPU; test Mac Chrome, Safari, Firefox.
+2. Startup: 4.9 MB bundle (ez-tree textures), seconds of shader/compute compile.
+3. Visuals: flat clouds without shadows, strong haze high up, TAA ghosting behind clouds, equal-depth flicker,
+   screen-edge shimmer when turning; god rays and the perf panel were asked for.
+4. Open-source hygiene: no LICENSE (package.json says ISC from the template; check ez-tree and texture licences),
+   README for newcomers (how it works, browser support, screenshots/video), ~26 URL tuning params scattered across
+   modules -> one options object, decide whether AGENTS.md / CLAUDE.md / dev-journal.md stay public.
+5. Library shape: `NaniteForest` is forest-specific (ez-tree input, wind, leaf cards, tints, planet curve, impostor
+   gains). Generic pieces: cluster DAG builder for any mesh, GPU-driven instanced renderer, impostor baker, software
+   rasterizer, with forest behaviour as hooks. Core three.js won't take a system this size: standalone library +
+   demo, open a discussion before any PR. three.js already has `TRAANode` and `GodraysNode`: build on them or say why
+   not (our jitter must precede culling; trees need wind motion vectors).
+
 ## Now
 
 - **Occlusion culling (in progress).** Two-phase, Nanite-style, per tree, per cluster and per impostor

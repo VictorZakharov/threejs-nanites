@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <title>Nanite Forest</title>
     <link rel="icon" href="data:," />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
@@ -64,6 +64,21 @@
       @keyframes sway { from { opacity: 0.45; transform: rotate(-3deg) scaleY(0.94); } to { opacity: 1; transform: rotate(3deg) scaleY(1); } }
       body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       .hidden { display: none !important; }
+      /* ---- touch controls (src/touch.js) */
+      #help-touch { display: none; }
+      body.touch #help, body.touch #start { display: none; }
+      body.touch #help-touch { display: block; position: fixed; left: 50%; bottom: max(14px, env(safe-area-inset-bottom)); transform: translateX(-50%); padding: 6px 10px; background: rgba(8, 14, 20, 0.62); border-radius: 6px; font-size: 11px; white-space: nowrap; pointer-events: none; transition: opacity 1.5s; }
+      body.touch #help-touch.faded { opacity: 0; }
+      body.touch #hud { font-size: 9px; min-width: 0; padding: 5px 7px; top: max(6px, env(safe-area-inset-top)); left: max(6px, env(safe-area-inset-left)); }
+      body.touch { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
+      .touch-stick { position: fixed; width: 112px; height: 112px; margin: -56px 0 0 -56px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(8, 14, 20, 0.25); pointer-events: none; opacity: 0; transition: opacity 120ms; }
+      .touch-stick.on { opacity: 1; }
+      .touch-knob { position: absolute; left: 31px; top: 31px; width: 46px; height: 46px; border-radius: 50%; background: rgba(255, 255, 255, 0.45); }
+      .touch-pad { position: fixed; right: max(14px, env(safe-area-inset-right)); bottom: max(18px, env(safe-area-inset-bottom)); display: flex; flex-direction: column; gap: 12px; }
+      .touch-btn { width: 54px; height: 54px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.4); background: rgba(8, 14, 20, 0.45); color: #e8eef2; font: 600 17px/1 ui-monospace, Consolas, monospace; touch-action: none; padding: 0; }
+      .touch-btn.on { background: rgba(166, 220, 142, 0.55); }
+      .touch-fs { position: fixed; right: max(14px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); width: 42px; height: 42px; font-size: 18px; }
+      body:not(.is-ready) .touch-pad, body:not(.is-ready) .touch-fs, body:not(.is-ready) #help-touch { visibility: hidden; }
       body.harness #help, body.harness #start { display: none; }
       body.harness .loading { transition: none; }
     </style>
@@ -87,6 +102,7 @@ L  debug colours (cluster / DAG level / tree / type / rasterizer)
 F  freeze culling     [ ]  error threshold (px)   Q  auto quality
 P  shadows   T  anti-aliasing   G  wind   H  hide help   F11  fullscreen   Esc  release mouse</div>
     <div id="start"><div>Click to fly</div></div>
+    <div id="help-touch">left thumb: move · right thumb: look · ▲▼ up/down · 5× zoom</div>
     <script type="module" src="/src/main.js"></script>
   </body>
 </html>

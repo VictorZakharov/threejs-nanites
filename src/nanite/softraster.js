@@ -22,7 +22,7 @@ import {
   length,
 } from 'three/tsl';
 import { LIST_CAP, MAX_TRIS, PHASE2_LAYER } from './constants.js';
-import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt } from './shading.js';
+import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.js';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
@@ -200,7 +200,7 @@ export class SoftRaster {
                     const fw = abs(alphaAt(uv.add(slopes.dx)).sub(alpha)).add(abs(alphaAt(uv.add(slopes.dy)).sub(alpha)));
                     coverage = smoothstep(0.5, max(fw, 1e-4).add(0.5), alpha);
                   }
-                  inside.assign(coverage.greaterThan(ditherAt(p.add(vec2(37, 91)))));
+                  inside.assign(coverage.greaterThan(ditherAlt(p)));
                 });
                 If(inside, () => {
                   const pix = uint(py).mul(uint(W)).add(uint(px));
@@ -246,6 +246,9 @@ export class SoftRaster {
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
     const pix = uvec2(screenCoordinate.xy);
     const id = ids.element(pix.y.mul(uint(this.size.x)).add(pix.x));
+    // (debug 5: magenta where the depth pass covered the pixel but the id pass found no triangle at that depth)
+    const depths = storage(this.depthAttr, 'uint', MAX_PIXELS).toReadOnly();
+    const lost = id.equal(0).and(depths.element(pix.y.mul(uint(this.size.x)).add(pix.x)).notEqual(uint(EMPTY))).and(u.debug.equal(5));
     const e = id.sub(1);
     const entry = list.element(e.shiftRight(7));
     const inst = entry.x, c = entry.y;
@@ -269,12 +272,12 @@ export class SoftRaster {
     mat.vertexNode = vec4(positionGeometry.xy, 0, 1);
     mat.fog = false;
     mat.colorNode = Fn(() => {
-      Discard(id.equal(0).or(this.on.equal(0)));
-      return vec4(select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), dbg, albedo))), 1);
+      Discard(id.equal(0).and(lost.not()).or(this.on.equal(0)));
+      return vec4(select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), dbg, albedo)))), 1);
     })();
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz);
     // (leaves: light passing through, as on the hardware-drawn leaves)
-    mat.emissiveNode = select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), dbg, select(u.debug.greaterThan(0).or(leaf.not()), vec3(0), albedo.mul(0.12))));
+    mat.emissiveNode = select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), dbg, select(u.debug.greaterThan(0).or(leaf.not()), vec3(0), albedo.mul(0.12)))));
     mat.receivedShadowPositionNode = world;
     mat.receivedShadowNode = shading.fadeShadow(world);
     const clip = this.viewProj.mul(vec4(world, 1));

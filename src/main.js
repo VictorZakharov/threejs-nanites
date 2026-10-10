@@ -9,6 +9,7 @@ import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.js';
 import { viewerPos } from './planet.js';
 import { createClouds, CLOUD_BASE } from './clouds.js';
 import { FlyControls } from './controls.js';
+import { TouchControls, isTouchDevice } from './touch.js';
 import { LoadingScreen } from './loading.js';
 import { arrayTexture, layerLookup } from './textures.js';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.js';
@@ -150,6 +151,8 @@ async function start() {
   camera.position.set(20, heightAt(20, 40) + 1.8, 40);
   controls.yaw = THREE.MathUtils.degToRad(30);
   controls.pitch = THREE.MathUtils.degToRad(4);
+  const touch = (HARNESS ? params.get('touch') === '1' : isTouchDevice(params)) ? new TouchControls(controls, renderer.domElement) : null; // (src/touch.js)
+  controls.touchMode = Boolean(touch);
 
   function setShadows(on) {
     shadowsOn = on;
@@ -245,6 +248,7 @@ async function start() {
   function frame(dt) {
     fitToWindow();
     time += dt;
+    touch?.update();
     controls.update(dt);
     // stay above the ground
     const gy = heightAt(camera.position.x, camera.position.z) + 0.6;

@@ -62,7 +62,14 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
   jittered, so `--flicker` (identical still frames) needs `taa=0`; `--dolly` measures TAA as seen in motion.
   `?taadebug=1` shows the trees' wind motion vectors. `--turn=0.2 --step=0` turns the camera instead of moving
   it (mouse look: the far field sweeps across the screen); `--rect=x,y,w,h` counts only part of the screen. The
-  metric isn't zero for a perfect image (content slides across tiles): compare with `pr=2&taa=0` (supersampled).
+  metric isn't zero for a perfect image (content slides across tiles). `--rise=M` climbs instead (the switch band
+  sliding with the altitude). Supersampled references (`pr=2`) must stay under the list caps (1M clusters per list:
+  check the `clusters` column, and the software list too): use `--size=800x450 --ab="pr=1|pr=2"` rather than
+  `pr=2` at full size, where clusters get dropped and the forest thins.
+- Is it a regression? Build the last good commit in a worktree under `tools/tmp/` (`git worktree add`, then
+  `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
+  and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
+- `?taadebug=2` shows where each pixel's history is fetched from (x0.1 px, red x, green y): black with a still camera.
 - `swTris` counts the triangles the software rasterizer took (`tris` is the hardware ones); `cull` includes its
   compute passes. `--flicker` prints how many pixels differ between still frames (hardware: ~100-900 px of
   equal-depth ties; software ones are stable).

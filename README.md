@@ -21,6 +21,9 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 | Q | auto quality on/off (keeps GPU time under budget) |
 | P / T / G / H | shadows / anti-aliasing (TAA) / wind / help |
 
+On a phone or tablet: the left thumb is a movement stick (push further to go faster), the right thumb drags to look,
+and buttons on the right hold up / down / 5× zoom (`touch=1` / `touch=0` forces the touch controls on / off).
+
 URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`, `smap=2048`, `budget=8` (ms), `auto=0`, `aa=0`, `pr=1`, `debug=1..3`.
 
 ## How it works

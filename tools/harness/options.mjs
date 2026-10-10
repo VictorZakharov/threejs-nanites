@@ -23,6 +23,7 @@ measuring
   --dolly            move the camera in small steps (--steps=40 --step=0.5 m); counts tiles that flicker,
                      heatmap dolly-<view>.png
   --turn=DEG         --dolly: also turn the camera this many degrees (yaw) per step (mouse look; --step=0 to only turn)
+  --rise=M           --dolly: also climb this many metres per step (negative: descend)
   --rect=x,y,w,h     --dolly: count only the tiles inside this screen rectangle (e.g. the distant treeline)
   --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
                      (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
@@ -66,6 +67,7 @@ export function parseOptions(argv) {
     sweep: args.sweep ? String(args.sweep).split(',') : null,
     dolly: Boolean(args.dolly),
     turn: args.turn ? Number(args.turn) : 0,
+    rise: args.rise ? Number(args.rise) : 0,
     rect: args.rect ? String(args.rect).split(',').map(Number) : null,
     typematch: args.typematch ? (args.typematch === 'calibrate' ? 'calibrate' : 'measure') : null,
     timeout: args.timeout === undefined ? null : Number(args.timeout), // (null: expectedSeconds, see below)

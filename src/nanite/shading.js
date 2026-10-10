@@ -54,6 +54,13 @@ export const treeTint = (inst) => hash(inst).mul(0.35).add(0.8);
 export const ditherShift = uniform(new THREE.Vector2());
 export const ditherAt = (xy) => fract(dot(xy.add(ditherShift), vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
 export const dither = () => ditherAt(screenCoordinate.xy);
+/**
+ * A second pattern, independent of `dither` at the same pixel, for an alpha test inside the cross-fade (the same
+ * noise with transposed coordinates). An offset copy of the first, ditherAt(xy + k), is nearly the same pattern
+ * shifted by a constant: among the pixels a tree kept in the cross-fade it passed almost all or almost none, up to
+ * 50 points of coverage off, a darker band where trees turn into impostors (the user: the switch line on the fog line).
+ */
+export const ditherAlt = (xy) => ditherAt(vec2(xy.y, xy.x).add(vec2(17, 59)));
 
 // debug 4: a flat, unlit colour per tree type, in geometry and impostors alike (harness --typematch masks with it;
 // keep in sync with TYPE_IDS in tools/harness/typematch.mjs): six hues 60 degrees apart, told apart by hue after

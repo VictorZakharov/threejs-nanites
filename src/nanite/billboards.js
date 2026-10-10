@@ -9,10 +9,10 @@ import {
 import { curve } from '../planet.js';
 import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.js';
 import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.js';
-import { treeTint, dither, ditherAt, typeId, switchPx } from './shading.js';
+import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.js';
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
-const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.85); // (coverage scale: matches the cut-out's mean colour)
+const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
 const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const deg = Math.PI / 180;
@@ -163,7 +163,7 @@ export const billboardMethods = {
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
-    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAt(screenCoordinate.xy.add(vec2(17, 59)))), float(1), float(0)) : q.alpha;
+    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha;
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     mat.emissiveNode = select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)));
