@@ -183,7 +183,7 @@ async function start() {
   // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
   // (a phone's budget is a 60 fps frame: its GPU is far from the 8 ms a desktop one is steered to)
   const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 8));
-  const auto: AutoQuality = { on: params.get('auto') !== '0' && !HARNESS, budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
   // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
@@ -262,7 +262,7 @@ async function start() {
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.u.occlusion.value = params.get('occ') === '0' ? 0 : 1;
 
-  const viewSize = new THREE.Vector2();
+  const viewSize = new THREE.Vector2(), size = new THREE.Vector2();
   function fitToWindow() {
     renderer.getSize(viewSize);
     const w = window.innerWidth, h = window.innerHeight;
@@ -279,7 +279,6 @@ async function start() {
 
   // ---------------------------------------------------------------- frame
   let time = 0;
-  const size = new THREE.Vector2();
   function frame(dt: number): void {
     fitToWindow();
     time += dt;

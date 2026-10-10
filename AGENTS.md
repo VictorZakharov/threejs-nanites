@@ -73,7 +73,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
   devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
-  at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU.
+  at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. It's off
+  under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
+  `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report).
