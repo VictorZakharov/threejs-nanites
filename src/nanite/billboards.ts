@@ -7,7 +7,7 @@ import {
   cameraViewMatrix, normalize, asin, screenCoordinate,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
-import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.ts';
+import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
 import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.ts';
 import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.ts';
 import type { StorageBufferNode, UniformArrayNode, TextureNode } from 'three/webgpu';
@@ -122,7 +122,7 @@ export const billboardMethods = {
       const up = cross(dir, right);
       const flip = hash(inst).greaterThan(0.5); // mirror half of them for variety
       const ux = select(flip, cx.oneMinus(), cx);
-      q.vUv.assign(vec2(float(type).add(ux).div(ELEVATIONS.length * n), cy.oneMinus())); // (render targets are stored flipped)
+      q.vUv.assign(vec2(ux, cy.oneMinus())); // (within the tile; render targets are stored flipped)
       q.vW.assign(weights);
       q.vType.assign(float(type));
       const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(h)));
@@ -138,11 +138,16 @@ export const billboardMethods = {
     })();
     // alpha: the cross-fade between elevations is the union of the silhouettes (mixing their alphas would keep only
     // the overlap and thin the forest out); coverage-preserving by the sampled mip (impostorCoverage)
-    const uv = ELEVATIONS.map((e, k) => q.vUv.add(vec2(k / ELEVATIONS.length, 0))); // (one atlas block per elevation)
+    // tile k * n + type of the atlas (atlasLayout: columns, then rows)
+    const { cols, rows } = atlasLayout(n);
+    const uv = ELEVATIONS.map((e, k) => {
+      const t = q.vType.round().add(k * n), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
+      return q.vUv.add(vec2(col, row)).div(vec2(cols, rows));
+    });
     const t = uv.map((c) => texture(atlas.texture, c));
     const { scales, levels } = atlas.coverage;
     const scaleArr = uniformArray<'float'>(Array.from(scales), 'float');
-    const texel = q.vUv.mul(vec2(atlas.renderTarget.width, atlas.renderTarget.height));
+    const texel = q.vUv.mul(vec2(TILE_W, TILE_H));
     const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))), 0, levels - 1.001);
     const scaleOf = (tile: Uint): Float => {
       const i0 = tile.mul(levels).add(uint(lod.floor()));

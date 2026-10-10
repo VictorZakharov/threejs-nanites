@@ -96,6 +96,13 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. A dropped
   blade collapses onto its root (collapsing per vertex, or to the origin, drew streaks across the screen). Double-sided
   Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades). ~0.3 ms on the dev GPU.
+- Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
+  `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
+  along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). ~+1.9 ms on the dev
+  GPU at 1.5 (mostly the extra impostors). Nine variants overflow one atlas row (9216 px > WebGPU's guaranteed
+  8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
+  colours are nine hues 40 degrees apart (typematch classifies within 20). Gains are linear: a measured sRGB ratio r
+  needs about r^2.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.

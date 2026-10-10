@@ -116,7 +116,7 @@ export function typeMask(png, ids) {
       const hi = Math.max(r, g, b);
       if (hi < 40 || (hi - Math.min(r, g, b)) / hi < 0.55) continue;
       const h = hue(r, g, b);
-      let best = -1, bd = 30;
+      let best = -1, bd = 20; // (half the 40 degrees between the type hues)
       idHues.forEach((ih, k) => {
         const d = Math.min(Math.abs(h - ih), 360 - Math.abs(h - ih));
         if (d < bd) (bd = d), (best = k);

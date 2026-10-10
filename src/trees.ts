@@ -36,9 +36,16 @@ export const VARIANTS: TreeVariant[] = [
   { preset: 'Aspen Medium', seed: 9001, height: 18, bark: 'birch', leaf: 'aspen', impGain: { side: [0.67, 0.42, 0.49], top: [0.66, 0.47, 0.31] } },
   { preset: 'Pine Large', seed: 31337, height: 26, bark: 'pine', leaf: 'pine', impGain: { side: [0.98, 0.75, 1.08], top: [0.85, 0.58, 0.63] } },
   { preset: 'Pine Medium', seed: 555, height: 17, bark: 'pine', leaf: 'pine', impGain: { side: [0.92, 0.66, 0.91], top: [0.62, 0.4, 0.33] } },
+  // undergrowth (placeBushes): ez-tree's bush presets
+  { preset: 'Bush 1', seed: 11, height: 1.8, bark: 'oak', leaf: 'ash', impGain: { side: [1.34, 0.96, 1.63], top: [0.67, 0.56, 0.96] } },
+  { preset: 'Bush 2', seed: 23, height: 2.3, bark: 'oak', leaf: 'oak', impGain: { side: [1.25, 0.85, 1.57], top: [0.6, 0.47, 0.59] } },
+  { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] } },
 ];
 
 /** Generates the source meshes of one variant with ez-tree, scaled to metres. */
+/** Bushes are variants too (same cluster LOD, impostors and shadows); the tree scatter leaves them out. */
+export const isBush = (v: TreeVariant): boolean => v.preset.startsWith('Bush');
+
 export function generateTree(variant: TreeVariant): TreeSource {
   const tree = new Tree();
   tree.loadPreset(variant.preset);

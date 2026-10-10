@@ -57,6 +57,16 @@ export const IMPOSTOR_CUT = 0.35;
 export const ELEVATIONS = [0, 30, 60, 90];
 
 /**
+ * Where the tiles go: tile t = elevation k * n + type, in as few rows as keep the atlas within 8192 px (WebGPU's
+ * guaranteed texture size; nine variants in one row were 9216 px wide). Row r, column c is at (c * TILE_W, r * TILE_H).
+ */
+export function atlasLayout(n: number): { cols: number; rows: number } {
+  const tiles = ELEVATIONS.length * n;
+  const rows = Math.ceil((tiles * TILE_W) / 8192);
+  return { cols: Math.ceil(tiles / rows), rows };
+}
+
+/**
  * The triangles of one tree at a uniform DAG cut: every cluster whose own error is within `err` (object space,
  * metres) and whose parent's isn't, as the runtime cut selects them at a distance where `err` projects to tau.
  * Returns { bark, leaves }, each { pos, nrm, uv, idx } (vertices shared, from the packed [x y z u nx ny nz v]).
@@ -102,8 +112,9 @@ function fullDetail({ bark, leaves }: BuiltTree['src']): { bark: MeshPart; leave
  */
 export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[], tex: BakeTextures, cutPx = 0): Omit<ImpostorAtlas, 'coverage'> {
   const n = trees.length;
+  const { cols, rows } = atlasLayout(n);
   const makeRT = () =>
-    new THREE.RenderTarget(TILE_W * ELEVATIONS.length * n, TILE_H, {
+    new THREE.RenderTarget(TILE_W * cols, TILE_H * rows, {
       type: THREE.HalfFloatType,
       samples: 4,
       generateMipmaps: true,
@@ -189,12 +200,12 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
       cam.position.set(0, fh / 2 + 200 * Math.sin(e), 200 * Math.cos(e));
       cam.up.set(0, Math.cos(e), -Math.sin(e));
       cam.lookAt(0, fh / 2, 0);
-      const col = k * n + i;
+      const t = k * n + i, col = t % cols, row = Math.floor(t / cols);
       cam.updateMatrixWorld();
       [rt, rtN].forEach((target, j) => {
         renderer.setRenderTarget(target);
-        target.viewport.set(col * TILE_W, 0, TILE_W, TILE_H);
-        target.scissor.set(col * TILE_W, 0, TILE_W, TILE_H);
+        target.viewport.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
+        target.scissor.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
         target.scissorTest = true;
         renderer.clearDepth();
         renderer.render(scenes[j], cam);
@@ -206,7 +217,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
 
   for (const target of [rt, rtN]) {
     target.scissorTest = false;
-    target.viewport.set(0, 0, TILE_W * ELEVATIONS.length * n, TILE_H);
+    target.viewport.set(0, 0, TILE_W * cols, TILE_H * rows);
   }
   renderer.autoClear = prevAutoClear;
   renderer.toneMapping = prevTone;
@@ -233,7 +244,7 @@ export function lookup(values: number[]): (type: Uint) => Float {
  */
 export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Omit<ImpostorAtlas, 'coverage'>, cut: number): Promise<AtlasCoverage> {
   const rt = atlas.renderTarget;
-  const W = rt.width, H = rt.height, tiles = W / TILE_W;
+  const W = rt.width, H = rt.height, cols = W / TILE_W, tiles = ELEVATIONS.length * atlas.frames.length;
   const raw = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H);
   const half = (h: number): number => {
     const e = (h >> 10) & 31, m = h & 1023;
@@ -246,7 +257,8 @@ export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Om
   for (let t = 0; t < tiles; t++) {
     let w = TILE_W, h = TILE_H;
     let a = new Float32Array(w * h);
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) a[y * w + x] = alphaAt(y * W + t * TILE_W + x);
+    const x0 = (t % cols) * TILE_W, y0 = Math.floor(t / cols) * TILE_H;
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) a[y * w + x] = alphaAt((y0 + y) * W + x0 + x);
     let target = 0;
     for (const v of a) if (v > cut) target++;
     target /= a.length;

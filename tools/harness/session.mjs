@@ -7,7 +7,8 @@ import { at } from './status.mjs';
 
 /** Loads the demo with this query (on top of ?harness=1) and waits until it's ready. */
 export async function boot(page, url, query, opts, outDir) {
-  await page.goto(`${url}?harness=1${query ? '&' + query : ''}`);
+  // (120 s: the dev server's first load after edits can take over the default 30 s)
+  await page.goto(`${url}?harness=1${query ? '&' + query : ''}`, { timeout: 120000 });
   if (opts.resizeDuringLoad) {
     // a fullscreen toggle while the demo is still loading
     const [width, height] = opts.resizeDuringLoad;
