@@ -147,7 +147,8 @@ first in a new session. Update it as you go, and keep it short and current, not 
   cross-fade band it passed almost all or almost none of a tree's pixels (a darker band at the switch on the fog line).
   Turning test (`--dolly --step=0 --turn=0.2`, numbers drift between setups: compare A/B in one run): fogline ~2050,
   slope ~1125 flicker events with TAA, slope ~3840 without.
-- God rays (`src/godrays.ts`, R, `?rays=` strength, `?raydecay=`): screen-space radial march towards the sun over
+- God rays (`src/godrays.ts`, R, `?rays=` strength, `?raydecay=`, `?rayfall=` fade with the distance from the sun
+  on screen: without it a sun just above the view washed the whole screen, the user's phone too): screen-space radial march towards the sun over
   the depth buffer at half resolution, open sky near the sun's disc as the source. Added to the scene colour inside
   the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
   40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.

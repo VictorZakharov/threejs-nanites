@@ -26,6 +26,7 @@ export class GodRays {
     };
     this.intensity = Number(params.get('rays') ?? 1);
     this.decay = Number(params.get('raydecay') ?? 0.97);
+    const falloff = Number(params.get('rayfall') ?? 2.5);
     const u = this.u;
     const mat = new THREE.NodeMaterial();
     mat.fragmentNode = Fn(() => {
@@ -45,7 +46,8 @@ export class GodRays {
         sum.addAssign(select(d.greaterThanEqual(1), exp(off.mul(-6)), float(0)).mul(w));
         w.mulAssign(this.decay);
       });
-      return vec3(sum.mul(u.strength).div(SAMPLES * 0.4)).toVec4(1);
+      // (fading with the pixel's distance from the sun: the whole screen below a sun just out of view washed out)
+      return vec3(sum.mul(u.strength).mul(exp(span.mul(-falloff))).div(SAMPLES * 0.4)).toVec4(1);
     })();
     this.quad = new THREE.QuadMesh(mat);
     /** The light it adds at `uv` (linear HDR, before the TAA resolve and tone mapping). */
