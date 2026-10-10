@@ -3,6 +3,7 @@ import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform,
 import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour } from './terrain.ts';
 import { createGrass } from './grass.ts';
 import { loadFloorMaps, applyFloor } from './ground/floor.ts';
+import { createLitterMap } from './ground/litter-map.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
@@ -133,7 +134,8 @@ async function start() {
   }));
   // ground: darkened by how much canopy stands over it
   const density = forestDensity(instances);
-  demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves)
+  demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves, and each variant's kind of leaf)
+  demo.leafOf = VARIANTS.map((v) => v.leaf);
   const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
   const coverMap = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5));
   const cover = coverMap.r;
@@ -141,7 +143,9 @@ async function start() {
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
   // the forest floor near the viewer: leaf litter under the canopy, parallax relief (src/ground/)
   const nearGround = terrain.getObjectByName('terrain') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
-  applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap);
+  const litter = createLitterMap(instances); // (which tree's leaves lie where near the viewer)
+  demo.litter = litter;
+  applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap, litter);
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
@@ -310,6 +314,7 @@ async function start() {
     viewerPos.value.copy(camera.position);
     clouds.update(time, camera);
     grass.update(camera);
+    litter.update(camera.position, camera.position.y - heightAt(camera.position.x, camera.position.z));
     camera.updateMatrixWorld();
     renderer.getDrawingBufferSize(size);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)

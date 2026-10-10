@@ -1,31 +1,34 @@
-// The ground near the viewer: the forest floor's maps (floor-maps.ts, last-stand's leaf litter, twigs and pebbles)
-// with parallax relief (relief.ts). Under the canopy the litter shows; out in the open the ground keeps its grass
-// colour, with the litter's detail, normals and relief in it. Moss patches are tinted in world space so the 5 m tile
-// doesn't repeat visibly. Far away the maps' small mips are their average colour, which the colours are matched to.
+// The ground near the viewer: the forest floor's maps (floor-maps.ts: soil, twigs and pebbles, after last-stand) with
+// the fallen leaves of the tree above laid over them (floor-leaves.ts: a layer per kind, chosen per spot by the litter
+// map, litter-map.ts) and parallax relief (relief.ts). The leaves take their tree's shape and autumn colour, as many as
+// it drops (the user: "leaves on the ground matching the trees above them, in shape and colour"); under conifers a
+// thick mat of rust-brown sprays. Out in the open the ground keeps its grass colour. Moss is tinted in world space.
 import * as THREE from 'three/webgpu';
 import {
-  texture, positionWorld, cameraPosition, float, vec3, vec4, mix, smoothstep, mx_noise_float, normalWorld, cameraViewMatrix,
-  select, dot,
+  texture, positionWorld, cameraPosition, float, vec2, vec3, vec4, mix, smoothstep, mx_noise_float, normalWorld,
+  cameraViewMatrix, select, dot, max, clamp, textureLoad, ivec2, int, sqrt, fract, log2, length,
 } from 'three/tsl';
 import type { Float, Vec2, Vec3, Vec4 } from '../types.ts';
-import type { PBRData } from './floor-maps.ts';
+import { FLOOR_TILE, HEIGHT_CM, type PBRData } from './floor-maps.ts';
+import { LEAF_KINDS, LEAF_TILE } from './floor-leaves.ts';
+import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
 
-const TILE = 5; // m a tile (1024 px: ~5 mm a texel)
-const RELIEF = { depth: 0.03, tile: TILE, fade: 40 };
+const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
+const RELIEF = { depth: HEIGHT_CM / 100, tile: TILE, fade: 40 };
 
 export interface FloorMaps {
   map: THREE.DataTexture;
   normal: THREE.DataTexture;
   height: THREE.DataTexture;
-  meanLum: number; // the albedo's mean luminance (linear): the meadow's detail is relative to it
+  leaves: THREE.DataArrayTexture; // per kind of leaf (LEAF_KINDS): height, normal, key
 }
 
 /** Starts building the maps in a worker; resolves to textures. */
 export function loadFloorMaps(): Promise<FloorMaps> {
   return new Promise((resolve, reject) => {
     const w = new Worker(new URL('./floor-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<PBRData>) => {
+    w.onmessage = (e: MessageEvent<PBRData & { leaves: Uint8ClampedArray<ArrayBuffer> }>) => {
       w.terminate();
       const d = e.data;
       const tex = (px: Uint8ClampedArray, srgb: boolean): THREE.DataTexture => {
@@ -39,56 +42,96 @@ export function loadFloorMaps(): Promise<FloorMaps> {
         t.needsUpdate = true;
         return t;
       };
-      const lin = (c: number): number => (c / 255) ** 2.2;
-      let sum = 0;
-      for (let i = 0; i < d.albedo.length; i += 4) sum += lin(d.albedo[i]) * 0.3 + lin(d.albedo[i + 1]) * 0.55 + lin(d.albedo[i + 2]) * 0.15;
-      resolve({ map: tex(d.albedo, true), normal: tex(d.normal, false), height: tex(d.rough, false), meanLum: sum / (d.albedo.length / 4) });
+      const leaves = new THREE.DataArrayTexture(new Uint8Array(d.leaves.buffer), d.size, d.size, LEAF_KINDS.length);
+      leaves.wrapS = leaves.wrapT = THREE.RepeatWrapping;
+      leaves.magFilter = THREE.LinearFilter;
+      leaves.minFilter = THREE.LinearMipmapLinearFilter;
+      leaves.generateMipmaps = true;
+      leaves.needsUpdate = true;
+      resolve({ map: tex(d.albedo, true), normal: tex(d.normal, false), height: tex(d.rough, false), leaves });
     };
     w.onerror = (e) => reject(new Error(e.message));
     w.postMessage(null);
   });
 }
 
+/** The litter map (litter-map.ts): its texture and the world xz of its middle. */
+export interface LitterInput {
+  texture: THREE.Texture;
+  center: Vec2;
+}
+
+// the leaves' own colours (dry, before the tree's autumn colour; linear x 2 like the maps): oak tan, ash olive,
+// aspen ochre, conifer rust-tan (the user's photo)
+const KIND_COLOUR = [vec3(0.34, 0.15, 0.034), vec3(0.29, 0.24, 0.044), vec3(0.52, 0.3, 0.026), vec3(0.42, 0.17, 0.08)];
+
 /**
- * Gives the terrain material the floor: `meadow` is its own (grass / dirt) colour, `cover` the cover map at the world
- * position (forestDensity: red the canopy cover 0..1, green the amount of fallen leaves, blue their autumn level / 2).
+ * Gives the terrain material the floor: `meadow` is its own (grass / dirt) colour, `coverMap` the cover map at the
+ * world position (forestDensity: red canopy cover, green the fallen leaves' amount, blue their autumn level / 2: used
+ * past the litter map), `litter` the litter map.
  */
-export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, coverMap: Vec4): void {
-  // (the map's amount is blurred over the neighbouring stands and the pines, which drop none: x 1.4)
-  const cover = coverMap.r, amount = coverMap.g.mul(1.4).min(1), hue = coverMap.b;
+export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, coverMap: Vec4, litter: LitterInput): void {
+  const p = positionWorld.xz;
   const dist = positionWorld.sub(cameraPosition).length();
-  // the leaves under each tree: as many as its kind drops (src/autumn.ts), the rest of the litter soil; up close by
-  // each leaf's key (the maps' green), further away (where the mips average the keys) by the share
+  // the tree above (looked up a little off, so the crowns' edges in the half-metre texels are ragged, not square)
+  const jit = vec2(mx_noise_float(p.mul(0.8)), mx_noise_float(p.mul(0.8).add(31))).mul(0.7);
+  const luv = p.add(jit).sub(litter.center).div(LITTER_SIZE).add(0.5);
+  const inMap = float(1).sub(smoothstep(0.42, 0.49, max(luv.x.sub(0.5).abs(), luv.y.sub(0.5).abs())));
+  const ti = clamp(luv.mul(LITTER_RES).floor(), 0, LITTER_RES - 1);
+  const cell = textureLoad(litter.texture, ivec2(int(ti.x), int(ti.y)));
+  const amount = mix(coverMap.g.mul(1.4).min(1), cell.g, inMap);
+  const level = mix(coverMap.b, cell.b, inMap).mul(2); // (0 green, 1 yellow, 2 red)
+  const forced = new URLSearchParams(location.search).get('litterkind'); // (debug: one kind everywhere, 0..3)
+  const kind = (forced !== null ? float(Number(forced)) : select(inMap.greaterThan(0.5), max(cell.r.mul(255).round().sub(1), float(0)), float(0))).toVar();
+  const kindI = int(kind).toVar(); // (the layer: an i32 variable, or the array texture's sample got an f32 index)
+  const isNeedle = kind.equal(3);
+  const ls = select(isNeedle, float(TILE / LEAF_TILE.pine), float(1)).toVar(); // (the conifer layer's finer tile)
+
+  // up close each leaf by its key, further away (the mips average the keys) by the share
   const far = smoothstep(15, 45, dist);
-  const lies = (key: Float): Float => mix(select(key.sub(0.1).div(0.9).lessThan(amount), float(1), float(0)), amount, far);
-  const isLeaf = (key: Float): Float => smoothstep(0.02, 0.08, key);
-  const sample = (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2): Float => {
-    const s = texture(t, p).grad(dx, dy);
-    return s.r.mul(mix(float(1), mix(float(0.4), float(1), lies(s.g)), isLeaf(s.g))); // (missing leaves sink to the soil)
+  // (an explicit mip level: three's WGSL for grad() on an array texture passes the layer as a float, which fails)
+  const size = maps.leaves.image.width;
+  const leafAt = (q: Vec2, dx: Vec2, dy: Vec2): Vec4 =>
+    // (by the footprint's area, not its longest side: at a grazing angle that blurred the needles away; TAA smooths it)
+    texture(maps.leaves, q.mul(ls)).depth(kindI).level(log2(max(sqrt(length(dx).mul(length(dy))).mul(ls).mul(size), 1)));
+  const lies = (lf: Vec4): Float => select(lf.r.greaterThan(0.003).and(lf.a.sub(0.1).div(0.9).lessThan(amount)), float(1), float(0));
+  const sample = (_t: THREE.Texture, q: Vec2, dx: Vec2, dy: Vec2): Float => {
+    const lf = leafAt(q, dx, dy);
+    return max(texture(maps.height, q).grad(dx, dy).r, lf.r.mul(lies(lf)));
   };
-  const uv0 = positionWorld.xz.div(TILE);
-  const under = smoothstep(0.3, 0.75, cover).mul(float(1).sub(smoothstep(80, 200, dist)));
+  const uv0 = p.div(TILE);
+  const fallen = inMap.mul(smoothstep(0.08, 0.3, amount)); // (under a lone tree too)
+  const under = max(smoothstep(0.3, 0.75, coverMap.r), fallen).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
   const dx = uv0.dFdx(), dy = uv0.dFdy();
   const raw = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
-  const info = texture(maps.height, uv).grad(dx, dy);
-  // fresh leaves take their trees' colour: yellow, then red (green trees' keep the browns)
-  const lum = dot(raw, vec3(0.3, 0.59, 0.11));
-  const turned = mix(vec3(2.4, 1.75, 0.25), vec3(2.5, 0.55, 0.2), smoothstep(0.55, 0.85, hue)).mul(lum);
-  const leafCol = mix(raw, turned, smoothstep(0.2, 0.45, hue).mul(info.b.mul(0.6).add(0.4)));
-  const soil = vec3(0.05, 0.032, 0.018).mul(mx_noise_float(positionWorld.xz.mul(2.3)).mul(0.25).add(1));
-  const litter = mix(raw, mix(soil, leafCol, lies(info.g)), isLeaf(info.g));
-  const nm = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)
-  // moss over the litter in world space (large patches: a texture would tile)
-  const p = positionWorld.xz;
+  const baseH = texture(maps.height, uv).grad(dx, dy).r;
+  const nmBase = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)
+  const lf = leafAt(uv, dx, dy);
+  const near = lies(lf).mul(select(lf.r.greaterThan(baseH), float(1), float(0)));
+  const on = mix(near, amount.mul(0.85), far);
+
+  // the leaf's colour: its kind's, darker in the lower (older) layers, varied per leaf; fresh ones in the tree's colour
+  const kindCol = select(kind.equal(0), KIND_COLOUR[0], select(kind.equal(1), KIND_COLOUR[1], select(kind.equal(2), KIND_COLOUR[2], KIND_COLOUR[3])));
+  const keyN = mix(lf.a, float(0.6), far);
+  const shade = mix(float(0.55), float(1.1), keyN).mul(fract(keyN.mul(37.1)).mul(0.3).add(0.85));
+  const lum = dot(kindCol, vec3(0.3, 0.59, 0.11));
+  const tint = select(level.lessThan(1), mix(vec3(1.0, 1.5, 0.3), vec3(2.4, 1.75, 0.25), level), mix(vec3(2.4, 1.75, 0.25), vec3(2.5, 0.55, 0.2), level.sub(1)));
+  const fresh = fract(keyN.mul(53.7));
+  const turn = select(isNeedle, float(0), fresh.mul(0.6).add(0.3).mul(smoothstep(0, 0.5, level).mul(0.5).add(0.5)));
+  const leafCol = mix(kindCol, tint.mul(lum), turn).mul(shade);
+  const litterCol = mix(raw, leafCol, on);
+  const nl = vec3(lf.g.mul(2).sub(1), lf.b.mul(2).sub(1), 0);
+  const nm = mix(nmBase, vec3(nl.x, nl.y, sqrt(max(float(1).sub(dot(nl, nl)), 0))), near.mul(float(1).sub(far)));
+
+  // moss over the litter in world space (large patches: a texture would tile), less where the leaves lie thick
   const mossV = mx_noise_float(p.mul(0.11)).mul(0.3).add(mx_noise_float(p.mul(0.37).add(7)).mul(0.15)).add(0.5);
-  const moss = smoothstep(0.45, 0.7, mossV).mul(0.7);
+  const moss = smoothstep(0.45, 0.7, mossV).mul(0.5).mul(float(1).sub(on.mul(0.8)));
   const mossCol = vec3(0.045, 0.09, 0.025).mul(mx_noise_float(p.mul(3.1)).mul(0.3).add(1));
-  const floor = mix(litter, mossCol, moss);
-  // under the canopy the litter, near the viewer (far away the ground's own colour, darkened by the far shading as
-  // before: the litter's average brown turned the whole forest floor brown from the air); in the open the meadow
-  // colour, varied by the litter's detail (its luminance relative to the mean, so the average stays the meadow's)
-  // (the meadow keeps its plain colour: the litter's pattern in it read as pale stamped leaves up close)
+  const floor = mix(litterCol, mossCol, moss);
+  // under the canopy (and under lone trees) the litter, near the viewer: far away the ground's own colour, darkened by
+  // the far shading (the litter's average brown turned the whole forest floor brown from the air); the meadow keeps
+  // its plain colour (the litter's pattern in it read as pale stamped leaves up close)
   mat.colorNode = mix(meadow, floor, under);
   // the maps' normals on the terrain's (v runs along +z: dh/dz = g)
   const nW = normalWorld.add(vec3(nm.x, 0, nm.y.negate()).mul(under.mul(0.8))).normalize();

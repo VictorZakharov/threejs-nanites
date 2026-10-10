@@ -3,7 +3,7 @@
 import * as THREE from 'three/webgpu';
 import { heightAt, fbm } from './terrain.ts';
 import { VARIANTS, isBush } from './trees.ts';
-import { autumnAt, withAutumn, autumnOfPhase, fallOf } from './autumn.ts';
+import { autumnAt, withAutumn, autumnOfPhase, fallOf, NEEDLES } from './autumn.ts';
 
 const params = new URLSearchParams(location.search);
 
@@ -25,7 +25,7 @@ export const forestRadius = (count: number): number => Math.sqrt((count * TREE_S
 /**
  * Canopy cover (0..1, red) of the ground on a grid over the forest, for the far-field ground darkening; and the fallen
  * leaves under it (src/ground/floor.ts): green their amount (0..1: the trees' fallOf, weighted by crown), blue their
- * autumn level / 2 (src/autumn.ts). Pines drop none.
+ * autumn level / 2 (src/autumn.ts); conifers drop a thick mat of needles (level 0).
  */
 export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE.DataTexture; extent: number } {
   const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
@@ -37,7 +37,7 @@ export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE
     const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
     if (x < 0 || z < 0 || x >= N || z >= N) continue;
     const w = crown * a[i + 3] * a[i + 3], turn = autumnOfPhase(b[i + 3]);
-    const f = v.leaf === 'pine' ? 0 : w * fallOf(turn);
+    const f = w * (v.leaf === 'pine' ? NEEDLES : fallOf(turn)); // (the grass thins under the needles too)
     cov[z * N + x] += w;
     fall[z * N + x] += f;
     hue[z * N + x] += f * turn;

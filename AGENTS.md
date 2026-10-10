@@ -111,21 +111,27 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
   colours are nine hues 40 degrees apart (typematch classifies within 20). Gains are linear: a measured sRGB ratio r
   needs about r^2.
-- Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural leaf litter (soil, three
-  leaf layers, twigs, pebbles; 5 m tile, height in the red channel) built in a worker; `relief.ts` is its parallax
-  occlusion in TSL (up to 32 steps, more up close, then 5 bisections: linear steps alone left terraces on the leaves'
-  edges; 3 cm deep, fades by 40 m, only in the litter; `reliefSteps` uniform: `?relief=0`, off on touch, a
-  menu switch); `floor.ts` puts the litter where the canopy is dense and within ~200 m (applied everywhere, its
-  average brown turned the whole forest floor brown from the air), and the meadow keeps its plain colour (the litter's
-  pattern in it read as pale stamped leaves). `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
+- Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural floor without its leaves
+  (soil, twigs, pebbles; 5 m tile; heights everywhere in cm / `HEIGHT_CM`); `floor-leaves.ts` the fallen leaves, a
+  texture-array layer per kind (oak lobed, ash leaflets, aspen round, conifer sprays after the user's photo at a 2.5 m
+  tile): height, normal and a per-leaf key (alpha: shown if the amount fallen is over it); both built in a worker.
+  `litter-map.ts`: a 256 m square of half-metre texels round the camera (rebuilt every 32 m from bucketed instances)
+  holding the kind of leaf of the crown most over each texel, the amount fallen (all crowns) and that tree's autumn
+  level; the floor lays that kind's layer in that tree's colour, so the litter matches the tree above in shape and
+  colour (the user). Past the square the cover map's averages. `relief.ts` is the parallax occlusion in TSL (up to
+  32 steps, then 5 bisections; sampling max(floor, leaf) heights; 4 cm deep, fades by 40 m; `reliefSteps` uniform:
+  `?relief=0`, off on touch, a menu switch). Litter under dense canopy or any tree's fall, within ~200 m; the meadow
+  keeps its plain colour. Gotchas in three r186's WGSL: an array texture's layer must be an `int(...).toVar()` (a
+  float index fails to compile), use `.level()` not `.grad()` on it, and the needle layer's tile scale must be a
+  `.toVar()` (computed inline it sampled one uniform colour). `?litterkind=0..3` forces one kind (debug). Views
+  `floor`, `litterclose`, `needlesclose`, `autumn*`; `--probe=litter` reads the map round the camera.
 - Autumn (`src/autumn.ts`, `?autumn=` 0 = summer): broadleaf trees and bushes are green, yellow or red by stands
   (noise ranked by its sampled quantiles: 40 / 32 / 28%) plus a jitter per tree; pines stay green. The level rides in
   the instance's wind phase as whole turns (b.w = phase + 2 pi L), so no buffer grew (a 9th storage buffer would
   break the 8 limit). `autumnColour` turns the leaf colour in the hardware draw, the software resolve and the
   impostors (masked to green texels there: the atlas has bark). Fallen leaves: `forestDensity` also writes the leaves'
-  amount (green 0.2, yellow 0.6, red 1 x crown) and level into the cover map's G / B; the floor maps carry a key per
-  leaf (shown if the amount is over it, else soil, sunk in the relief) and its freshness (takes the trees' colour);
-  grass thins where leaves lie thick. Views `autumnred` / `autumnyellow` / `autumngreen`, `--probe=autumn`.
+  amount (green 0.2, yellow 0.6, red 1, conifers `NEEDLES` 1.3 x crown) and level into the cover map's G / B (used
+  past the litter map; grass thins where leaves lie thick). Views `autumnred` / `autumnyellow` / `autumngreen`, `--probe=autumn`.
   Calibrate impostor gains with `autumn=0`.
 - Clearings (`clearingAt` in `placement.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
   land). They were a sum of sines: from the air a lattice of same-sized gaps (the user: "repetitive"; `aerial` view).

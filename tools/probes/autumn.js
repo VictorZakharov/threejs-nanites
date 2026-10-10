@@ -1,26 +1,27 @@
-// Autumn (src/autumn.ts): the share of broadleaf trees per level (green / yellow / red) and, per level, the nearest
+// Autumn (src/autumn.ts): the share of trees per level (green / yellow / red broadleaf, and conifers) and, per level, the nearest
 // spot to the origin standing in a stand of it (most of the broadleaf trees within 20 m of that level), for views.
 async (demo) => {
   const { a, b, trees } = demo.instances;
   const level = (i) => Math.floor(b[i * 4 + 3] / (Math.PI * 2)) / 7.5;
-  const cls = (v) => (v < 0.5 ? 'green' : v < 1.4 ? 'yellow' : 'red');
-  const share = { green: 0, yellow: 0, red: 0 }, spots = {};
-  // (pines count as green)
+  const cls0 = (v) => (v < 0.5 ? 'green' : v < 1.4 ? 'yellow' : 'red');
+  const isPine = (i) => demo.leafOf[b[i * 4 + 2]] === 'pine';
+  const cls = (v, i) => (isPine(i) ? 'pine' : cls0(v));
+  const share = { green: 0, yellow: 0, red: 0, pine: 0 }, spots = {};
   const near = [];
   for (let i = 0; i < trees; i++) {
-    share[cls(level(i))]++;
+    share[cls(level(i), i)]++;
     if (Math.hypot(a[i * 4], a[i * 4 + 2]) < 1500) near.push(i);
   }
-  for (const want of ['green', 'yellow', 'red']) {
+  for (const want of ['green', 'yellow', 'red', 'pine']) {
     let best = null;
     for (const i of near) {
-      if (cls(level(i)) !== want) continue;
+      if (cls(level(i), i) !== want) continue;
       const x = a[i * 4], z = a[i * 4 + 2];
       let same = 0, all = 0;
       for (const j of near) {
         if (Math.abs(a[j * 4] - x) > 20 || Math.abs(a[j * 4 + 2] - z) > 20) continue;
         all++;
-        if (cls(level(j)) === want) same++;
+        if (cls(level(j), j) === want) same++;
       }
       const score = all >= 6 ? same / all : 0;
       const d = Math.hypot(x, z);

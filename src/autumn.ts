@@ -46,6 +46,8 @@ export const withAutumn = (phase: number, a: number): number => phase + TAU * Ma
 export const autumnOfPhase = (w: number): number => Math.floor(w / TAU) / STEPS;
 /** The same in a shader. */
 export const autumnOf = (w: Float): Float => w.div(TAU).floor().div(STEPS);
+/** Conifers' fall: a thick mat of needles (the user: "brown/red fir leaves as a thick layer, like real life"). */
+export const NEEDLES = 1.3;
 /** How much of a tree's leaves lie under it: green 0.2, yellow 0.6, red 1. */
 export const fallOf = (a: number): number => 0.2 + 0.4 * a;
 

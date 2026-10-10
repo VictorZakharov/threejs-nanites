@@ -45,9 +45,9 @@ Done, waiting for the user's check on the live site:
 - Tree impostor gains have drifted (typematch on `d550`: pines 1.17/1.16/1.47, before the bushes too): recalibrate
   the trees with `--typematch=calibrate` and check the fog line again (with `--query=autumn=0`: the gains are for
   green leaves).
-- Autumn (user: "trees of varying color... leaves underneath match, red fall the most"): in. The fallen leaves follow
-  the cover map's 20 m cells (blurred ~80 m), so they match stands, not single trees; per-tree litter would need a
-  finer map near the viewer. Grass thins where the leaves lie thick.
+- Autumn (user: "trees of varying color... leaves underneath match, red fall the most"; then "matching the trees
+  above them in shape and color", conifers "a thick layer" with a photo): in, per tree through the litter map near
+  the viewer. Leaf edges are texel-stepped up close (5 mm texels, binary key); the floor reads dark in shade.
 
 ## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
 

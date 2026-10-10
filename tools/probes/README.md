@@ -21,5 +21,6 @@ A probe file holds one JavaScript expression, an async function `(demo, view) =>
 | `profile` | the panel's GPU profile in the real loop: median render/compute ms with each feature switched off in turn (`--timeout=240`) |
 | `menu` | the settings menu: opens it with Esc, clicks each switch and the quality presets, reads the state back; leaves it open for the screenshot |
 | `autumn` | autumn levels: share of green / yellow / red trees, the nearest stand of each (spots of the `autumn*` views) and the cover map's fallen leaves there |
+| `litter` | the litter map round the camera (src/ground/litter-map.ts): kind of leaf, amount and autumn level at the camera and 3 m around it, share of each kind |
 | `walk` | walking (`--query=walk=1`): stands at eye height, walks, jumps, double-jumps into flight, flies down and lands walking |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |
