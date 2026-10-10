@@ -9,7 +9,7 @@ import { PerfPanel } from './perf-panel.ts';
 export function createHud(ctx) {
   const { renderer, camera, controls, forest, taa, auto, size, samples } = ctx;
   const el = document.getElementById('hud');
-  let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, gs = null;
+  let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, gs = null, shadowTris = 0;
   const agl = () => camera.position.y - heightAt(camera.position.x, camera.position.z);
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
@@ -19,7 +19,7 @@ export function createHud(ctx) {
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.instanceCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,
-      tris: gs.barkTris + gs.leafTris, swTris: gs.swTris ?? 0,
+      tris: gs.barkTris + gs.leafTris, swTris: gs.swTris ?? 0, shadowTris,
     },
     camera: {
       x: camera.position.x, z: camera.position.z, agl: agl(), zoom: controls.zoom,
@@ -30,6 +30,9 @@ export function createHud(ctx) {
 
   async function update() {
     gs = await forest.readStats();
+    // (the shadow map's casters: on a phone they cost more than the view itself)
+    const sh = ctx.shadowsOn() ? await forest.readStats(forest.shadow) : null;
+    shadowTris = sh ? sh.barkTris + sh.leafTris : 0;
     const tris = gs.barkTris + gs.leafTris;
     const rows = [
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),

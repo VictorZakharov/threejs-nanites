@@ -170,6 +170,8 @@ async function start() {
   // (a phone's budget is a 60 fps frame: its GPU is far from the 8 ms a desktop one is steered to)
   const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 8));
   const auto = { on: params.get('auto') !== '0' && !HARNESS, budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
+  const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
   // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
   // controller that twitches every frame makes the whole forest shimmer. Past the coarsest tau it lowers the
   // resolution instead (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of
@@ -259,6 +261,7 @@ async function start() {
     if (sceneRT.width !== size.x || sceneRT.height !== size.y) sceneRT.setSize(size.x, size.y);
   }
   window.addEventListener('resize', fitToWindow);
+  if (startScale < 1) setScale(startScale);
 
   // ---------------------------------------------------------------- frame
   let time = 0;

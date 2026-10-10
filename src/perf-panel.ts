@@ -135,7 +135,7 @@ export class PerfPanel {
     this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale < 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}`;
     const sc = det.scene;
     this.k.scene.innerHTML = sc
-      ? `<b>${count(sc.trees)}</b> TREES · <b>${(sc.tris / 1e6).toFixed(2)}</b>+<b>${(sc.swTris / 1e6).toFixed(2)}</b> M TRIS`
+      ? `<b>${count(sc.trees)}</b> TREES · <b>${(sc.tris / 1e6).toFixed(2)}</b>+<b>${(sc.swTris / 1e6).toFixed(2)}</b> M TRIS · SHADOW <b>${(sc.shadowTris / 1e6).toFixed(2)}</b> M`
       : '';
     this.k.hw.textContent = det.adapter;
     this.el.classList.toggle('has-drop', s.avgFps > 0 && s.avgFps < Math.min(52, s.refresh * 0.78));
@@ -171,7 +171,7 @@ export class PerfPanel {
       '',
       `trees        ${count(sc.trees ?? 0)} visible of ${count(sc.total ?? 0)} (${count(sc.impostors ?? 0)} impostors)`,
       `clusters     ${count(sc.clusters ?? 0)} hardware, ${count(sc.swClusters ?? 0)} software`,
-      `triangles    ${count(sc.tris ?? 0)} hardware, ${count(sc.swTris ?? 0)} software`,
+      `triangles    ${count(sc.tris ?? 0)} hardware, ${count(sc.swTris ?? 0)} software, ${count(sc.shadowTris ?? 0)} shadow casters`,
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,
     ];
     return lines.join('\n');
