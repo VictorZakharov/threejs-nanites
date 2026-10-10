@@ -3,22 +3,29 @@
 // buttons on the right hold up / down / 5x zoom. They drive FlyControls (src/controls.js) through its `analog` input
 // and yaw/pitch, so speed ramp, zoom and the ground clamp are shared with the keyboard.
 import * as THREE from 'three/webgpu';
+import type { FlyControls } from './controls.ts';
 
 const STICK_PX = 56; // stick travel radius (CSS pixels)
 const LOOK = 0.0045; // radians per pixel dragged (divided by the zoom: finer aim through the zoom)
 
 /** True on a device whose main pointer is a finger (or `?touch=1`; `?touch=0` turns the controls off). */
-export function isTouchDevice(params) {
+export function isTouchDevice(params: URLSearchParams): boolean {
   if (params.has('touch')) return params.get('touch') === '1';
   return matchMedia('(pointer: coarse)').matches || navigator.maxTouchPoints > 0 && !matchMedia('(pointer: fine)').matches;
 }
 
 export class TouchControls {
-  constructor(controls, dom) {
+  readonly controls: FlyControls;
+  stick: { id: number; x0: number; y0: number } | null = null;
+  look: { id: number; x: number; y: number } | null = null;
+  vertical = 0; // held up / down buttons
+  stickX = 0;
+  stickY = 0;
+  readonly base: HTMLElement;
+  readonly knob: HTMLElement;
+
+  constructor(controls: FlyControls, dom: HTMLElement) {
     this.controls = controls;
-    this.stick = null; // { id, x0, y0 }
-    this.look = null; // { id, x, y }
-    this.vertical = 0; // held up / down buttons
     document.body.classList.add('touch');
     dom.style.touchAction = 'none';
 
@@ -30,11 +37,11 @@ export class TouchControls {
 
     dom.addEventListener('pointerdown', (e) => this._down(e));
     dom.addEventListener('pointermove', (e) => this._move(e));
-    for (const t of ['pointerup', 'pointercancel']) dom.addEventListener(t, (e) => this._up(e));
+    for (const t of ['pointerup', 'pointercancel'] as const) dom.addEventListener(t, (e) => this._up(e));
 
     // buttons: hold to climb / descend / zoom; fullscreen toggles
     const pad = el('div', 'touch-pad');
-    const hold = (label, title, on, off) => {
+    const hold = (label: string, title: string, on: () => void, off: () => void): void => {
       const b = el('button', 'touch-btn', label);
       b.title = title;
       b.addEventListener('pointerdown', (e) => {
@@ -54,7 +61,7 @@ export class TouchControls {
     hold('▼', 'down', () => (this.vertical = -1), () => (this.vertical = Math.max(this.vertical, 0)));
     hold('5×', 'zoom', () => (controls.zoomTarget = controls.zoomMax), () => (controls.zoomTarget = 1));
     document.body.append(pad);
-    if (document.documentElement.requestFullscreen) {
+    if ('requestFullscreen' in document.documentElement) { // (iPhone Safari has none)
       const fs = el('button', 'touch-btn touch-fs', '⛶');
       fs.title = 'fullscreen';
       fs.addEventListener('click', () => controls.toggleFullscreen());
@@ -65,10 +72,10 @@ export class TouchControls {
     document.addEventListener('dblclick', (e) => e.preventDefault());
   }
 
-  _down(e) {
+  _down(e: PointerEvent): void {
     if (e.pointerType === 'mouse') return;
     e.preventDefault();
-    capture(e.currentTarget, e);
+    capture(e.currentTarget as Element, e);
     document.getElementById('help-touch')?.classList.add('faded'); // (the hint has done its job)
     if (e.clientX < innerWidth / 2 && !this.stick) {
       this.stick = { id: e.pointerId, x0: e.clientX, y0: e.clientY };
@@ -79,7 +86,7 @@ export class TouchControls {
     } else if (!this.look) this.look = { id: e.pointerId, x: e.clientX, y: e.clientY };
   }
 
-  _move(e) {
+  _move(e: PointerEvent): void {
     const c = this.controls;
     if (this.stick?.id === e.pointerId) {
       let dx = e.clientX - this.stick.x0, dy = e.clientY - this.stick.y0;
@@ -95,7 +102,7 @@ export class TouchControls {
     }
   }
 
-  _up(e) {
+  _up(e: PointerEvent): void {
     if (this.stick?.id === e.pointerId) {
       this.stick = null;
       this.base.classList.remove('on');
@@ -104,10 +111,10 @@ export class TouchControls {
     if (this.look?.id === e.pointerId) this.look = null;
   }
 
-  _setKnob(dx, dy) {
+  _setKnob(dx: number, dy: number): void {
     this.knob.style.transform = `translate(${dx}px, ${dy}px)`;
     // a small dead zone, then a curve: fine control near the centre
-    const shape = (v) => {
+    const shape = (v: number): number => {
       const m = Math.max(0, Math.abs(v) - 0.12) / 0.88;
       return Math.sign(v) * m * m;
     };
@@ -116,13 +123,13 @@ export class TouchControls {
   }
 
   /** Per frame, before FlyControls.update(). */
-  update() {
-    this.controls.analog.set(this.stickX ?? 0, this.vertical, -(this.stickY ?? 0));
+  update(): void {
+    this.controls.analog.set(this.stickX, this.vertical, -this.stickY);
   }
 }
 
 /** Keeps a finger's events coming to `target` when it slides off (fails for synthetic events: the harness probe). */
-function capture(target, e) {
+function capture(target: Element, e: PointerEvent): void {
   try {
     target.setPointerCapture(e.pointerId);
   } catch {
@@ -130,7 +137,7 @@ function capture(target, e) {
   }
 }
 
-function el(tag, cls, text) {
+function el<K extends keyof HTMLElementTagNameMap>(tag: K, cls: string, text?: string): HTMLElementTagNameMap[K] {
   const e = document.createElement(tag);
   e.className = cls;
   if (text) e.textContent = text;

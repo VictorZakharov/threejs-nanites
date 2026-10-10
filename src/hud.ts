@@ -4,12 +4,44 @@
 import * as THREE from 'three/webgpu';
 import { heightAt } from './terrain.ts';
 import { PerfPanel } from './perf-panel.ts';
+import type { FlyControls } from './controls.ts';
+import type { NaniteForest } from './nanite/forest.ts';
+import type { TAA } from './taa.ts';
 
-/** ctx: { renderer, camera, controls, forest, taa, auto, size, samples, adapterName, harness, shadowsOn() } */
-export function createHud(ctx) {
+/** The auto-quality controller's state (src/main.ts). */
+export interface AutoQuality {
+  on: boolean;
+  budget: number; // GPU ms
+  maxTau: number;
+  scale: number; // resolution scale (of the base pixel ratio)
+  gpuMs: number;
+  renderMs?: number;
+  computeMs?: number;
+  frameMs?: number; // (without timestamp queries)
+  busy: boolean;
+}
+
+export interface HudContext {
+  renderer: THREE.WebGPURenderer;
+  camera: THREE.PerspectiveCamera;
+  controls: FlyControls;
+  forest: NaniteForest;
+  taa: TAA;
+  auto: AutoQuality;
+  size: THREE.Vector2;
+  samples: number;
+  adapterName: string;
+  harness: boolean;
+  shadowsOn(): boolean;
+}
+
+type ForestStats = Awaited<ReturnType<NaniteForest['readStats']>>;
+
+export function createHud(ctx: HudContext) {
   const { renderer, camera, controls, forest, taa, auto, size, samples } = ctx;
-  const el = document.getElementById('hud');
-  let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, gs = null, shadowTris = 0;
+  const el = document.getElementById('hud')!; // (index.html)
+  let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, shadowTris = 0;
+  let gs: ForestStats | null = null;
   const agl = () => camera.position.y - heightAt(camera.position.x, camera.position.z);
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
@@ -28,7 +60,7 @@ export function createHud(ctx) {
     adapter: ctx.adapterName,
   }));
 
-  async function update() {
+  async function update(): Promise<void> {
     gs = await forest.readStats();
     // (the shadow map's casters: on a phone they cost more than the view itself)
     const sh = ctx.shadowsOn() ? await forest.readStats(forest.shadow) : null;
@@ -50,7 +82,7 @@ export function createHud(ctx) {
   return {
     update,
     /** Per displayed frame. */
-    frame(now, dt) {
+    frame(now: number, dt: number): void {
       perf?.frame(now);
       frames++;
       acc += dt;
@@ -64,7 +96,7 @@ export function createHud(ctx) {
       }
     },
     /** The harness's benchmark result, shown in the screenshots' HUD line. */
-    setBenchMs(m) {
+    setBenchMs(m: number): void {
       ms = m;
       fps = 1000 / m;
     },

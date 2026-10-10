@@ -10,6 +10,32 @@ import { curve } from '../planet.ts';
 import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.ts';
 import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.ts';
 import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.ts';
+import type { StorageBufferNode, UniformArrayNode, TextureNode } from 'three/webgpu';
+import type { NaniteForest } from './forest.ts';
+import type { ImpostorAtlas } from '../impostors.ts';
+import type { TreeVariant } from '../trees.ts';
+import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
+import { setEmissive } from '../three-gaps.ts';
+
+/** A billboard's shader pieces (see _impostorQuad). */
+interface ImpostorQuad {
+  vUv: Vec2;
+  vW: ReturnType<typeof varying<'vec4'>>;
+  vType: Float;
+  vTint: Float;
+  vFade: Float;
+  vRight: Vec3;
+  vUp: Vec3;
+  vDir: Vec3;
+  vShadowPos: Vec3;
+  position: Vec3;
+  uv: Vec2[];
+  t: TextureNode[];
+  tile: Uint;
+  a: Float[];
+  alpha: Float;
+  coverage: Float;
+}
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
 const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
@@ -17,9 +43,10 @@ const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9
 const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const deg = Math.PI / 180;
 // extra colour gains on top of each variant's impGain (side / top-down views), for experiments: ?impgain=r,g,b
-const gainParam = (name) => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
+const gainParam = (name: string): number[] => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
 const IMP_GAIN = gainParam('impgain');
 const IMP_GAIN_TOP = gainParam('impgaintop');
+const v3 = (c: number[]) => new THREE.Vector3(c[0], c[1], c[2]);
 
 export const billboardMethods = {
   // ------------------------------------------------------------------ impostors (far field)
@@ -31,12 +58,12 @@ export const billboardMethods = {
    * Returns the position node, the varyings and per elevation k: q.t[k] (albedo sample), q.uv[k], q.a[k] (alpha).
    * `screen`: the camera's quads (sub-pixel trees thinned out, cross-fade share with the geometry, shading inputs).
    */
-  _impostorQuad(atlas, flags, dirOf, screen) {
+  _impostorQuad(this: NaniteForest, atlas: ImpostorAtlas, flags: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
     const u = this.u;
     const n = atlas.frames.length;
-    const frameW = uniformArray(atlas.frames.map((f) => f.w), 'float');
-    const frameH = uniformArray(atlas.frames.map((f) => f.h), 'float');
-    const q = {
+    const frameW = uniformArray<'float'>(atlas.frames.map((f) => f.w), 'float');
+    const frameH = uniformArray<'float'>(atlas.frames.map((f) => f.h), 'float');
+    const v = {
       vUv: varying(vec2(0), 'vImpUv'),
       vW: varying(vec4(1, 0, 0, 0), 'vImpW'), // weights of the tiles (ELEVATIONS)
       vType: varying(float(0), 'vImpType'),
@@ -49,7 +76,8 @@ export const billboardMethods = {
       // quad (its self-shadow is the average treeshade instead, see lighting.js and main.js); the neighbours' shadows remain
       vShadowPos: varying(vec3(0), 'vImpShadowPos'),
     };
-    q.position = Fn(() => {
+    const q = v;
+    const position = Fn(() => {
       const inst = instanceIndex;
       const on = flags.element(inst).equal(1).toVar();
       const a = this._a(inst), b = this._b(inst);
@@ -67,13 +95,13 @@ export const billboardMethods = {
       // side and top tiles, the whole screen looked straight down at from high up was one flat top view: trees
       // towards the edges don't lean outwards like real ones)
       const elev = asin(clamp(dir.y, -1, 1)).div(deg);
-      const steps = ELEVATIONS.slice(1).map((e, k) => smoothstep((ELEVATIONS[k] + e) / 2 - 7.5, (ELEVATIONS[k] + e) / 2 + 7.5, elev));
+      const steps: Float[] = ELEVATIONS.slice(1).map((e, k) => smoothstep((ELEVATIONS[k] + e) / 2 - 7.5, (ELEVATIONS[k] + e) / 2 + 7.5, elev));
       const wk = ELEVATIONS.map((e, k) => (k === 0 ? steps[0].oneMinus() : k === steps.length ? steps[k - 1] : steps[k - 1].sub(steps[k])));
-      const weights = vec4(...wk);
+      const weights = vec4(wk[0], wk[1], wk[2], wk[3]);
       // seen from above, the coarse cluster LODs it replaces read wider than the crown in the atlas (fewer, grown
       // leaf cards): enlarge the higher views to match, so the forest doesn't thin out at the switch
       // (the shadow casters too: the geometry's shadow comes from the same fat coarse LODs)
-      const grow = dot(weights, vec4(...GROW)).toVar();
+      const grow = dot(weights, vec4(GROW[0], GROW[1], GROW[2], GROW[3])).toVar();
       if (screen) {
         // sub-pixel trees shimmer (they hit or miss pixel centres as the camera moves): never draw a quad narrower
         // than MIN_PX; keep the forest's coverage by dropping a matching share of the trees instead (per tree, so
@@ -110,28 +138,28 @@ export const billboardMethods = {
     })();
     // alpha: the cross-fade between elevations is the union of the silhouettes (mixing their alphas would keep only
     // the overlap and thin the forest out); coverage-preserving by the sampled mip (impostorCoverage)
-    q.uv = ELEVATIONS.map((e, k) => q.vUv.add(vec2(k / ELEVATIONS.length, 0))); // (one atlas block per elevation)
-    q.t = q.uv.map((uv) => texture(atlas.texture, uv));
+    const uv = ELEVATIONS.map((e, k) => q.vUv.add(vec2(k / ELEVATIONS.length, 0))); // (one atlas block per elevation)
+    const t = uv.map((c) => texture(atlas.texture, c));
     const { scales, levels } = atlas.coverage;
-    const scaleArr = uniformArray(Array.from(scales), 'float');
+    const scaleArr = uniformArray<'float'>(Array.from(scales), 'float');
     const texel = q.vUv.mul(vec2(atlas.renderTarget.width, atlas.renderTarget.height));
     const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))), 0, levels - 1.001);
-    const scaleOf = (tile) => {
+    const scaleOf = (tile: Uint): Float => {
       const i0 = tile.mul(levels).add(uint(lod.floor()));
       return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
     };
-    q.tile = uint(q.vType.round());
+    const tile = uint(q.vType.round());
     const w = [q.vW.x, q.vW.y, q.vW.z, q.vW.w];
-    q.a = q.t.map((t, k) => t.a.mul(scaleOf(q.tile.add(k * n))).mul(clamp(w[k].mul(2), 0, 1)));
-    q.alpha = min(q.a.reduce((m, a) => max(m, a)), 1);
+    const a = t.map((tk, k) => tk.a.mul(scaleOf(tile.add(k * n))).mul(clamp(w[k].mul(2), 0, 1)));
+    const alpha = min(a.reduce((m, ak) => max(m, ak)), 1);
     // the plain filtered alpha: the share of the pixel the tree covers (see IMP_DITHER)
-    q.coverage = min(q.t.map((t, k) => t.a.mul(clamp(w[k].mul(2), 0, 1))).reduce((m, a) => max(m, a)), 1);
-    return q;
+    const coverage = min(t.map((tk, k) => tk.a.mul(clamp(w[k].mul(2), 0, 1))).reduce((m, ak) => max(m, ak)), 1);
+    return { ...v, position, uv, t, tile, a, alpha, coverage };
   },
 
   /** atlas: { texture, frames: [{w, h}], renderTarget, coverage } from bakeImpostors + impostorCoverage: per tree type a side tile and a top-down tile. */
   /** `gains`: per tree type, { side: [r, g, b], top: [r, g, b] } colour gains (VARIANTS[i].impGain). */
-  buildImpostorMesh(atlas, gains) {
+  buildImpostorMesh(this: NaniteForest, atlas: ImpostorAtlas, gains: TreeVariant['impGain'][]): THREE.Mesh {
     const u = this.u;
     const flags = storage(this.main.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, flags, (pivot) => u.camPos.sub(pivot).normalize(), true);
@@ -141,9 +169,9 @@ export const billboardMethods = {
     mat.alphaToCoverage = !IMP_DITHER && this.textures.alphaToCoverage;
     const wSum = max(q.a.reduce((m, a) => m.add(a)), 1e-4);
     // (MSAA-resolved edges are premultiplied by coverage: divide it out)
-    const albedo = q.t.reduce((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
+    const albedo = q.t.reduce<Vec3>((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
     // tree-local normals to world: tile k looks from +z tilted up by e (screen right +x, up (0, cos e, -sin e))
-    const nWorld = ELEVATIONS.reduce((acc, e, k) => {
+    const nWorld = ELEVATIONS.reduce<Vec3>((acc, e, k) => {
       const n = texture(atlas.normals, q.uv[k]).xyz;
       const c = Math.cos(e * deg), sn = Math.sin(e * deg);
       const up = n.y.mul(c).sub(n.z.mul(sn)), toward = n.y.mul(sn).add(n.z.mul(c));
@@ -153,12 +181,12 @@ export const billboardMethods = {
     mat.receivedShadowPositionNode = q.vShadowPos;
     // (the gains: measured against the real trees; partly the sub-pixel leaves of the real trees, which blend with
     // what's behind them and read paler than the solid baked crowns)
-    const gainSide = uniformArray(gains.map((g) => new THREE.Vector3(...g.side).multiply(new THREE.Vector3(...IMP_GAIN))), 'vec3');
-    const gainTop = uniformArray(gains.map((g) => new THREE.Vector3(...g.top).multiply(new THREE.Vector3(...IMP_GAIN_TOP))), 'vec3');
+    const gainSide = uniformArray<'vec3'>(gains.map((g) => v3(g.side).multiply(v3(IMP_GAIN))), 'vec3');
+    const gainTop = uniformArray<'vec3'>(gains.map((g) => v3(g.top).multiply(v3(IMP_GAIN_TOP))), 'vec3');
     this.impGains = { side: gainSide, top: gainTop }; // (live: harness --typematch=calibrate adjusts them)
     // (the tiles between: side and top gains mixed by elevation)
     const gS = gainSide.element(tile), gT = gainTop.element(tile);
-    const gain = ELEVATIONS.reduce((acc, e, k) => acc.add(mix(gS, gT, e / 90).mul(q.a[k])), vec3(0)).div(wSum);
+    const gain = ELEVATIONS.reduce<Vec3>((acc, e, k) => acc.add(mix(gS, gT, e / 90).mul(q.a[k])), vec3(0)).div(wSum);
     const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
@@ -166,7 +194,7 @@ export const billboardMethods = {
     const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha;
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
-    mat.emissiveNode = select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)));
+    setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));
     mat.positionNode = q.position;
     const mesh = new THREE.Mesh(this._impostorGeometry(), mat);
     mesh.frustumCulled = false;
@@ -181,7 +209,7 @@ export const billboardMethods = {
    * the shadow map. Without it, the ground and trees around them fell back to an average shadow, which changed at
    * the geometry switch and with the zoom.
    */
-  buildImpostorShadowMesh(atlas) {
+  buildImpostorShadowMesh(this: NaniteForest, atlas: ImpostorAtlas): THREE.Mesh {
     const flags = storage(this.shadow.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, flags, () => this.u.sunDir, false);
     const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
@@ -196,7 +224,7 @@ export const billboardMethods = {
   },
 
   /** One instance per tree; trees not flagged as impostors this frame collapse to a point. */
-  _impostorGeometry() {
+  _impostorGeometry(this: NaniteForest): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));

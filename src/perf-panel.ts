@@ -8,24 +8,58 @@ const MAX_SAMPLES = 8192;
 const HISTORY = 78; // graph points (one per repaint, 4 per second)
 const WARMUP_MS = 2000; // after start and after the tab comes back: compiles and catch-up frames aren't the steady state
 
-const fmt = (v, d = 2) => (v > 0 ? v.toFixed(d) : '--');
-const count = (v) => Math.round(v).toLocaleString('en-US');
+const fmt = (v: number, d = 2): string => (v > 0 ? v.toFixed(d) : '--');
+const count = (v: number): string => Math.round(v).toLocaleString('en-US');
+
+/** What the panel shows besides the frame times (src/hud.ts fills it in). */
+export interface PerfDetails {
+  gpu: { render: number; compute: number; total: number; budget: number };
+  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean };
+  resolution: { width: number; height: number; pixelRatio: number; msaa: number; taa: boolean };
+  scene: {
+    trees: number; total: number; impostors: number; clusters: number; swClusters: number;
+    tris: number; swTris: number; shadowTris: number;
+  } | null;
+  camera: { x: number; z: number; agl: number; zoom: number; yaw: number; pitch: number };
+  adapter: string;
+}
+
+/** Frame statistics over the window. */
+interface FrameStats {
+  samples: number;
+  seconds: number;
+  avgFps: number;
+  lowFps: number;
+  avgMs: number;
+  medianMs: number;
+  p95Ms: number;
+  p99Ms: number;
+  longest: number;
+  long: number;
+  refresh: number;
+}
+
+type Label = 'fps' | 'caption' | 'rate' | 'frame' | 'gpu' | 'res' | 'quality' | 'scene' | 'hw' | 'copy';
 
 export class PerfPanel {
-  /** `details()` returns { gpu: {render, compute, total, budget}, quality, resolution, scene, camera, adapter }. */
-  constructor(details) {
-    this.details = details;
-    this.times = new Float64Array(MAX_SAMPLES);
-    this.durations = new Float64Array(MAX_SAMPLES);
-    this.start = 0;
-    this.n = 0;
-    this.last = null;
-    this.lastPaint = 0;
-    this.warmUntil = performance.now() + WARMUP_MS;
-    this.avgHistory = [];
-    this.lowHistory = [];
-    this.snap = null;
+  readonly details: () => PerfDetails;
+  readonly times = new Float64Array(MAX_SAMPLES);
+  readonly durations = new Float64Array(MAX_SAMPLES);
+  start = 0;
+  n = 0;
+  last: number | null = null;
+  lastPaint = 0;
+  warmUntil = performance.now() + WARMUP_MS;
+  readonly avgHistory: number[] = [];
+  readonly lowHistory: number[] = [];
+  snap: FrameStats | null = null;
+  readonly el: HTMLButtonElement;
+  readonly k: Record<Label, HTMLElement>;
+  readonly paths: { avg: SVGPathElement; low: SVGPathElement };
+  copyTimer = 0;
 
+  constructor(details: () => PerfDetails) {
+    this.details = details;
     const el = (this.el = document.createElement('button'));
     el.type = 'button';
     el.className = 'perf';
@@ -41,8 +75,8 @@ export class PerfPanel {
       <small data-k="res"></small><small data-k="quality"></small><small data-k="scene"></small>
       <small class="perf__hw" data-k="hw"></small>
       <span class="perf__copy" data-k="copy">CLICK TO COPY 15S REPORT</span>`;
-    this.k = Object.fromEntries([...el.querySelectorAll('[data-k]')].map((e) => [e.dataset.k, e]));
-    this.paths = { avg: el.querySelector('.avg'), low: el.querySelector('.low') };
+    this.k = Object.fromEntries([...el.querySelectorAll<HTMLElement>('[data-k]')].map((e) => [e.dataset.k, e])) as Record<Label, HTMLElement>;
+    this.paths = { avg: el.querySelector<SVGPathElement>('.avg')!, low: el.querySelector<SVGPathElement>('.low')! };
     // (pointerdown would also start a look drag on the canvas: the panel sits above it and takes the event)
     el.addEventListener('pointerdown', (e) => e.stopPropagation());
     el.addEventListener('click', (e) => {
@@ -56,14 +90,14 @@ export class PerfPanel {
   }
 
   /** Drops the samples (a resize, the tab coming back): the next 2 s aren't counted. */
-  restart() {
+  restart(): void {
     this.start = this.n = 0;
     this.last = null;
     this.warmUntil = performance.now() + WARMUP_MS;
   }
 
   /** Once per displayed frame. */
-  frame(now = performance.now()) {
+  frame(now = performance.now()): void {
     if (now < this.warmUntil) {
       this.last = null;
     } else if (this.last === null) {
@@ -91,11 +125,11 @@ export class PerfPanel {
   }
 
   /** Frame statistics over the window. */
-  measure() {
-    const d = [];
+  measure(): FrameStats {
+    const d: number[] = [];
     for (let k = 0; k < this.n; k++) d.push(this.durations[(this.start + k) % MAX_SAMPLES]);
     d.sort((a, b) => a - b);
-    const pct = (r) => (d.length ? d[Math.min(d.length - 1, Math.floor(r * d.length))] : 0);
+    const pct = (r: number): number => (d.length ? d[Math.min(d.length - 1, Math.floor(r * d.length))] : 0);
     const total = d.reduce((a, b) => a + b, 0);
     const avgMs = d.length ? total / d.length : 0;
     // 1% low: the rate of the average of the slowest 1% of frames (not the p99 sample)
@@ -119,7 +153,8 @@ export class PerfPanel {
     };
   }
 
-  paint(warming) {
+  paint(warming: boolean): void {
+    if (!this.snap) return;
     const s = this.snap, det = this.details(), g = det.gpu;
     this.el.classList.toggle('is-warming', warming);
     const capped = s.samples >= 30 && s.avgFps >= s.refresh * 0.97;
@@ -144,7 +179,7 @@ export class PerfPanel {
     this.lowHistory.push(s.lowFps);
     if (this.avgHistory.length > HISTORY) this.avgHistory.shift(), this.lowHistory.shift();
     const lo = s.refresh * 0.25, hi = s.refresh * 1.02;
-    const path = (h) => h.map((v, i) => {
+    const path = (h: number[]): string => h.map((v, i) => {
       const x = h.length <= 1 ? 0 : (i / (h.length - 1)) * 154;
       const y = (1 - Math.max(0, Math.min(1, (v - lo) / (hi - lo)))) * 31;
       return `${i ? 'L' : 'M'}${x.toFixed(1)} ${y.toFixed(1)}`;
@@ -154,8 +189,8 @@ export class PerfPanel {
   }
 
   /** The plain-text report the panel copies. */
-  report() {
-    const s = this.measure(), det = this.details(), g = det.gpu, r = det.resolution, sc = det.scene ?? {}, c = det.camera;
+  report(): string {
+    const s = this.measure(), det = this.details(), g = det.gpu, r = det.resolution, sc = det.scene ?? { trees: 0, total: 0, impostors: 0, clusters: 0, swClusters: 0, tris: 0, swTris: 0, shadowTris: 0 }, c = det.camera;
     const lines = [
       `Nanite Forest performance report, ${new Date().toISOString()}`,
       `url          ${location.href}`,
@@ -169,15 +204,15 @@ export class PerfPanel {
       `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}`,
       `quality      error ${det.quality.tau.toFixed(2)} px, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
       '',
-      `trees        ${count(sc.trees ?? 0)} visible of ${count(sc.total ?? 0)} (${count(sc.impostors ?? 0)} impostors)`,
-      `clusters     ${count(sc.clusters ?? 0)} hardware, ${count(sc.swClusters ?? 0)} software`,
-      `triangles    ${count(sc.tris ?? 0)} hardware, ${count(sc.swTris ?? 0)} software, ${count(sc.shadowTris ?? 0)} shadow casters`,
+      `trees        ${count(sc.trees)} visible of ${count(sc.total)} (${count(sc.impostors)} impostors)`,
+      `clusters     ${count(sc.clusters)} hardware, ${count(sc.swClusters)} software`,
+      `triangles    ${count(sc.tris)} hardware, ${count(sc.swTris)} software, ${count(sc.shadowTris)} shadow casters`,
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,
     ];
     return lines.join('\n');
   }
 
-  async copy() {
+  async copy(): Promise<void> {
     const label = this.k.copy;
     try {
       await copyText(this.report());
@@ -197,7 +232,7 @@ export class PerfPanel {
 }
 
 /** navigator.clipboard where allowed, else the old textarea + execCommand route (plain http, older browsers). */
-async function copyText(text) {
+async function copyText(text: string): Promise<void> {
   if (navigator.clipboard?.writeText) {
     try {
       await navigator.clipboard.writeText(text);

@@ -1,8 +1,35 @@
 import { Tree, Billboard } from '@dgreenheck/ez-tree';
+import type { BarkSource, DagReply, DagResult, LeafSource } from './dag-types.ts';
+import type { LoadingScreen } from './loading.ts';
+
+type RGB = [number, number, number];
+export interface TreeVariant {
+  preset: string;
+  seed: number;
+  height: number;
+  bark: string;
+  leaf: string;
+  /** Impostor colour gains for side and top-down views. */
+  impGain: { side: RGB; top: RGB };
+}
+/** One variant's source meshes (metres) and its bounding radius around the trunk axis. */
+export interface TreeSource {
+  bark: BarkSource;
+  leaves: LeafSource;
+  radius: number;
+  height: number;
+}
+/** A variant with its cluster DAG, ready for the renderer. */
+export interface BuiltTree extends DagResult {
+  radius: number;
+  height: number;
+  variant: TreeVariant;
+  src: TreeSource;
+}
 
 // Tree variants: ez-tree preset, seed, target height (m), and its textures. impGain: the impostor colour gains
 // (side and top-down views), measured against the real trees with `npm run harness -- --typematch`.
-export const VARIANTS = [
+export const VARIANTS: TreeVariant[] = [
   { preset: 'Oak Large', seed: 1234, height: 22, bark: 'oak', leaf: 'oak', impGain: { side: [0.85, 0.74, 0.97], top: [0.78, 0.66, 0.83] } },
   { preset: 'Oak Medium', seed: 77, height: 15, bark: 'oak', leaf: 'oak', impGain: { side: [0.7, 0.61, 0.88], top: [0.69, 0.68, 0.55] } },
   { preset: 'Ash Large', seed: 4242, height: 24, bark: 'birch', leaf: 'ash', impGain: { side: [0.96, 0.78, 1.27], top: [0.97, 0.76, 1.5] } },
@@ -12,7 +39,7 @@ export const VARIANTS = [
 ];
 
 /** Generates the source meshes of one variant with ez-tree, scaled to metres. */
-export function generateTree(variant) {
+export function generateTree(variant: TreeVariant): TreeSource {
   const tree = new Tree();
   tree.loadPreset(variant.preset);
   tree.options.seed = variant.seed;
@@ -68,10 +95,10 @@ export function generateTree(variant) {
  * Generates every variant and builds its cluster DAG in a worker. Each worker starts as soon as its tree is grown, so
  * the DAG builds overlap the (main-thread) generation of the next trees. `ui` is the LoadingScreen.
  */
-export async function buildAllTrees(ui) {
+export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
   const n = VARIANTS.length;
   let done = 0;
-  const jobs = [];
+  const jobs: Promise<BuiltTree>[] = [];
   for (let id = 0; id < n; id++) {
     const v = VARIANTS[id];
     await ui.update(0.06 + (0.24 * id) / n, `Growing ${v.preset}`, false);
@@ -80,11 +107,11 @@ export async function buildAllTrees(ui) {
     const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
     ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
     jobs.push(
-      new Promise((resolve, reject) => {
+      new Promise<BuiltTree>((resolve, reject) => {
         const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });
-        w.onmessage = (e) => {
+        w.onmessage = (e: MessageEvent<DagReply>) => {
           w.terminate();
-          if (e.data.error) return reject(new Error(e.data.error));
+          if ('error' in e.data) return reject(new Error(e.data.error));
           const st = e.data.stats;
           done++;
           ui.update(0.3 + (0.45 * done) / n, `Cluster DAGs ${done}/${n}`, false);

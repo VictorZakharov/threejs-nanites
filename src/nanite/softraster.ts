@@ -21,7 +21,12 @@ import {
   numWorkgroups, instanceIndex, screenCoordinate, texture, positionGeometry, output, mix, cameraViewMatrix, normalize,
   length,
 } from 'three/tsl';
-import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW } from './constants.ts';
+import type { ComputeNode, StorageBufferNode } from 'three/webgpu';
+import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, minU, minI, maxI } from './constants.ts';
+import type { NaniteForest } from './forest.ts';
+import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
+import type { ClusterVertex, Counters, Shading, U } from './types.ts';
+import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
 import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
@@ -35,26 +40,48 @@ const LEAF_COV = Number(new URLSearchParams(location.search).get('leafcov') ?? 0
 const SW_DEBUG = vec3(1, 0.45, 0);
 
 /** Edge function of p against a -> b (twice the signed area of a, b, p; y down). */
-const edge = (a, b, p) => b.x.sub(a.x).mul(p.y.sub(a.y)).sub(b.y.sub(a.y).mul(p.x.sub(a.x)));
+const edge = (a: Vec2, b: Vec2, p: Vec2): Float => b.x.sub(a.x).mul(p.y.sub(a.y)).sub(b.y.sub(a.y).mul(p.x.sub(a.x)));
+
+/** A triangle on screen (see _triangle). */
+interface ScreenTriangle {
+  V: ClusterVertex[];
+  P: Vec2[];
+  W: Float[];
+  area: Float;
+}
+type Slopes = { dx: Vec2; dy: Vec2 };
 
 export class SoftRaster {
-  constructor(forest) {
+  readonly forest: NaniteForest;
+  readonly on = uniform(1, 'uint'); // u.sw, and the screen fits the visibility buffer
+  readonly size = uniform(new THREE.Vector2(1, 1)); // drawing buffer pixels
+  readonly viewProj = uniform(new THREE.Matrix4());
+  readonly near = uniform(0.3);
+  readonly listAttr = new THREE.StorageBufferAttribute(new Uint32Array(LIST_CAP * 2), 2);
+  // (its counts: clusters, triangles (appended), clusters (clamped), in the main view's counters at SW)
+  readonly ctr: Counters;
+  readonly dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
+  readonly depthAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
+  readonly idAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
+  readonly wants: (cw: Vec3, rad: Float, tris: Uint) => Bool;
+  readonly append: (inst: Uint, c: Uint, tris: Uint) => void;
+  readonly reset: ComputeNode;
+  readonly args: ComputeNode;
+  readonly clear: ComputeNode;
+  readonly leafAlpha: (a: Float, layer: Float, lod: Float) => Float;
+  readonly depthPass: ComputeNode;
+  readonly idPass: ComputeNode;
+  ran = false;
+
+  constructor(forest: NaniteForest) {
     this.forest = forest;
     const u = forest.u;
-    u.sw = uniform(Number(new URLSearchParams(location.search).get('sw') ?? 1), 'uint'); // on/off (?sw=0)
-    this.on = uniform(1, 'uint'); // u.sw, and the screen fits the visibility buffer
-    u.swArea = uniform(Number(new URLSearchParams(location.search).get('swarea') ?? 4)); // see wants()
-    this.size = uniform(new THREE.Vector2(1, 1)); // drawing buffer pixels
-    this.viewProj = uniform(new THREE.Matrix4());
-    this.near = uniform(0.3);
-    const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
-    this.listAttr = sb(new Uint32Array(LIST_CAP * 2), 2);
-    // (its counts: clusters, triangles (appended), clusters (clamped), in the main view's counters at SW)
+    const sw: U<'uint', number> = uniform(Number(new URLSearchParams(location.search).get('sw') ?? 1), 'uint'); // on/off (?sw=0)
+    const swArea = uniform(Number(new URLSearchParams(location.search).get('swarea') ?? 4)); // see wants()
+    u.sw = sw;
+    u.swArea = swArea;
     const ctr = forest.mainCtr;
     this.ctr = ctr;
-    this.dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
-    this.depthAttr = sb(new Uint32Array(MAX_PIXELS), 1);
-    this.idAttr = sb(new Uint32Array(MAX_PIXELS), 1);
 
     const list = storage(this.listAttr, 'uvec2', LIST_CAP);
     /** True if a cluster (curved centre cw, radius rad) is small enough on screen for the software rasterizer. */
@@ -67,7 +94,7 @@ export class SoftRaster {
       const d = length(cw.sub(u.camPos));
       const rPx = rad.mul(u.projScale).div(d);
       return this.on.equal(1)
-        .and(rPx.mul(rPx).mul(Math.PI).lessThan(u.swArea.mul(float(tris))))
+        .and(rPx.mul(rPx).mul(Math.PI).lessThan(swArea.mul(float(tris))))
         .and(rPx.lessThan(MAX_BOX / 2))
         .and(d.sub(rad).greaterThan(this.near.mul(4)));
     };
@@ -82,12 +109,12 @@ export class SoftRaster {
     })().compute(1, [1]);
 
     // the cluster count as a 2D dispatch (65535 workgroups per dimension), one workgroup per cluster
-    const countRW = { element: (i) => ctr.rw.element(SW + i) };
+    const count = (i: number) => ctr.rw.element(SW + i);
     const disp = storage(this.dispatchAttr, 'uint', 4);
     this.args = Fn(() => {
-      const n = min(countRW.element(0), uint(LIST_CAP)).toVar();
-      countRW.element(2).assign(n);
-      disp.element(0).assign(min(n, uint(65535)));
+      const n = minU(count(0), LIST_CAP).toVar();
+      count(2).assign(n);
+      disp.element(0).assign(minU(n, 65535));
       disp.element(1).assign(n.add(65534).div(65535));
     })().compute(1, [1]);
 
@@ -109,8 +136,8 @@ export class SoftRaster {
    * Triangle `tri` of cluster c of tree inst on screen: per corner the vertex (world position, normal, uv), its
    * pixel position (y down) and clip w (= view depth); `area` is twice the signed screen area.
    */
-  _triangle(inst, c, tri, leaf) {
-    const V = [], P = [], W = [];
+  _triangle(inst: Uint, c: Uint, tri: Uint, leaf: Bool): ScreenTriangle {
+    const V: ClusterVertex[] = [], P: Vec2[] = [], W: Float[] = [];
     for (let j = 0; j < 3; j++) {
       const vx = this.forest._vertex(inst, c, tri.mul(3).add(j), leaf);
       const clip = this.viewProj.mul(vec4(vx.world, 1)).toVar();
@@ -124,7 +151,7 @@ export class SoftRaster {
   }
 
   /** Perspective-correct barycentric weights of pixel point p (they sum to 1), and the view depth there. */
-  _weights(t, p) {
+  _weights(t: ScreenTriangle, p: Vec2): { b: Float[]; q: Float[]; depth: Float } {
     const b = [edge(t.P[1], t.P[2], p), edge(t.P[2], t.P[0], p), edge(t.P[0], t.P[1], p)].map((e) => e.div(t.area));
     const q = b.map((bi, j) => bi.div(t.W[j]));
     const sum = q[0].add(q[1]).add(q[2]);
@@ -132,7 +159,7 @@ export class SoftRaster {
   }
 
   /** The uv change per pixel step in x and in y over this triangle (affine: its triangles are tiny). */
-  _uvSlopes(t) {
+  _uvSlopes(t: ScreenTriangle): Slopes {
     const { P, V } = t;
     // d(barycentric j)/dx and /dy, from the edge opposite corner j
     const db = [[P[1], P[2]], [P[2], P[0]], [P[0], P[1]]].map(([a, b]) => [a.y.sub(b.y).div(t.area), b.x.sub(a.x).div(t.area)]);
@@ -142,11 +169,11 @@ export class SoftRaster {
   }
 
   /** Mip level for a texture of `size` texels (as the hardware leaves pick it: the larger of the two uv slopes). */
-  _lod(slopes, size) {
+  _lod(slopes: Slopes, size: number): Float {
     return log2(max(max(length(slopes.dx), length(slopes.dy)).mul(size), 1e-6));
   }
 
-  _rasterPass(mode) {
+  _rasterPass(mode: 'depth' | 'id'): ComputeNode {
     const f = this.forest;
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
 
@@ -169,16 +196,19 @@ export class SoftRaster {
             const W = int(this.size.x), H = int(this.size.y);
             const lo = min(min(t.P[0], t.P[1]), t.P[2]), hi = max(max(t.P[0], t.P[1]), t.P[2]);
             // pixel centres (x + 0.5) inside the box
-            const x0 = max(int(lo.x.sub(0.5).ceil()), int(0)).toVar(), y0 = max(int(lo.y.sub(0.5).ceil()), int(0)).toVar();
-            const x1 = min(min(int(hi.x.sub(0.5).floor()), W.sub(1)), x0.add(MAX_BOX - 1)).toVar();
-            const y1 = min(min(int(hi.y.sub(0.5).floor()), H.sub(1)), y0.add(MAX_BOX - 1)).toVar();
+            const x0 = maxI(int(lo.x.sub(0.5).ceil()), int(0)).toVar(), y0 = maxI(int(lo.y.sub(0.5).ceil()), int(0)).toVar();
+            const x1 = minI(minI(int(hi.x.sub(0.5).floor()), W.sub(1)), x0.add(MAX_BOX - 1)).toVar();
+            const y1 = minI(minI(int(hi.y.sub(0.5).floor()), H.sub(1)), y0.add(MAX_BOX - 1)).toVar();
             const fade = f._geometryShare(inst).toVar();
             const layer = tex.leafLayerOf(f._b(inst).z.toUint()).toVar();
             const slopes = this._uvSlopes(t);
             const lod = this._lod(slopes, tex.leaf.image.width).toVar();
             const id = slot.mul(MAX_TRIS).add(tri).add(1);
-            Loop({ start: y0, end: y1, type: 'int', condition: '<=', name: 'py' }, ({ py }) => {
-              Loop({ start: x0, end: x1, type: 'int', condition: '<=', name: 'px' }, ({ px }) => {
+            // (rows i, columns j: one Loop with two ranges, so the two counters get distinct names)
+            const rows = { start: y0, end: y1, type: 'int', condition: '<=' } as const;
+            const cols = { start: x0, end: x1, type: 'int', condition: '<=' } as const;
+            Loop(rows, cols, ({ i: py, j: px }) => {
+              {
                 const p = vec2(float(px).add(0.5), float(py).add(0.5));
                 const w = this._weights(t, p);
                 const inside = w.b[0].greaterThanEqual(0).and(w.b[1].greaterThanEqual(0)).and(w.b[2].greaterThanEqual(0)).toVar();
@@ -186,11 +216,11 @@ export class SoftRaster {
                 if (mode === 'depth') inside.assign(inside.and(ditherAt(p).lessThan(fade))); // (impostor cross-fade, as in the hardware draw)
                 if (mode === 'depth') If(inside.and(leaf), () => {
                   const uv = t.V[0].uv.mul(w.q[0]).add(t.V[1].uv.mul(w.q[1])).add(t.V[2].uv.mul(w.q[2]));
-                  const alphaAt = (q) => this.leafAlpha(texture(tex.leaf, q).depth(layer).level(lod).a, layer, lod);
+                  const alphaAt = (q: Vec2): Float => this.leafAlpha(texture(tex.leaf, q).depth(layer).level(lod).a, layer, lod);
                   // as three.js does alpha to coverage on the hardware leaves: coverage = an antialiased alpha test,
                   // smoothstep(0.5, 0.5 + fwidth(alpha), alpha), over the pixel's samples; here one sample, so it's
                   // covered if that beats a fixed per-pixel threshold (fwidth from the neighbouring pixels' uv)
-                  let coverage;
+                  let coverage: Float;
                   if (LEAF_DITHER) {
                     // the plain filtered alpha is the share of the pixel the leaves cover: drawn with that
                     // probability (the dither moves every frame and TAA averages it), not sharpened into a cut-out
@@ -205,11 +235,11 @@ export class SoftRaster {
                 });
                 If(inside, () => {
                   const pix = uint(py).mul(uint(W)).add(uint(px));
-                  const z = floatBitsToUint(w.depth); // (positive floats order like their bits)
+                  const z = floatBits(w.depth, floatBitsToUint); // (positive floats order like their bits)
                   if (mode === 'depth') atomicMin(depthA.element(pix), z);
                   else If(atomicLoad(depthA.element(pix)).equal(z), () => atomicMax(idA.element(pix), id));
                 });
-              });
+              }
             });
           });
         });
@@ -218,7 +248,7 @@ export class SoftRaster {
   }
 
   /** Per frame, before the phase 2 render: rasterize this frame's list (after the occlusion pass appended to it). */
-  rasterize(renderer, camera, width, height) {
+  rasterize(renderer: THREE.WebGPURenderer, camera: THREE.Camera, width: number, height: number): void {
     if (!this.ran || this.on.value === 0) return;
     const r = renderer;
     this.viewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -229,10 +259,10 @@ export class SoftRaster {
   }
 
   /** Called before culling: screen size, camera near plane; resets the list. */
-  begin(renderer, camera, width, height) {
+  begin(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, width: number, height: number): void {
     this.size.value.set(width, height);
     this.near.value = camera.near;
-    this.on.value = this.forest.u.sw.value === 1 && width * height <= MAX_PIXELS ? 1 : 0;
+    this.on.value = this.forest.u.sw?.value === 1 && width * height <= MAX_PIXELS ? 1 : 0;
     renderer.compute(this.reset);
     this.ran = true;
   }
@@ -241,7 +271,7 @@ export class SoftRaster {
    * The fullscreen resolve quad (phase 2 layer). `shading`: { fadeShadow(pos) => receivedShadowNode, fog(pos, viewZ)
    * => { color, factor } } from main.js (lighting.js), so shadows and fog match the hardware-drawn trees.
    */
-  buildResolveMesh(shading) {
+  buildResolveMesh(shading: Shading): THREE.Mesh {
     const f = this.forest, u = f.u, tex = f.textures;
     const ids = storage(this.idAttr, 'uint', MAX_PIXELS).toReadOnly();
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
@@ -257,10 +287,10 @@ export class SoftRaster {
     const leaf = f._cd(c, 3).w.greaterThanEqual(0.5);
     const t = this._triangle(inst, c, tri, leaf);
     const w = this._weights(t, screenCoordinate.xy);
-    const lerp = (k) => t.V[0][k].mul(w.q[0]).add(t.V[1][k].mul(w.q[1])).add(t.V[2][k].mul(w.q[2]));
-    const world = lerp('world');
-    const uv = lerp('uv');
-    const normal = normalize(lerp('normal'));
+    const lerp3 = (k: 'world' | 'normal'): Vec3 => t.V[0][k].mul(w.q[0]).add(t.V[1][k].mul(w.q[1])).add(t.V[2][k].mul(w.q[2]));
+    const world = lerp3('world');
+    const uv = t.V[0].uv.mul(w.q[0]).add(t.V[1].uv.mul(w.q[1])).add(t.V[2].uv.mul(w.q[2]));
+    const normal = normalize(lerp3('normal'));
     const type = t.V[0].type;
     const slopes = this._uvSlopes(t);
     const bark = texture(tex.bark, uv).depth(tex.barkLayerOf(type)).level(this._lod(slopes, tex.bark.image.width)).rgb;
@@ -278,9 +308,9 @@ export class SoftRaster {
     })();
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz);
     // (leaves: light passing through, as on the hardware-drawn leaves)
-    mat.emissiveNode = select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), dbg, select(u.debug.greaterThan(0).or(leaf.not()), vec3(0), albedo.mul(0.12)))));
+    setEmissive(mat, select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), dbg, select(u.debug.greaterThan(0).or(leaf.not()), vec3(0), albedo.mul(0.12))))));
     mat.receivedShadowPositionNode = world;
-    mat.receivedShadowNode = shading.fadeShadow(world);
+    mat.receivedShadowNode = asReceivedShadow(shading.fadeShadow(world));
     const clip = this.viewProj.mul(vec4(world, 1));
     mat.depthNode = clip.z.div(clip.w);
     const fog = shading.fog(world, w.depth);
@@ -297,7 +327,7 @@ export class SoftRaster {
   }
 
   /** Clusters and triangles in this frame's list (async readback, for the HUD / harness). */
-  async readStats(renderer) {
+  async readStats(renderer: THREE.WebGPURenderer): Promise<{ swClusters: number; swTris: number }> {
     if (!this.ran) return { swClusters: 0, swTris: 0 };
     const c = new Uint32Array(await renderer.getArrayBufferAsync(this.ctr.attr));
     return { swClusters: c[SW], swTris: c[SW + 1] };

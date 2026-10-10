@@ -10,30 +10,37 @@ const LOCKED_KEYS = [
   'Space', 'ControlLeft', 'ControlRight', 'ShiftLeft', 'ShiftRight', 'AltLeft', 'Tab', 'BracketLeft', 'BracketRight',
   'Minus', 'Equal', 'F11',
 ];
+/** The Keyboard Lock API (Chrome/Edge; not in TypeScript's DOM types yet). */
+const keyboard = (navigator as Navigator & { keyboard?: { lock?(codes: string[]): Promise<void> } }).keyboard;
+
 export class FlyControls {
-  constructor(camera, dom) {
+  readonly camera: THREE.PerspectiveCamera;
+  readonly dom: HTMLElement;
+  yaw = 0;
+  pitch = 0;
+  speed = 12;
+  fastMul = 4; // Shift
+  // holding a movement key builds speed: x(1 + (t/rampTime)^2), capped
+  rampTime = 1.6;
+  maxRamp = 40;
+  maxSpeed = 900; // m/s
+  held = 0;
+  readonly keys = new Set<string>();
+  readonly analog = new THREE.Vector3(); // touch input (src/touch.ts): x strafe, y up/down, z forward, each -1..1
+  readonly velocity = new THREE.Vector3();
+  locked = false;
+  onKey: ((code: string, event: KeyboardEvent) => void) | null = null; // app shortcuts
+  readonly baseFov: number;
+  zoom = 1;
+  zoomTarget = 1;
+  zoomMax = 5;
+  touchMode = false; // (src/touch.ts: no pointer lock on a tap)
+  guardUnload: boolean;
+
+  constructor(camera: THREE.PerspectiveCamera, dom: HTMLElement) {
     this.camera = camera;
     this.dom = dom;
-    this.yaw = 0;
-    this.pitch = 0;
-    this.speed = 12;
-    this.fastMul = 4; // Shift
-    // holding a movement key builds speed: x(1 + (t/rampTime)^2), capped
-    this.rampTime = 1.6;
-    this.maxRamp = 40;
-    this.maxSpeed = 900; // m/s
-    this.held = 0;
-    this.keys = new Set();
-    this.analog = new THREE.Vector3(); // touch input (src/touch.js): x strafe, y up/down, z forward, each -1..1
-    this.velocity = new THREE.Vector3();
-    this.locked = false;
-    this.onKey = null; // (code, event) for app shortcuts
     this.baseFov = camera.fov;
-    this.zoom = 1;
-    this.zoomTarget = 1;
-    this.zoomMax = 5;
-
-    this.touchMode = false; // (src/touch.js: no pointer lock on a tap)
     dom.addEventListener('click', () => this.touchMode || this.capture());
     document.addEventListener('pointerlockchange', () => {
       this.locked = document.pointerLockElement === dom;
@@ -79,7 +86,7 @@ export class FlyControls {
     this.guardUnload = !new URLSearchParams(location.search).has('harness');
   }
 
-  async capture() {
+  async capture(): Promise<void> {
     try {
       if (!document.fullscreenElement && document.documentElement.requestFullscreen) {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
@@ -89,7 +96,7 @@ export class FlyControls {
     }
     try {
       // in fullscreen this captures Ctrl+W, Ctrl+T, Esc-hold etc.
-      await navigator.keyboard?.lock?.(LOCKED_KEYS);
+      await keyboard?.lock?.(LOCKED_KEYS);
     } catch {
       /* not supported */
     }
@@ -104,19 +111,19 @@ export class FlyControls {
     }
   }
 
-  async toggleFullscreen() {
+  async toggleFullscreen(): Promise<void> {
     try {
       if (document.fullscreenElement) await document.exitFullscreen();
       else {
         await document.documentElement.requestFullscreen({ navigationUI: 'hide' });
-        await navigator.keyboard?.lock?.(LOCKED_KEYS);
+        await keyboard?.lock?.(LOCKED_KEYS);
       }
     } catch {
       /* refused */
     }
   }
 
-  update(dt) {
+  update(dt: number): void {
     const k = this.keys;
     const fwd = new THREE.Vector3(-Math.sin(this.yaw) * Math.cos(this.pitch), Math.sin(this.pitch), -Math.cos(this.yaw) * Math.cos(this.pitch));
     const right = new THREE.Vector3(Math.cos(this.yaw), 0, -Math.sin(this.yaw));

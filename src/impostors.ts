@@ -14,6 +14,40 @@
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
 import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint } from 'three/tsl';
+import type { BuiltTree } from './trees.ts';
+import type { Float, Uint, Vec4 } from './types.ts';
+
+/** A triangle mesh (positions, normals, uvs, indices) in the source meshes' form. */
+interface MeshPart {
+  pos: Float32Array;
+  nrm: Float32Array;
+  uv: Float32Array;
+  idx: Uint32Array;
+}
+
+/** The bake's inputs: the texture arrays, each variant's layers, the leaves' coverage-preserving alpha. */
+export interface BakeTextures {
+  bark: THREE.DataArrayTexture;
+  leaf: THREE.DataArrayTexture;
+  barkLayers: number[];
+  leafLayers: number[];
+  leafAlpha: (a: Float, layer: Uint) => Float;
+}
+
+/** Alpha scale per tile and mip level (see impostorCoverage). */
+export interface AtlasCoverage {
+  scales: Float32Array; // tile * levels + level
+  levels: number;
+}
+
+/** The baked atlases and each tile's quad size (m); `coverage` from impostorCoverage. */
+export interface ImpostorAtlas {
+  texture: THREE.Texture;
+  normals: THREE.Texture;
+  frames: { w: number; h: number }[];
+  renderTarget: THREE.RenderTarget;
+  coverage: AtlasCoverage;
+}
 
 export const TILE_W = 256;
 export const TILE_H = 512;
@@ -27,7 +61,7 @@ export const ELEVATIONS = [0, 30, 60, 90];
  * metres) and whose parent's isn't, as the runtime cut selects them at a distance where `err` projects to tau.
  * Returns { bark, leaves }, each { pos, nrm, uv, idx } (vertices shared, from the packed [x y z u nx ny nz v]).
  */
-export function dagCut(t, err) {
+export function dagCut(t: BuiltTree, err: number): { bark: MeshPart; leaves: MeshPart } {
   const nv = t.vtx.length / 8;
   const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), uv = new Float32Array(nv * 2);
   for (let i = 0; i < nv; i++) {
@@ -36,7 +70,7 @@ export function dagCut(t, err) {
     nrm.set([v[4], v[5], v[6]], i * 3);
     uv.set([v[3], v[7]], i * 2);
   }
-  const lists = [[], []]; // bark, leaves
+  const lists: number[][] = [[], []]; // bark, leaves
   const n = t.meta.length / 4;
   for (let c = 0; c < n; c++) {
     const own = t.rec[c * 16 + 12], parent = t.rec[c * 16 + 13];
@@ -44,12 +78,12 @@ export function dagCut(t, err) {
     const o = t.meta[c * 4], tris = t.meta[c * 4 + 1], kind = t.meta[c * 4 + 3];
     for (let k = 0; k < tris * 3; k++) lists[kind].push(t.idx[o + k]);
   }
-  const part = (l) => ({ pos, nrm, uv, idx: new Uint32Array(l) });
+  const part = (l: number[]): MeshPart => ({ pos, nrm, uv, idx: new Uint32Array(l) });
   return { bark: part(lists[0]), leaves: part(lists[1]) };
 }
 
 /** The full-detail source meshes in dagCut's form (leaf cards are quads of 4 vertices). */
-function fullDetail({ bark, leaves }) {
+function fullDetail({ bark, leaves }: BuiltTree['src']): { bark: MeshPart; leaves: MeshPart } {
   const nq = leaves.pos.length / 3 / 4;
   const idx = new Uint32Array(nq * 6);
   for (let q = 0; q < nq; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
@@ -66,7 +100,7 @@ function fullDetail({ bark, leaves }) {
  * @param cutPx  bake each tree at the DAG cut it has when it's this many pixels tall (at tau 1); 0 = full detail
  * @returns { texture, normals, frames: [{ w, h }], renderTarget } frame size (m) of each tile's quad (aspect 1:2)
  */
-export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
+export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[], tex: BakeTextures, cutPx = 0): Omit<ImpostorAtlas, 'coverage'> {
   const n = trees.length;
   const makeRT = () =>
     new THREE.RenderTarget(TILE_W * ELEVATIONS.length * n, TILE_H, {
@@ -78,7 +112,7 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
       depthBuffer: true,
     });
   const rt = makeRT(), rtN = makeRT();
-  const frames = [];
+  const frames: { w: number; h: number }[] = [];
   const prevTarget = renderer.getRenderTarget();
   const prevClear = renderer.getClearColor(new THREE.Color());
   const prevAlpha = renderer.getClearAlpha();
@@ -97,7 +131,7 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
     const scenes = [new THREE.Scene(), new THREE.Scene()]; // albedo, normals
-    const normalOut = (a) => vec4(normalLocal.normalize(), a);
+    const normalOut = (a: number): Vec4 => vec4(normalLocal.normalize(), a);
 
     const barkGeo = new THREE.BufferGeometry();
     barkGeo.setAttribute('position', new THREE.BufferAttribute(bark.pos, 3));
@@ -125,7 +159,7 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
       const inner = smoothstep(-0.6, 0.8, normalLocal.y).mul(0.4).add(0.6);
       const col = l.rgb.mul(layerTint).mul(inner).mul(1.2);
       // cut out and write alpha 1: the MSAA resolve then gives true coverage (and coverage-premultiplied colour)
-      const cutout = (out) => Fn(() => {
+      const cutout = (out: Vec4) => Fn(() => {
         If(alpha.lessThan(0.5), () => Discard());
         return out;
       })();
@@ -167,7 +201,7 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
       });
     });
 
-    scenes.forEach((sc) => sc.traverse((o) => o.isMesh && o.geometry.dispose()));
+    scenes.forEach((sc) => sc.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose()));
   });
 
   for (const target of [rt, rtN]) {
@@ -182,9 +216,9 @@ export function bakeImpostors(renderer, trees, tex, cutPx = 0) {
 }
 
 /** Maps a type (uint node) to a value from a JS array via a select chain. */
-export function lookup(values) {
+export function lookup(values: number[]): (type: Uint) => Float {
   return (type) => {
-    let node = float(values[values.length - 1]);
+    let node: Float = float(values[values.length - 1]);
     for (let i = values.length - 2; i >= 0; i--) node = select(type.equal(uint(i)), float(values[i]), node);
     return node;
   };
@@ -197,16 +231,16 @@ export function lookup(values) {
  * alpha scale that keeps the full-size tile's fraction of texels above `cut`.
  * @returns { scales: Float32Array (tile * levels + level), levels }
  */
-export async function impostorCoverage(renderer, atlas, cut) {
+export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Omit<ImpostorAtlas, 'coverage'>, cut: number): Promise<AtlasCoverage> {
   const rt = atlas.renderTarget;
   const W = rt.width, H = rt.height, tiles = W / TILE_W;
   const raw = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H);
-  const half = (h) => {
+  const half = (h: number): number => {
     const e = (h >> 10) & 31, m = h & 1023;
     const v = e === 0 ? m / 1024 / 16384 : e === 31 ? 1 : (1 + m / 1024) * 2 ** (e - 15);
     return h & 0x8000 ? -v : v;
   };
-  const alphaAt = raw instanceof Uint16Array ? (i) => half(raw[i * 4 + 3]) : (i) => raw[i * 4 + 3] / (raw instanceof Uint8Array ? 255 : 1);
+  const alphaAt = raw instanceof Uint16Array ? (i: number) => half(raw[i * 4 + 3]) : (i: number) => raw[i * 4 + 3] / (raw instanceof Uint8Array ? 255 : 1);
   const levels = Math.log2(TILE_W) + 1;
   const scales = new Float32Array(tiles * levels);
   for (let t = 0; t < tiles; t++) {

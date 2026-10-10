@@ -1,7 +1,7 @@
 // Sizes and limits shared by the forest renderer's modules (src/nanite/).
 import * as THREE from 'three/webgpu';
-import { vec3, storage } from 'three/tsl';
-import type { Float, Vec3 } from '../types.ts';
+import { vec3, storage, select, uint } from 'three/tsl';
+import type { Float, Int, Uint, Vec3 } from '../types.ts';
 
 export const MIN_PX = 2; // impostors are never drawn narrower than this (pixels)
 export const FADE_HI = 1.3; // impostor cross-fade band: [1, FADE_HI] x impostorPx (geometry count unchanged)
@@ -17,6 +17,16 @@ export const IMP_BIT = 0x80000000;
 export const HZB_LEVELS = 13;
 export const HZB_LEVEL0_MAX = 2048 * 2048; // level 0 texels (half resolution): screens up to 4096 x 4096
 export const HZB_FLOATS = Math.ceil(HZB_LEVEL0_MAX * 1.34) + 64;
+
+/** min() of two uints (the TSL typings' min() takes floats and vectors only). */
+export const minU = (a: Uint, b: Uint | number): Uint => {
+  const bb = typeof b === 'number' ? uint(b) : b;
+  return select(a.lessThan(bb), a, bb);
+};
+
+/** min() / max() of two ints (likewise). */
+export const minI = (a: Int, b: Int): Int => select(a.lessThan(b), a, b);
+export const maxI = (a: Int, b: Int): Int => select(a.greaterThan(b), a, b);
 
 export const rotY = (p: Vec3, cs: Float, sn: Float): Vec3 => vec3(p.x.mul(cs).sub(p.z.mul(sn)), p.y, p.x.mul(sn).add(p.z.mul(cs)));
 /** How far wind can push a tree's parts (m), for a tree this tall: added to spheres in the occlusion tests. */
