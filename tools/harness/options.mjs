@@ -22,6 +22,8 @@ measuring
                      shadow-map centre (--steps=30 --step=3 m); counts brightness jumps, heatmap sweep-<what>-<view>.png
   --dolly            move the camera in small steps (--steps=40 --step=0.5 m); counts tiles that flicker,
                      heatmap dolly-<view>.png
+  --turn=DEG         --dolly: also turn the camera this many degrees (yaw) per step (mouse look; --step=0 to only turn)
+  --rect=x,y,w,h     --dolly: count only the tiles inside this screen rectangle (e.g. the distant treeline)
   --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
                      (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
   --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
@@ -63,10 +65,12 @@ export function parseOptions(argv) {
     variants: args.ab ? String(args.ab).split('|') : null,
     sweep: args.sweep ? String(args.sweep).split(',') : null,
     dolly: Boolean(args.dolly),
+    turn: args.turn ? Number(args.turn) : 0,
+    rect: args.rect ? String(args.rect).split(',').map(Number) : null,
     typematch: args.typematch ? (args.typematch === 'calibrate' ? 'calibrate' : 'measure') : null,
     timeout: args.timeout === undefined ? null : Number(args.timeout), // (null: expectedSeconds, see below)
     steps: args.steps ? Number(args.steps) : null,
-    step: args.step ? Number(args.step) : null,
+    step: args.step !== undefined ? Number(args.step) : null,
     flicker: Boolean(args.flicker),
     eval: args.eval ? String(args.eval) : null,
     evalFile: args['eval-file'] ? String(args['eval-file']) : null,

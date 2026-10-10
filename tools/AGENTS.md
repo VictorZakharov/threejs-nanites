@@ -60,7 +60,9 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
   a trunk to fill the screen without it); `--zoom` overrides it.
 - Popping and flicker tests need `wind=0` (the harness freezes the clouds itself). With TAA on, every frame is
   jittered, so `--flicker` (identical still frames) needs `taa=0`; `--dolly` measures TAA as seen in motion.
-  `?taadebug=1` shows the trees' wind motion vectors.
+  `?taadebug=1` shows the trees' wind motion vectors. `--turn=0.2 --step=0` turns the camera instead of moving
+  it (mouse look: the far field sweeps across the screen); `--rect=x,y,w,h` counts only part of the screen. The
+  metric isn't zero for a perfect image (content slides across tiles): compare with `pr=2&taa=0` (supersampled).
 - `swTris` counts the triangles the software rasterizer took (`tris` is the hardware ones); `cull` includes its
   compute passes. `--flicker` prints how many pixels differ between still frames (hardware: ~100-900 px of
   equal-depth ties; software ones are stable).

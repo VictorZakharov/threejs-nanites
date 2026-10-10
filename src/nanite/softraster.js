@@ -28,6 +28,9 @@ import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt } from './
 export const MAX_PIXELS = 3840 * 2160;
 const MAX_BOX = 48; // a triangle walks at most this many pixels a side (the classification keeps them far smaller)
 const EMPTY = 0xffffffff;
+// leaf alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'a2c' (`?leafalpha=`)
+const LEAF_DITHER = (new URLSearchParams(location.search).get('leafalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'a2c' : 'dither')) === 'dither';
+const LEAF_COV = Number(new URLSearchParams(location.search).get('leafcov') ?? 0.9); // (coverage scale: matches the a2c mean colour)
 /** Debug 5 colour of the software rasterizer's pixels. */
 const SW_DEBUG = vec3(1, 0.45, 0);
 
@@ -186,9 +189,17 @@ export class SoftRaster {
                   // as three.js does alpha to coverage on the hardware leaves: coverage = an antialiased alpha test,
                   // smoothstep(0.5, 0.5 + fwidth(alpha), alpha), over the pixel's samples; here one sample, so it's
                   // covered if that beats a fixed per-pixel threshold (fwidth from the neighbouring pixels' uv)
-                  const alpha = alphaAt(uv).toVar();
-                  const fw = abs(alphaAt(uv.add(slopes.dx)).sub(alpha)).add(abs(alphaAt(uv.add(slopes.dy)).sub(alpha)));
-                  const coverage = smoothstep(0.5, max(fw, 1e-4).add(0.5), alpha);
+                  let coverage;
+                  if (LEAF_DITHER) {
+                    // the plain filtered alpha is the share of the pixel the leaves cover: drawn with that
+                    // probability (the dither moves every frame and TAA averages it), not sharpened into a cut-out
+                    // that makes each distant crown a hard speckle shimmering as it moves
+                    coverage = texture(tex.leaf, uv).depth(layer).level(lod).a.mul(LEAF_COV);
+                  } else {
+                    const alpha = alphaAt(uv).toVar();
+                    const fw = abs(alphaAt(uv.add(slopes.dx)).sub(alpha)).add(abs(alphaAt(uv.add(slopes.dy)).sub(alpha)));
+                    coverage = smoothstep(0.5, max(fw, 1e-4).add(0.5), alpha);
+                  }
                   inside.assign(coverage.greaterThan(ditherAt(p.add(vec2(37, 91)))));
                 });
                 If(inside, () => {

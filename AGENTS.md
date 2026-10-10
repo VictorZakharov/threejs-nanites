@@ -126,6 +126,13 @@ first in a new session. Update it as you go, and keep it short and current, not 
   colour spread (YCoCg), blended 10% per frame in tone-mapped space; the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
   visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
+- Far shimmer under TAA: distant trees were hard cut-outs (impostor alpha sharpened by `impostorCoverage`, software
+  leaves by the a2c smoothstep), so each few-pixel crown was a blob that hit or missed pixels, and TAA's history
+  clipping let that through when turning. With TAA on, impostors and software-rasterized leaves instead draw each
+  pixel with the probability of its filtered alpha (= its coverage) against the moving dither, and TAA averages it
+  (`?impalpha=dither|cut`, `?leafalpha=dither|a2c`; scales `?impcov=0.85`, `?leafcov=0.9` keep the old mean colour).
+  Turning test (`--dolly --step=0 --turn=0.2`): fogline 2275 -> 855, slope 1911 -> 531 flicker events; a 4x
+  supersampled render (`pr=2`, no TAA) scores 1082 / 441, i.e. about the floor of that metric.
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
 - Occlusion culling (`src/nanite/culling.js`, `hzb.js`, main view only): two phases per frame. Phase 1 tests trees and clusters

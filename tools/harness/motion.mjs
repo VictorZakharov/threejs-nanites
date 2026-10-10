@@ -73,15 +73,20 @@ export async function dolly(page, opts, outDir, tag = '') {
     const frames = [];
     for (let k = 0; k < steps; k++) {
       at(`dolly ${name}: step ${k + 1}/${steps}`);
-      await page.evaluate((vv) => window.__demo.setView(vv), { ...v, zoom: opts.zoom ?? v.zoom ?? 1, x: v.x + fx * k * step, z: v.z + fz * k * step });
+      const yaw = (v.yaw ?? 0) + k * (opts.turn ?? 0);
+      await page.evaluate((vv) => window.__demo.setView(vv), { ...v, zoom: opts.zoom ?? v.zoom ?? 1, x: v.x + fx * k * step, z: v.z + fz * k * step, yaw });
       await page.evaluate(() => window.__demo.renderOnce());
       frames.push(tileLuma(await page.screenshot()));
     }
     const n = frames[0].luma.length;
     const score = new Float32Array(n);
     let events = 0, total = 0;
+    // (--rect: only the tiles inside it, e.g. a band of distant forest)
+    const tw = frames[0].png.width / TILE | 0, r = opts.rect;
+    const inRect = (i) => !r || ((i % tw) * TILE >= r[0] && (i % tw) * TILE < r[0] + r[2] && ((i / tw) | 0) * TILE >= r[1] && ((i / tw) | 0) * TILE < r[1] + r[3]);
     for (let k = 1; k < steps - 1; k++)
       for (let i = 0; i < n; i++) {
+        if (!inRect(i)) continue;
         const d = Math.abs(frames[k].luma[i] - (frames[k - 1].luma[i] + frames[k + 1].luma[i]) / 2);
         if (!(d >= 0)) continue;
         score[i] += d;

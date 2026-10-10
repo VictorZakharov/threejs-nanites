@@ -27,6 +27,8 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   rectangle). Colour match all-geometry vs all-impostors: `slope` 53.6 vs 53, `topdown700` 47.5 vs 46.9.
   Small real trees shimmered in motion (impostors don't), which showed the switch band while moving: fixed with
   TAA (`src/taa.js`; `--dolly --views=slope`: 71 -> 9 flicker events). Check with the user on the live site.
+- **Far shimmer (user: "TAA helps near, not far").** Fixed by drawing far impostors and software leaves by
+  coverage with a moving dither (TAA averages it): turning flicker now about that of a supersampled render.
 - **TAA (new).** Depth reprojection + wind motion vectors for the hardware-drawn trees (not for the software-
   rasterized ones or impostors: small on screen). Watch for: smearing at high flight speed, softness, ghosting
   behind fast-moving clouds (they're reprojected as sky).

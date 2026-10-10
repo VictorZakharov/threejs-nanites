@@ -4,12 +4,15 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, cross,
-  cameraViewMatrix, normalize, asin,
+  cameraViewMatrix, normalize, asin, screenCoordinate,
 } from 'three/tsl';
 import { curve } from '../planet.js';
 import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.js';
 import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.js';
-import { treeTint, dither, typeId, switchPx } from './shading.js';
+import { treeTint, dither, ditherAt, typeId, switchPx } from './shading.js';
+// impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
+const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
+const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.85); // (coverage scale: matches the cut-out's mean colour)
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
 const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const deg = Math.PI / 180;
@@ -121,6 +124,8 @@ export const billboardMethods = {
     const w = [q.vW.x, q.vW.y, q.vW.z, q.vW.w];
     q.a = q.t.map((t, k) => t.a.mul(scaleOf(q.tile.add(k * n))).mul(clamp(w[k].mul(2), 0, 1)));
     q.alpha = min(q.a.reduce((m, a) => max(m, a)), 1);
+    // the plain filtered alpha: the share of the pixel the tree covers (see IMP_DITHER)
+    q.coverage = min(q.t.map((t, k) => t.a.mul(clamp(w[k].mul(2), 0, 1))).reduce((m, a) => max(m, a)), 1);
     return q;
   },
 
@@ -132,8 +137,8 @@ export const billboardMethods = {
     const q = this._impostorQuad(atlas, flags, (pivot) => u.camPos.sub(pivot).normalize(), true);
     const { vRight, vUp, vDir, vTint, vFade, tile } = q;
     // lit like the real leaves (Lambert, same lights, shadow fade and fog), from baked albedo + normals
-    const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
-    mat.alphaToCoverage = this.textures.alphaToCoverage;
+    const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMP_DITHER ? 0.5 : IMPOSTOR_CUT });
+    mat.alphaToCoverage = !IMP_DITHER && this.textures.alphaToCoverage;
     const wSum = max(q.a.reduce((m, a) => m.add(a)), 1e-4);
     // (MSAA-resolved edges are premultiplied by coverage: divide it out)
     const albedo = q.t.reduce((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
@@ -156,7 +161,10 @@ export const billboardMethods = {
     const gain = ELEVATIONS.reduce((acc, e, k) => acc.add(mix(gS, gT, e / 90).mul(q.a[k])), vec3(0)).div(wSum);
     const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
     // the other half of the geometry's dithered cross-fade
-    const alpha = select(dither().lessThan(vFade), float(0), q.alpha);
+    // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
+    // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
+    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAt(screenCoordinate.xy.add(vec2(17, 59)))), float(1), float(0)) : q.alpha;
+    const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     mat.emissiveNode = select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)));
     mat.positionNode = q.position;
