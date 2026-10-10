@@ -1,6 +1,6 @@
 // A plain triangle mesh as a Nanite variant's source (the shape trees have, with no leaves): positions scaled to
 // metres, smooth vertex normals (area weighted), uvs from the position (planar, 1 per metre) so a stone texture
-// covers it. Used at load time (models.ts) and by tools/nanite-model.mjs (--dag).
+// covers it. Used at load time (models.ts) and by tools/nanite-model.mjs.
 import type { BarkSource, LeafSource } from './dag-types.ts';
 
 export interface ModelSource {
@@ -15,20 +15,23 @@ export function modelSource(pos: Float32Array, idx: Uint32Array, height: number)
   const n = pos.length / 3;
   const p = new Float32Array(pos.length);
   for (let i = 0; i < pos.length; i++) p[i] = pos[i] * height;
-  const nrm = new Float32Array(pos.length);
+  // (summed in doubles: the site sums the same faces in another order, src/models.ts, and in floats a vertex whose
+  // faces nearly cancel came out turned round)
+  const acc = new Float64Array(pos.length);
   for (let t = 0; t < idx.length; t += 3) {
     const a = idx[t] * 3, b = idx[t + 1] * 3, c = idx[t + 2] * 3;
     const ux = p[b] - p[a], uy = p[b + 1] - p[a + 1], uz = p[b + 2] - p[a + 2];
     const vx = p[c] - p[a], vy = p[c + 1] - p[a + 1], vz = p[c + 2] - p[a + 2];
     const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx; // (twice the area)
-    for (const o of [a, b, c]) { nrm[o] += nx; nrm[o + 1] += ny; nrm[o + 2] += nz; }
+    for (const o of [a, b, c]) { acc[o] += nx; acc[o + 1] += ny; acc[o + 2] += nz; }
   }
+  const nrm = new Float32Array(pos.length);
   const uv = new Float32Array(n * 2);
   let r = 0;
   for (let i = 0; i < n; i++) {
     const x = p[i * 3], y = p[i * 3 + 1], z = p[i * 3 + 2];
-    const l = Math.hypot(nrm[i * 3], nrm[i * 3 + 1], nrm[i * 3 + 2]) || 1;
-    nrm[i * 3] /= l; nrm[i * 3 + 1] /= l; nrm[i * 3 + 2] /= l;
+    const l = Math.hypot(acc[i * 3], acc[i * 3 + 1], acc[i * 3 + 2]) || 1;
+    nrm[i * 3] = acc[i * 3] / l; nrm[i * 3 + 1] = acc[i * 3 + 1] / l; nrm[i * 3 + 2] = acc[i * 3 + 2] / l;
     uv[i * 2] = x - z * 0.7; // (planar: an angle round the axis has a seam where u jumps a whole turn)
     uv[i * 2 + 1] = y + z * 0.3;
     r = Math.max(r, Math.hypot(x, y - height / 2, z));

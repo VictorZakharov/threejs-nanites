@@ -15,6 +15,7 @@ export interface ForestUniforms {
   tau: U<'float', number>;
   maxDist: U<'float', number>;
   impostorPx: U<'float', number>;
+  firstModel: U<'uint', number>;
   time: U<'float', number>;
   prevTime: U<'float', number>;
   wind: U<'float', number>;

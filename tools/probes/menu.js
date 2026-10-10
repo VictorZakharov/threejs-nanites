@@ -26,5 +26,10 @@ async (demo) => {
     tau: demo.forest.u.tau.value,
     gear: Boolean(document.querySelector('.touch-menu')),
   };
+  // in a short window only the columns scroll: the title and the buttons stay inside the box (the user's screenshot)
+  const cols = menu.querySelector('.menu-cols'), mb = menu.querySelector('.menu-box').getBoundingClientRect();
+  const inBox = (sel) => { const b = menu.querySelector(sel).getBoundingClientRect(); return b.top >= mb.top && b.bottom <= mb.bottom; };
+  cols.scrollTop = 1e6;
+  r.scroll = { overflow: cols.scrollHeight > cols.clientHeight, scrolled: cols.scrollTop, boxScrolls: menu.querySelector('.menu-box').scrollHeight > menu.querySelector('.menu-box').clientHeight + 1, title: inBox('h2'), buttons: inBox('.menu-actions') };
   return r;
 }

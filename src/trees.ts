@@ -118,12 +118,17 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
     const v = VARIANTS[id];
     await ui.update(0.06 + (0.24 * id) / n, v.model ? `Loading ${v.preset}` : `Growing ${v.preset}`, false);
     const t = performance.now();
-    // (?model=small: the models' 20k-triangle versions, `<name>-small.nm`; the default on touch screens)
-    const q = new URLSearchParams(location.search).get('model') ?? (matchMedia('(pointer: coarse)').matches ? 'small' : 'full');
-    const url = v.model && (q === 'small' ? v.model.replace(/\.nm$/, '-small.nm') : v.model);
-    const src = url ? await loadModel(`./${url}`, v.height) : generateTree(v);
+    if (v.model) {
+      // a model's DAG comes prebuilt in its file (tools/nanite-model.mjs): nothing to build
+      const { dag, src } = await loadModel(`./${v.model}`, v.height);
+      ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+      done++;
+      jobs.push(Promise.resolve({ ...dag, id, radius: src.radius, height: src.height, variant: v, src }));
+      continue;
+    }
+    const src = generateTree(v);
     const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
-    ui.note(`${v.model ? 'Loaded' : 'Grew'} ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+    ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
     jobs.push(
       new Promise<BuiltTree>((resolve, reject) => {
         const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });

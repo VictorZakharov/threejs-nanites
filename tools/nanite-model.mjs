@@ -1,10 +1,10 @@
 // Imports a high-poly model for the Nanite renderer: reads a PLY (binary either endianness, or ASCII; triangles or
 // polygons), stands it up (its longest axis, or --up=x|y|z|-x|-y|-z), centres it on its base, decimates it to --tris
 // with meshoptimizer and writes a compact model file for the site (public/models/<name>.nm): positions quantized to
-// 16 bits and meshopt-compressed, indices meshopt-compressed. The renderer builds its cluster DAG at load time
-// (src/models.ts, src/dag-build.ts); --dag also builds it here and prints the time and cluster counts.
+// 16 bits, and its cluster DAG (src/dag-build.ts) built here at --height (metres, the variant's: the LOD errors are
+// in metres), all meshopt-compressed. The site only decodes it (src/models.ts); the file is read back to check.
 //
-//   node tools/nanite-model.mjs <in.ply> --name=lucy --tris=1000000 [--up=z] [--dag]
+//   node tools/nanite-model.mjs <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z]
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
@@ -17,7 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
 const input = process.argv[2];
 if (!input || !args.name) {
-  console.log('usage: node tools/nanite-model.mjs <in.ply> --name=NAME [--tris=1000000] [--up=z] [--dag]');
+  console.log('usage: node tools/nanite-model.mjs <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z]');
   process.exit(1);
 }
 const target = Number(args.tris ?? 1e6);
@@ -174,22 +174,54 @@ const hi = [0, 1, 2].map((k) => { let a = -Infinity; for (let i = k; i < pos.len
 const q = new Uint16Array(unique * 4);
 for (let i = 0; i < unique; i++) for (let k = 0; k < 3; k++) q[i * 4 + k] = Math.round(((pos[i * 3 + k] - lo[k]) / (hi[k] - lo[k] || 1)) * 65535);
 const vb = MeshoptEncoder.encodeVertexBuffer(new Uint8Array(q.buffer), unique, 8);
-const ib = MeshoptEncoder.encodeIndexBuffer(new Uint8Array(idx.buffer, idx.byteOffset, idx.byteLength), idx.length, 4);
-const head = Buffer.from(JSON.stringify({ format: 'nanite-model 1', vertices: unique, indices: idx.length, lo, hi, vertexBytes: vb.length, indexBytes: ib.length, source: args.source ?? '' }));
+
+// the cluster DAG, built here from the very floats the site decodes (src/models.ts), at the height it's shown at
+const { modelSource } = await import('../src/model-source.ts');
+const { buildDag } = await import('../src/dag-build.ts');
+const { dequantize, decodeModel } = await import('../src/models.ts');
+const height = Number(args.height ?? 1);
+const src = modelSource(dequantize(q, unique, lo, hi), idx, height);
+const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves });
+const clusters = dag.meta.length / 4;
+log(`DAG at ${height} m: ${clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);
+const bytes = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+const ib = MeshoptEncoder.encodeIndexBuffer(bytes(dag.idx), dag.idx.length, 4);
+const rb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.rec), clusters, 64);
+const mb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.meta), clusters, 16);
+const head = Buffer.from(JSON.stringify({
+  format: 'nanite-model 2', vertices: unique, lo, hi, height, vertexBytes: vb.length, indices: dag.idx.length, indexBytes: ib.length,
+  clusters, recBytes: rb.length, metaBytes: mb.length, stats: dag.stats, source: args.source ?? '',
+}));
 const pad = (4 - (head.length % 4)) % 4;
-const file = Buffer.concat([Buffer.from(new Uint32Array([head.length + pad]).buffer), head, Buffer.alloc(pad, 32), Buffer.from(vb), Buffer.from(ib)]);
+const file = Buffer.concat([Buffer.from(new Uint32Array([head.length + pad]).buffer), head, Buffer.alloc(pad, 32), ...[vb, ib, rb, mb].map((b) => Buffer.from(b))]);
 const outDir = join(root, 'public', 'models');
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, `${args.name}.nm`);
 writeFileSync(out, file);
-log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (${(idx.length / 3).toLocaleString()} triangles)`);
+log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(vb.length / 1e6).toFixed(2)}, DAG triangles ${(ib.length / 1e6).toFixed(2)}, clusters ${((rb.length + mb.length) / 1e6).toFixed(2)})`);
 
-if (args.dag) {
-  // the runtime's DAG build, here, to time it
-  const { modelSource } = await import('../src/model-source.ts');
-  const { buildDag } = await import('../src/dag-build.ts');
-  const src = modelSource(pos, idx, 1);
-  const t = performance.now();
-  const r = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves });
-  log(`DAG: ${r.stats.barkClusters.toLocaleString()} clusters, ${r.stats.barkLevels + 1} levels, ${r.stats.barkRoots} roots, ${Math.round(performance.now() - t)} ms`);
+// read it back as the site does
+const back = await decodeModel(new Uint8Array(file), height);
+const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+// positions and uvs exact; normals summed in another order (a vertex whose faces nearly cancel can turn round)
+let dv = 0, turned = 0;
+for (let i = 0; i < dag.vtx.length; i++) {
+  const d = Math.abs(dag.vtx[i] - back.dag.vtx[i]), k = i % 8;
+  if (k === 4 || k === 5 || k === 6) { if (d > 1e-3 && k === 4) turned++; else if (d > 1e-3) continue; }
+  else dv = Math.max(dv, d);
 }
+console.log(`  ${turned} of ${unique.toLocaleString()} normals differ (summed in another order)`);
+// (the index codec may rotate a triangle's corners, keeping its winding: compare each from its smallest corner)
+const canon = (a) => {
+  const o = new Uint32Array(a.length);
+  for (let t = 0; t < a.length; t += 3) {
+    const r = a[t] <= a[t + 1] && a[t] <= a[t + 2] ? 0 : a[t + 1] <= a[t + 2] ? 1 : 2;
+    for (let k = 0; k < 3; k++) o[t + k] = a[t + ((r + k) % 3)];
+  }
+  return o;
+};
+if (!same(canon(dag.idx), canon(back.dag.idx)) || !same(dag.rec, back.dag.rec) || !same(dag.meta, back.dag.meta) || dv > 1e-5 || turned > unique * 1e-4) {
+  console.error(`round trip FAILED (largest position/uv difference ${dv}, ${turned} normals; same triangles ${same(canon(dag.idx), canon(back.dag.idx))}, records ${same(dag.rec, back.dag.rec)}, meta ${same(dag.meta, back.dag.meta)})`);
+  process.exit(1);
+}
+log(`round trip ok`);

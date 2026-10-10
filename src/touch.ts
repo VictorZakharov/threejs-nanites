@@ -67,8 +67,11 @@ export class TouchControls {
       fs.addEventListener('click', () => controls.toggleFullscreen());
       document.body.append(fs);
     }
-    // (no pinch zoom / double-tap zoom / pull-to-refresh on the page)
-    document.addEventListener('touchmove', (e) => e.preventDefault(), { passive: false });
+    // (no pinch zoom / double-tap zoom / pull-to-refresh on the page; one finger still scrolls the settings menu)
+    document.addEventListener('touchmove', (e) => {
+      if (e.touches.length === 1 && e.target instanceof Element && e.target.closest('.menu-cols')) return;
+      e.preventDefault();
+    }, { passive: false });
     document.addEventListener('dblclick', (e) => e.preventDefault());
   }
 

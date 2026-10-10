@@ -30,6 +30,9 @@ export const VIEWS = {
   // the cobblestone road's end, looking into the plaza with its ring of statues (src/road.ts); the plaza from the air
   plaza: { x: -19.2, z: -28, agl: 1.8, yaw: 30, pitch: 6 },
   plazaair: { x: -5.2, z: -3.7, agl: 30, yaw: 30, pitch: -28 },
+  // straight down on the plaza from 60 / 150 m (user: some statues vanished from up high)
+  plazatop: { x: -30.2, z: -47, agl: 60, yaw: 30, pitch: -89 },
+  plazahigh: { x: -30.2, z: -47, agl: 150, yaw: 30, pitch: -89 },
   // the road from the spawn point, from above and behind
   roadair: { x: 45, z: 85, agl: 40, yaw: 30, pitch: -25 },
   // the spawn point turned away from the road: the waypoint (src/waypoint.ts, --query=waypoint=1) on the screen's edge

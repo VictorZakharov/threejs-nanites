@@ -84,5 +84,10 @@ export const typeId = (type: Index): Vec3 => {
 // that slides along with the camera; the real trees shimmer a little in motion and the impostors don't, so that
 // moving line was easy to see (the user, on the live site).
 const SPREAD = Number(new URLSearchParams(location.search).get('impspread') ?? 1.6);
-/** The projected height (pixels) under which tree `inst` is drawn as an impostor (u: the forest's uniforms). */
-export const switchPx = (u: { impostorPx: Float }, inst: Index): Float => u.impostorPx.mul(exp2(hash(uint(inst).add(101)).mul(2).sub(1).mul(Math.log2(SPREAD))));
+/**
+ * The projected height (pixels) under which tree `inst` is drawn as an impostor (u: the forest's uniforms). Models
+ * (the statues, last in the instances) never are: a handful, cheap as geometry at their coarsest LOD, and their
+ * impostors came out as pale blobs from above, some missing (the user: "statues disappear").
+ */
+export const switchPx = (u: { impostorPx: Float; firstModel: Uint }, inst: Index): Float =>
+  select(uint(inst).greaterThanEqual(u.firstModel), float(0), u.impostorPx.mul(exp2(hash(uint(inst).add(101)).mul(2).sub(1).mul(Math.log2(SPREAD)))));

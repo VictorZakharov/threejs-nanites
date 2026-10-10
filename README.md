@@ -52,12 +52,13 @@ URL params: `trees=1000000`, `planet=150000` (radius, m), `tau=1.5`, `shadows=0`
 - **Draw:** two indirect draws (bark, leaves) for the clusters of larger triangles; every draw instance is a cluster and the vertex shader pulls its
   triangles from storage buffers. The sun's shadow map gets its own cull pass (light frustum, coarser LOD).
 
-- **Any mesh:** the same pipeline takes plain models. `npm run model -- scan.ply --name=NAME --tris=1000000` stands a
-  PLY up, decimates it and writes a compact meshopt-compressed file (`public/models/NAME.nm`); a variant with
+- **Any mesh:** the same pipeline takes plain models. `npm run model -- scan.ply --name=NAME --tris=1000000 --height=4`
+  stands a PLY up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
+  (`public/models/NAME.nm`; the site only decodes it); a variant with
   `model: 'models/NAME.nm'` (`src/trees.ts`) then gets the cluster DAG, impostors, shadows and occlusion like a tree.
-  The demo's proof: twelve copies of Stanford's **Lucy** scan (28M triangles, decimated to 1M; a 3 MB file and a
-  3 s DAG build) around a plaza at the end of a cobblestone road from the start point (`?statues=N` scatters more
-  through the clearings; `?model=small` loads a 20k-triangle Lucy, the default on phones).
+  The demo's proof: twelve copies of Stanford's **Lucy** scan (28M triangles, decimated to 1M; a 6.5 MB file with
+  its 15.7k-cluster DAG) around a plaza at the end of a cobblestone road from the start point (`?statues=N` scatters
+  more through the clearings).
 
 ## Credits
 

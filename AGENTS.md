@@ -70,11 +70,18 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   cluster stores its LOD sphere/error and its parent group's sphere/error.
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.mjs` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
-  simplifies to `--tris`, quantizes to 16 bits and meshopt-compresses (`public/models/*.nm`; `--dag` times the DAG
-  build in Node). `src/models.ts` decodes it, `model-source.ts` makes normals and planar uvs; it's "bark" with no
+  simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
+  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2),
+  then decodes the file as the site does and checks it matches. `src/models.ts` only decodes (no DAG build at load:
+  one file for every device; phones had a 20k-tri copy because of the 3 s build, the user asked why two). The DAG's
+  vertices are the model's own, so `model-source.ts` rebuilds normals (summed in doubles: order-independent) and
+  planar uvs. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
-  1M tris, 3.1 MB, DAG 15.7k clusters in ~3 s; `lucy-small.nm` (20k) with `?model=small`, the default on touch.
+  1M tris, DAG 15.7k clusters: 6.45 MB (positions 1.9, DAG triangles 4.1, clusters 0.5). Statues stand on the lowest
+  ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
+  impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
+  above, some missing (the user); views `plazatop`, `plazahigh`.
   Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
   same code: re-run before bisecting a regression (and compare with the live site via `--url`).
 - The road (`src/road.ts`): a cobblestone road from the spawn point ~80 m to a plaza (radius 24 m) with a ring of
@@ -111,7 +118,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   the same switches): add a new switch there once and it gets both. Esc is in the Keyboard Lock keys, so in fullscreen a press
   reaches the page (opens the menu, releases the mouse) instead of leaving fullscreen (hold Esc to leave). Outside
   fullscreen Esc is the browser's (it releases the mouse), so losing the pointer lock opens the menu. Headless can't
-  test the fullscreen path: check it by hand. `--probe=menu` clicks every switch and reads it back.
+  test the fullscreen path: check it by hand. `--probe=menu` clicks every switch and reads it back, and checks that in a short window only the columns
+  scroll (title and buttons stay in the box; on touch screens the page's touchmove block lets one finger through
+  there).
 - Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): three instanced rings of
   blades round the viewer (cells 0.09 / 0.2 / 0.45 m out to 16 / 40 / 90 m), each a grid of world cells snapped to
   the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered

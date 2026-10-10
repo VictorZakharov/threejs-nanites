@@ -75,6 +75,7 @@ export class NaniteForest {
       tau: uniform(1.0), // max screen-space error in pixels
       maxDist: uniform(3000),
       impostorPx: uniform(20), // trees drawn shorter than this (pixels) become impostor quads
+      firstModel: uniform(0, 'uint'), // instances from here on (the statues) are never impostors (see switchPx)
       time: uniform(0),
       prevTime: uniform(0), // (last frame's: wind motion vectors)
       wind: uniform(1),
@@ -157,6 +158,7 @@ export class NaniteForest {
     this.instanceCount = instances.a.length / 4;
     this.treeCount = instances.trees;
     this.statueCount = instances.statues;
+    this.u.firstModel.value = this.instanceCount - this.statueCount;
     // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
     const inst = new Float32Array(this.instanceCount * 8);
     for (let i = 0; i < this.instanceCount; i++) {

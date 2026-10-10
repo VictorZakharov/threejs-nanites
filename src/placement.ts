@@ -181,12 +181,17 @@ const STATUES = Number(params.get('statues') ?? 0);
  * more on a jittered grid (14 m) over the clearings. A proof that the pipeline takes any mesh: each is a million
  * triangles.
  */
+const PLINTH = 0.7; // m: Lucy's base radius at scale 1 (her 4 m), a little over
+
 function placeStatues(radius: number, a: number[], b: number[]): number {
   const types = VARIANTS.map((v, i) => (isModel(v) ? i : -1)).filter((i) => i >= 0);
   if (!types.length) return 0;
   const rnd = mulberry32(13);
+  // on the lowest ground under the plinth (by its centre, one edge floated on a slope: the user)
   const add = (x: number, z: number, scale: number, face: number, type: number) => {
-    a.push(x, heightAt(x, z) - 0.05, z, scale);
+    let y = heightAt(x, z);
+    for (let k = 0; k < 12; k++) y = Math.min(y, heightAt(x + Math.cos(k * 0.5236) * PLINTH * scale, z + Math.sin(k * 0.5236) * PLINTH * scale));
+    a.push(x, y - 0.05, z, scale);
     b.push(Math.cos(face), Math.sin(face), type, 0); // (no wind: phase 0)
   };
   // the rotation that turns Lucy's front (-z after tools/nanite-model.mjs stood her up) towards (dx, dz)
