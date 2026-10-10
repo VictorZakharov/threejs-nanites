@@ -1,7 +1,7 @@
 // Cobblestones for the road and the plaza (src/road.ts): a Voronoi pattern in world space, ~22 cm stones, each
 // domed (the normal leans out towards its edges), its own grey-brown, dark soil in the joints with a little moss;
 // far away (a pattern finer than the pixels) their average colour and a flat normal.
-import { Fn, vec2, vec3, vec4, float, hash, smoothstep, mix, select, min, fwidth, mx_noise_float, int, uint } from 'three/tsl';
+import { Fn, vec2, vec3, vec4, float, hash, smoothstep, mix, select, min, fwidth, mx_noise_float, int, uint, length, dFdx, dFdy } from 'three/tsl';
 import type { Vec2, Vec3, Vec4 } from '../types.ts';
 
 const CELL = 0.22; // m
@@ -31,11 +31,18 @@ export function cobbles(p: Vec2): { colour: Vec3; tilt: Vec2 } {
   const s = p.div(CELL);
   const v = (voronoi(s) as unknown as Vec4).toVar();
   const edge = v.z, r = v.w;
-  const stone = smoothstep(0.05, 0.13, edge);
+  // the pixel's footprint in stones, by its area (the longest side, along the road at a grazing angle, faded the
+  // stones out ~10 m ahead: a washed-out grey band, the user); TAA averages what's left of the aliasing
+  const px = length(dFdx(s)).mul(length(dFdy(s))).sqrt();
+  const aa = fwidth(edge).max(0.02);
+  const stone = smoothstep(float(0.09).sub(aa), float(0.09).add(aa), edge);
   const tone = mix(vec3(0.07, 0.065, 0.058), vec3(0.2, 0.18, 0.155), r).mul(mx_noise_float(p.mul(9)).mul(0.25).add(1));
   const joint = mix(vec3(0.025, 0.02, 0.014), vec3(0.03, 0.045, 0.018), smoothstep(0.2, 0.6, mx_noise_float(p.mul(1.3))));
-  const near = float(1).sub(smoothstep(0.6, 1.4, fwidth(s.x).add(fwidth(s.y)))); // (pattern still resolved)
-  const colour = mix(vec3(0.1, 0.09, 0.075), mix(joint, tone, stone), near);
+  // far away: their average, in patches (worn / dirty) so the paving doesn't turn into one flat strip
+  const patches = mx_noise_float(p.mul(0.35)).mul(0.25).add(mx_noise_float(p.mul(1.1).add(5)).mul(0.12)).add(1);
+  const average = vec3(0.078, 0.07, 0.059).mul(patches); // (darker than the mean albedo: the domed normals shade the near stones)
+  const near = float(1).sub(smoothstep(0.8, 2.5, px)); // (pattern still resolved)
+  const colour = mix(average, mix(joint, tone.mul(patches), stone), near);
   // domed: the normal leans out from the stone's middle, most near its edge
   const lean = float(1).sub(smoothstep(0.05, 0.4, edge)).mul(0.9).mul(near);
   return { colour, tilt: v.xy.normalize().mul(lean) };

@@ -67,6 +67,7 @@ export function createMenu(ctx: MenuContext) {
   ];
   const overlays: Toggle[] = [
     { label: 'Waypoint to the statues', get: shown('waypoint'), set: show('waypoint') },
+    { label: 'Compass (walking)', get: shown('compass'), set: show('compass') },
     ...(perf ? [{ label: 'Performance panel', get: shown('corner'), set: show('corner') }] : []),
     ...(ctx.touch ? [] : [{ label: 'Scene details', get: shown('hud'), set: show('hud') }]),
     ...(ctx.touch ? [] : [{ label: 'Help', key: 'KeyH', get: shown('help'), set: show('help') }]),

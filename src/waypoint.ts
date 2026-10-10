@@ -23,6 +23,7 @@ export function createWaypoint(hidden: boolean) {
   let lastText = '';
 
   return {
+    target,
     update(camera: THREE.PerspectiveCamera): void {
       if (el.classList.contains('hidden')) return;
       const dist = Math.hypot(camera.position.x - target.x, camera.position.z - target.z);

@@ -84,6 +84,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   `?plaza=0` drops the ring. Views `plaza`, `plazaair`, `roadair`, `statue`. A waypoint to the plaza's middle
   (`src/waypoint.ts`, the user's): an HTML overlay projected each frame, clamped to the screen's edge with an arrow
   when off screen (`spawnback` view), faded on arrival; a menu switch; hidden under the harness unless `?waypoint=1`.
+  The compass strip on top (`src/compass.ts`) shows headings and the same waypoint, only while walking (the user);
+  `--query="waypoint=1&walk=1"`. The cobbles fade to their average by the pixel footprint's *area* (by its longest
+  side, along the road at a grazing angle, they went flat grey ~10 m ahead: "washed up", the user), in patches.
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
