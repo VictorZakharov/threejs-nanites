@@ -77,7 +77,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   1M tris, 3.1 MB, DAG 15.7k clusters in ~3 s; `lucy-small.nm` (20k) with `?model=small`, the default on touch.
   Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
   same code: re-run before bisecting a regression (and compare with the live site via `--url`).
-- The road (`src/road.ts`): a cobblestone road from the spawn point ~240 m to a plaza (radius 24 m) with a ring of
+- The road (`src/road.ts`): a cobblestone road from the spawn point ~80 m to a plaza (radius 24 m) with a ring of
   12 statues facing its middle (the user's idea). Placement keeps trees/bushes off it; a half-float distance map
   (25 cm texels; 32-bit float filtering is optional in WebGPU) feeds the grass (none on it) and the floor
   (`ground/cobbles.ts`: Voronoi stones in TSL, domed normals, average colour where finer than the pixels).

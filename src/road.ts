@@ -1,5 +1,5 @@
 // The cobblestone road (the user: "a cobblestone road through the forest towards an open area with a circle of
-// statues"): from the spawn point, winding ~240 m through the forest to a round paved plaza ringed by statues.
+// statues"): from the spawn point, winding ~80 m through the forest to a round paved plaza ringed by statues.
 // Shared by placement (no trees or bushes on it), the grass (none on it) and the floor (cobbles: ground/cobbles.ts):
 // the shaders read a distance map (metres to the paving's edge, negative inside) over the road's bounding square.
 import * as THREE from 'three/webgpu';
@@ -8,14 +8,14 @@ import type { Float, Vec2 } from './types.ts';
 
 export const ROAD_WIDTH = 3.6; // m
 export const SPAWN = { x: 20, z: 40, yaw: 30 }; // (main.ts's start: looking down the road)
-const LENGTH = 240;
+const LENGTH = 80; // (240 at first: the user wanted it 3x shorter)
 const fwd = { x: -Math.sin((SPAWN.yaw * Math.PI) / 180), z: -Math.cos((SPAWN.yaw * Math.PI) / 180) };
 const side = { x: -fwd.z, z: fwd.x };
 
 /** The road's centre line, spawn to plaza (a gentle S, straight at both ends). */
 export const ROAD: { x: number; z: number }[] = Array.from({ length: 33 }, (_, i) => {
   const t = i / 32, along = (t - 0.02) * LENGTH;
-  const wiggle = Math.sin(t * Math.PI) ** 2 * Math.sin(t * Math.PI * 2) * 26;
+  const wiggle = Math.sin(t * Math.PI) ** 2 * Math.sin(t * Math.PI * 2) * LENGTH * 0.11;
   return { x: SPAWN.x + fwd.x * along + side.x * wiggle, z: SPAWN.z + fwd.z * along + side.z * wiggle };
 });
 /** The plaza at the road's end: paved radius, and the circle the statues stand on. */
