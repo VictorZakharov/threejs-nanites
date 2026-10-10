@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { attribute, mix, vec3, positionWorld, positionLocal, float, mx_noise_float, smoothstep } from 'three/tsl';
-import { curve } from './planet.js';
+import { curve } from './planet.ts';
 
 // ---- deterministic value noise (shared by the terrain mesh and tree placement)
 function hash2(x, y) {

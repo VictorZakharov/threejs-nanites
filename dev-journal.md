@@ -31,7 +31,7 @@ Done, waiting for the user's check on the live site:
   panel (copy report), and auto quality lowers the resolution past tau 8 (budget 14 ms on touch). Waiting for the
   user's report from the phone: draw vs compute split decides the next step (fill: MSAA/TAA off on mobile; compute:
   the 1M-instance passes, shadows).
-- **Mobile controls** (GitHub issue #1): `src/touch.js`, checked with `--probe=touch --query=touch=1` headless; not
+- **Mobile controls** (GitHub issue #1): `src/touch.ts`, checked with `--probe=touch --query=touch=1` headless; not
   yet tried on a real phone (WebGPU on mobile: Chrome Android, Safari 26).
 
 ## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
@@ -53,7 +53,7 @@ Done, waiting for the user's check on the live site:
 ## Now
 
 - **Occlusion culling (in progress).** Two-phase, Nanite-style, per tree, per cluster and per impostor
-  (`src/nanite/culling.js`, `hzb.js`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
+  (`src/nanite/culling.ts`, `hzb.ts`). `bark` view (screen = one trunk): 67M -> 0.6M tris, 22 -> 2.4 ms. Little gain in grazing
   views over the canopy (`zoomref`, `--zoom=5`: 55M tris): every row's crown top peeks over the row in front.
   Next: tighter leaf cluster bounds; then decide whether the zoom case needs a coarser tau instead.
 - **Software rasterizer + visibility buffer (new, in progress).** Works and matches the hardware look; default views
@@ -66,7 +66,7 @@ Done, waiting for the user's check on the live site:
   cast shadows; 4 atlas elevations; per-tree switch size (`impspread`); shadow map grows with altitude (no
   rectangle). Colour match all-geometry vs all-impostors: `slope` 53.6 vs 53, `topdown700` 47.5 vs 46.9.
   Small real trees shimmered in motion (impostors don't), which showed the switch band while moving: fixed with
-  TAA (`src/taa.js`; `--dolly --views=slope`: 71 -> 9 flicker events). Check with the user on the live site.
+  TAA (`src/taa.ts`; `--dolly --views=slope`: 71 -> 9 flicker events). Check with the user on the live site.
 - **Far shimmer (user: "TAA helps near, not far").** Fixed by drawing far impostors and software leaves by
   coverage with a moving dither (TAA averages it): turning flicker now about that of a supersampled render.
 - **TAA (new).** Depth reprojection + wind motion vectors for the hardware-drawn trees (not for the software-
@@ -74,16 +74,16 @@ Done, waiting for the user's check on the live site:
   behind fast-moving clouds (they're reprojected as sky).
 - **Startup:** "Compiling shaders" now steps through groups with a status each (`[loading]` lines in the harness
   `console.log`). The compute passes dominate: culling ~0.6 s, occlusion ~0.45 s, software raster ~0.3 s.
-- **God rays (new):** screen-space, fed through TAA (`src/godrays.js`). Next if wanted: clouds blocking them.
+- **God rays (new):** screen-space, fed through TAA (`src/godrays.ts`). Next if wanted: clouds blocking them.
 
 ## Decided (keep)
 
-- Files stay under ~300-400 lines (user): `src/nanite/` split by stage, `main.js` split into lighting/textures/
-  placement/harness-api. `dag-worker.js` (~410) is next if it grows.
+- Files stay under ~300-400 lines (user): `src/nanite/` split by stage, `main.ts` split into lighting/textures/
+  placement/harness-api. `dag-worker.ts` (~410) is next if it grows.
 
 - Trees become 2-triangle impostors under `impostorPx` (20 px tall; was 40, the swap was too visible) and the DAG
   cut uses tau 1 px (tau 1.5 made the distant treeline pop). Trees between ~20 and ~60 px are mostly drawn by the
-  software rasterizer (`src/nanite/softraster.js`, triangles under 4 px²): at 20 px it's 15-35% less GPU than hardware.
+  software rasterizer (`src/nanite/softraster.ts`, triangles under 4 px²): at 20 px it's 15-35% less GPU than hardware.
   Impostors are relit (albedo + normal atlases), dither cross-fade with geometry, never narrower than 2 px. Billboards are what make 1M trees cheap from the air;
   occlusion culling is for the forest interior and doesn't replace them.
 - Past the shadow map and in the impostor zone, receivers use an average shadow (canopy self-shadow, ground

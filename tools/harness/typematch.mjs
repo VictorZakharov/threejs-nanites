@@ -3,7 +3,7 @@
 // (the colours). Per type: pixels covered and mean colour in both, and the colour ratio geometry / impostor.
 //
 // --typematch=calibrate also adjusts the impostor gains in the page (forest.impGains, live uniforms) until the
-// colours match, and prints the gains to put into VARIANTS in src/trees.js. Views looking down steeply (pitch
+// colours match, and prints the gains to put into VARIANTS in src/trees.ts. Views looking down steeply (pitch
 // <= -60) calibrate the top-down gains, the others the side gains: use d550 for top and fogline for side (distant
 // trees only: near trees as geometry get real shadows that impostors can't have).
 import { writeFileSync } from 'node:fs';
@@ -12,7 +12,7 @@ import { VIEWS } from './views.mjs';
 import { typeMask, typeColours } from './images.mjs';
 import { at } from './status.mjs';
 
-// keep in sync with TYPE_IDS in src/nanite/shading.js
+// keep in sync with TYPE_IDS in src/nanite/shading.ts
 const TYPE_IDS = [[1, 0, 0], [1, 1, 0], [0, 1, 0], [0, 1, 1], [0, 0, 1], [1, 0, 1]];
 const MODES = { geometry: 0, impostors: 1e9 };
 const ROUNDS = 5; // calibration rounds
@@ -87,7 +87,7 @@ export async function typeMatch(page, opts, outDir) {
         imp = await measureImp();
       }
       printTable(`${view} after calibrating the ${kind} gains`, names, geo, imp);
-      console.log(`  ${kind} gains for src/trees.js VARIANTS (impGain.${kind}):`);
+      console.log(`  ${kind} gains for src/trees.ts VARIANTS (impGain.${kind}):`);
       names.forEach((name, k) => console.log(`    ${name.padEnd(14)} [${gains[k].map((v) => +v.toFixed(2)).join(', ')}]`));
       result[`${view}/${kind}Gains`] = Object.fromEntries(names.map((name, k) => [name, gains[k].map((v) => +v.toFixed(2))]));
     }

@@ -30,7 +30,7 @@ measuring
   --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
                      that would match them (see harness/typematch.mjs)
   --typematch=calibrate   adjust the impostor gains in the page until they match (views looking down steeply
-                     calibrate the top-down gains, others the side gains), print values for src/trees.js
+                     calibrate the top-down gains, others the side gains), print values for src/trees.ts
   --flicker          a still camera must render identical frames (use --query=wind=0)
   --eval="expr"      evaluate an expression in the page once after loading;  --eval-file=path  the same from a file
 

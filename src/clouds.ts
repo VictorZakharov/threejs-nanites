@@ -4,7 +4,7 @@
 // curvature, so the deck bends down to the horizon with the ground.
 import * as THREE from 'three/webgpu';
 import { texture, uniform, vec2, vec3, vec4, float, positionWorld, positionLocal, smoothstep, mix, select } from 'three/tsl';
-import { dropAt, viewerPos } from './planet.js';
+import { dropAt, viewerPos } from './planet.ts';
 
 export const CLOUD_BASE = 2200;
 const SIZE = 512;

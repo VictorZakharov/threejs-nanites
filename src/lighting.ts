@@ -2,8 +2,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
-import { heightAt } from './terrain.js';
-import { PHASE2_LAYER } from './nanite/constants.js';
+import { heightAt } from './terrain.ts';
+import { PHASE2_LAYER } from './nanite/constants.ts';
 
 const params = new URLSearchParams(location.search);
 const SHADOW_MAX = Number(params.get('shadowmax') ?? 6000); // largest half-extent of the shadow map (m)

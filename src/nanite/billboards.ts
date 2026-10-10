@@ -6,10 +6,10 @@ import {
   varying, normalLocal, texture, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, cross,
   cameraViewMatrix, normalize, asin, screenCoordinate,
 } from 'three/tsl';
-import { curve } from '../planet.js';
-import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.js';
-import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.js';
-import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.js';
+import { curve } from '../planet.ts';
+import { IMPOSTOR_CUT, ELEVATIONS } from '../impostors.ts';
+import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.ts';
+import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.ts';
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
 const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)

@@ -81,7 +81,7 @@ export async function buildAllTrees(ui) {
     ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
     jobs.push(
       new Promise((resolve, reject) => {
-        const w = new Worker(new URL('./dag-worker.js', import.meta.url), { type: 'module' });
+        const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });
         w.onmessage = (e) => {
           w.terminate();
           if (e.data.error) return reject(new Error(e.data.error));

@@ -1,4 +1,4 @@
-// The impostor atlas (albedo, src/impostors.js) as a PNG: colour where a tree is, cut-out (alpha < the impostor
+// The impostor atlas (albedo, src/impostors.ts) as a PNG: colour where a tree is, cut-out (alpha < the impostor
 // cut-off) shown blue. Side views are the left half, top-down views the right half; render-target textures are
 // stored upside down, so trees stand on their heads here.
 async (demo) => {

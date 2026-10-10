@@ -14,12 +14,12 @@
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
 import { storage, uniform, uniformArray, uint, vec4, length } from 'three/tsl';
-import { SoftRaster } from './softraster.js';
-import { SHADOW_TAU_MUL, PHASE2_LAYER } from './constants.js';
-import { cullingMethods } from './culling.js';
-import { hzbMethods } from './hzb.js';
-import { drawMethods } from './draw.js';
-import { billboardMethods } from './billboards.js';
+import { SoftRaster } from './softraster.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER } from './constants.ts';
+import { cullingMethods } from './culling.ts';
+import { hzbMethods } from './hzb.ts';
+import { drawMethods } from './draw.ts';
+import { billboardMethods } from './billboards.ts';
 
 function countFlags(buf) {
   const f = new Uint32Array(buf);

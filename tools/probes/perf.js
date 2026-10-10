@@ -1,4 +1,4 @@
-// Performance panel (src/perf-panel.js; run with --query=perf=1): runs frames so the 15 s window fills a little,
+// Performance panel (src/perf-panel.ts; run with --query=perf=1): runs frames so the 15 s window fills a little,
 // then returns the report text the panel copies on a click, and whether the panel is on screen.
 async (demo) => {
   const panel = document.querySelector('.perf');

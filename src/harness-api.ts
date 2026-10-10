@@ -1,6 +1,6 @@
 // window.__demo: what the headless harness (tools/harness.mjs) drives the demo with: views, frames, timings.
 import * as THREE from 'three/webgpu';
-import { heightAt } from './terrain.js';
+import { heightAt } from './terrain.ts';
 
 /**
  * ctx: { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame(dt), loop(),

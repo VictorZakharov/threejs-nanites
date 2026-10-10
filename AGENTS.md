@@ -44,24 +44,24 @@ first in a new session. Update it as you go, and keep it short and current, not 
 ## Architecture notes
 
 - **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
-  renderer is `src/nanite/`: `forest.js` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
-  methods in modules by stage, attached as prototype mixins (`culling.js`, `hzb.js`, `draw.js`, `billboards.js`),
-  plus `softraster.js`, `shading.js` (material pieces) and `constants.js`. `src/main.js` is setup and the frame
-  loop; `lighting.js` (sky, fog, sun, shadow map), `textures.js`, `placement.js` and `harness-api.js`
+  renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
+  methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
+  plus `softraster.ts`, `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
+  loop; `lighting.ts` (sky, fog, sun, shadow map), `textures.ts`, `placement.ts` and `harness-api.ts`
   (`window.__demo`) are split out of it.
 
-- `src/trees.js` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
-- `src/dag-worker.js` builds each variant's cluster DAG in a worker: bark via meshoptimizer (128-tri clusters,
+- `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
+- `src/dag-worker.ts` builds each variant's cluster DAG in a worker: bark via meshoptimizer (128-tri clusters,
   groups of ~8, simplify to half with group-border vertices locked); leaves by keeping half the cards and growing
   them √2 per level. Every cluster stores its LOD sphere/error and its parent group's sphere/error.
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`main.js`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
+- Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
   devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU.
-- Performance panel (`src/perf-panel.js`, wired in `src/hud.js`, after cape-physics): FPS avg / 1% low over 15 s,
+- Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
@@ -73,7 +73,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
-- Impostors (`src/impostors.js`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
+- Impostors (`src/impostors.ts`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
   (`ELEVATIONS`); the quad faces the camera and cross-fades between them by elevation as the *union* of the
   silhouettes (mixing alphas thins the forest). With only side and top tiles, trees seen from ~45 degrees were the
   top tile's dark splats (the user: "piles of poop"), and from high up the whole screen was one flat top view
@@ -82,7 +82,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
   enlarged (`GROW`, `?grow=a,b,c,d`) to match the coarse cluster LODs it replaces, the shadow quads too; calibrate
   `?imppx=100000` (all impostors) against `?imppx=0` (all geometry) by mean colour on the `slope` and
   `topdown700` views. Alpha is coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
-- Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.js`: impostorPx x a
+- Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
 - Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
@@ -93,7 +93,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
   half-extent); the light's depth range grows with it. Capped at 640 m, it was a rectangle of real shadows inside
   an evenly shaded forest seen from 1.8 km.
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
-  `lighting.js`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
+  `lighting.ts`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
   (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
   where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs the real map on `topdown700`, comparing
   mean image colour.
@@ -103,7 +103,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Impostors are *relit*, not baked lit: the bake writes an albedo atlas and a tree-local normal atlas (leaves cut
   out with Discard and alpha 1 so MSAA gives true coverage), and the impostor material is Lambert with the same
   lights, fog and shadow fade as the real leaves. Render-target textures are stored flipped (v = 1 - y).
-  Colour is matched per tree type and view (side / top) by `impGain` in `VARIANTS` (`src/trees.js`), calibrated
+  Colour is matched per tree type and view (side / top) by `impGain` in `VARIANTS` (`src/trees.ts`), calibrated
   with `npm run harness -- --typematch=calibrate --views=d550,fogline --query=wind=0` (masks each type with
   `debug=4`, compares real trees with impostors, adjusts the gains live, prints new values). One gain for all
   types left pines as near-black stars from above. The tiles are baked from the DAG cut each tree has at the
@@ -111,7 +111,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
-- Software rasterizer (`src/nanite/softraster.js`, main view only): the cluster pass sends clusters whose triangles
+- Software rasterizer (`src/nanite/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
   rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the
   depth matches (no 64-bit atomics in WebGPU). A fullscreen quad on the phase 2 layer (`buildResolveMesh`) rebuilds
@@ -121,7 +121,7 @@ first in a new session. Update it as you go, and keep it short and current, not 
   three.js alpha to coverage (`smoothstep(0.5, 0.5 + fwidth(a), a)` against a fixed per-pixel threshold): a plain
   0.5 cut made distant crowns solid. Check with `?debug=5` (software pixels orange) and `--ab="sw=0|sw=1"` (mean
   colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
-- Temporal anti-aliasing (`src/taa.js`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
+- Temporal anti-aliasing (`src/taa.ts`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
   offset each frame (`?taajitter=`, default half a pixel: MSAA does the geometric edges) *before* culling, so the
   culling, the software rasterizer and the draws see the same camera; the dither pattern (`ditherShift`) moves every
   frame too. The resolve rebuilds where each pixel was from the depth buffer and last frame's camera (undoing the
@@ -147,18 +147,18 @@ first in a new session. Update it as you go, and keep it short and current, not 
   cross-fade band it passed almost all or almost none of a tree's pixels (a darker band at the switch on the fog line).
   Turning test (`--dolly --step=0 --turn=0.2`, numbers drift between setups: compare A/B in one run): fogline ~2050,
   slope ~1125 flicker events with TAA, slope ~3840 without.
-- God rays (`src/godrays.js`, R, `?rays=` strength, `?raydecay=`): screen-space radial march towards the sun over
+- God rays (`src/godrays.ts`, R, `?rays=` strength, `?raydecay=`): screen-space radial march towards the sun over
   the depth buffer at half resolution, open sky near the sun's disc as the source. Added to the scene colour inside
   the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
   40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.
 - The output's unsharp mask runs in x/(1+x): in linear HDR it made a black ring round the sun.
-- Touch controls (`src/touch.js`, GitHub issue #1): a floating stick under the left thumb, look drag on the right,
+- Touch controls (`src/touch.ts`, GitHub issue #1): a floating stick under the left thumb, look drag on the right,
   hold buttons for up / down / zoom; they feed `FlyControls.analog` and yaw/pitch. On by `(pointer: coarse)`, or
   `?touch=1|0`; the harness only with `touch=1` (`--probe=touch` fires synthetic finger events and checks each
   control responds).
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
-- Occlusion culling (`src/nanite/culling.js`, `hzb.js`, main view only): two phases per frame. Phase 1 tests trees and clusters
+- Occlusion culling (`src/nanite/culling.ts`, `hzb.ts`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
   pixel's MSAA samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2

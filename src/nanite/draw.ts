@@ -5,9 +5,9 @@ import {
   normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
   cameraViewMatrix,
 } from 'three/tsl';
-import { curve } from '../planet.js';
-import { FADE_HI, MAX_TRIS, LIST_CAP } from './constants.js';
-import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.js';
+import { curve } from '../planet.ts';
+import { FADE_HI, MAX_TRIS, LIST_CAP } from './constants.ts';
+import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
 
 export const drawMethods = {
   // ------------------------------------------------------------------ draw

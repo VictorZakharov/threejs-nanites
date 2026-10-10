@@ -1,4 +1,4 @@
-// Touch controls (src/touch.js; run with --query=touch=1): synthetic finger events on the canvas and the buttons,
+// Touch controls (src/touch.ts; run with --query=touch=1): synthetic finger events on the canvas and the buttons,
 // then how far the camera moved / turned / climbed. Left thumb pushed up = forward, right thumb dragged = look,
 // the up button = climb. Each should be clearly non-zero; `stuck` lists what didn't respond.
 async (demo) => {

@@ -21,8 +21,8 @@ import {
   numWorkgroups, instanceIndex, screenCoordinate, texture, positionGeometry, output, mix, cameraViewMatrix, normalize,
   length,
 } from 'three/tsl';
-import { LIST_CAP, MAX_TRIS, PHASE2_LAYER } from './constants.js';
-import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.js';
+import { LIST_CAP, MAX_TRIS, PHASE2_LAYER } from './constants.ts';
+import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;

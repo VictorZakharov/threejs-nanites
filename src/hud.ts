@@ -2,8 +2,8 @@
 // (scene counters, quality, toggles). The harness keeps the old first HUD line instead of the panel: it times
 // frames itself and reads them from there in screenshots.
 import * as THREE from 'three/webgpu';
-import { heightAt } from './terrain.js';
-import { PerfPanel } from './perf-panel.js';
+import { heightAt } from './terrain.ts';
+import { PerfPanel } from './perf-panel.ts';
 
 /** ctx: { renderer, camera, controls, forest, taa, auto, size, samples, adapterName, harness, shadowsOn() } */
 export function createHud(ctx) {

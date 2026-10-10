@@ -1,8 +1,8 @@
 // Where the trees stand: a jittered scatter over the hills with clearings and a ragged edge, and the canopy cover
 // map the far-field ground shading uses.
 import * as THREE from 'three/webgpu';
-import { heightAt } from './terrain.js';
-import { VARIANTS } from './trees.js';
+import { heightAt } from './terrain.ts';
+import { VARIANTS } from './trees.ts';
 
 const params = new URLSearchParams(location.search);
 

@@ -4,7 +4,7 @@ import {
   Fn, If, storage, uniform, uniformArray, instanceIndex, uint, float, vec4, max, min, length, clamp, log2, exp2,
   ivec2, int, textureLoad,
 } from 'three/tsl';
-import { WG, HZB_LEVELS, HZB_LEVEL0_MAX, HZB_FLOATS } from './constants.js';
+import { WG, HZB_LEVELS, HZB_LEVEL0_MAX, HZB_FLOATS } from './constants.ts';
 
 export const hzbMethods = {
   // ------------------------------------------------------------------ HZB (max-depth pyramid of the main view)

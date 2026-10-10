@@ -12,8 +12,8 @@ import {
   Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, mix, select, clamp, dot, sqrt,
   screenUV, screenCoordinate, screenSize, abs,
 } from 'three/tsl';
-import { PLANET_RADIUS } from './planet.js';
-import { ditherShift } from './nanite/shading.js';
+import { PLANET_RADIUS } from './planet.ts';
+import { ditherShift } from './nanite/shading.ts';
 
 const halton = (i, b) => {
   let f = 1, r = 0;

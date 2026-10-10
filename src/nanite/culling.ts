@@ -4,9 +4,9 @@ import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, workgroupId, localId, numWorkgroups, uint, vec3,
   vec4, uvec2, atomicAdd, atomicStore, select, max, min, length, dot,
 } from 'three/tsl';
-import { curve } from '../planet.js';
-import { switchPx } from './shading.js';
-import { FADE_HI, MAX_TRIS, WG, MAX_ITEMS, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin } from './constants.js';
+import { curve } from '../planet.ts';
+import { switchPx } from './shading.ts';
+import { FADE_HI, MAX_TRIS, WG, MAX_ITEMS, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin } from './constants.ts';
 
 export const cullingMethods = {
   // ------------------------------------------------------------------ culling (one set of passes per view)
