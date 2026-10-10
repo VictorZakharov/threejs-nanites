@@ -14,7 +14,17 @@ import { LoadingScreen } from './loading.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.ts';
 import { createLighting } from './lighting.ts';
-import { installHarnessApi } from './harness-api.ts';
+import { installHarnessApi, type DemoState } from './harness-api.ts';
+import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
+import type { AutoQuality } from './hud.ts';
+import type { ImpostorAtlas } from './impostors.ts';
+import type { Float, Vec3 } from './types.ts';
+
+declare global {
+  interface Window {
+    __demo: DemoState; // (what the harness drives, see harness-api.ts)
+  }
+}
 import { TAA } from './taa.ts';
 import { createHud } from './hud.ts';
 import { GodRays } from './godrays.ts';
@@ -25,7 +35,7 @@ const TREE_COUNT = Number(params.get('trees') ?? 1000000);
 if (HARNESS) document.body.classList.add('harness');
 
 // shadowShift: debug offset of the shadow-map centre (harness sweeps)
-const demo = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });
+const demo: DemoState = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });
 const ui = new LoadingScreen();
 
 // ---------------------------------------------------------------- setup
@@ -49,7 +59,7 @@ async function start() {
     },
   });
   await renderer.init();
-  if (!renderer.backend.isWebGPUBackend) throw new Error('WebGPU backend unavailable (got WebGL fallback).');
+  if (!gpuBackend(renderer).isWebGPUBackend) throw new Error('WebGPU backend unavailable (got WebGL fallback).');
   const ai = adapter.info ?? {};
   ui.note(`WebGPU adapter: ${[ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown'}`);
   const pixelRatio = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, 1.5));
@@ -108,35 +118,37 @@ async function start() {
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
   if (params.get('wind') === '0') forest.u.wind.value = 0;
-  forest.group.traverse((o) => o.isMesh && !o.castShadow && (o.material.receivedShadowNode = makeFadeShadow(treeFarShadow)));
+  forest.group.traverse((o) => {
+    if (o instanceof THREE.Mesh && !o.castShadow) (o.material as THREE.NodeMaterial).receivedShadowNode = asReceivedShadow(makeFadeShadow(treeFarShadow));
+  });
   // software-rasterized tiny clusters: shaded per pixel from the visibility buffer, with the same shadows and fog
   forest.group.add(forest.sw.buildResolveMesh({
-    fadeShadow: (pos) => makeFadeShadow(treeFarShadow, pos),
-    fog: (pos, viewZ) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
+    fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
+    fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
   }));
   // ground: darkened by how much canopy stands over it
   const density = forestDensity(instances);
   const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
   const cover = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5)).r;
   const groundFar = float(1).sub(cover.mul(groundShade));
-  for (const m of terrain.userData.materials) m.receivedShadowNode = makeFadeShadow(groundFar);
+  for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
   scene.add(forest.group);
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
   cubeCam.update(renderer, skyCapture);
-  const atlas = bakeImpostors(renderer, trees, {
+  const baked = bakeImpostors(renderer, trees, {
     bark: barkTex,
     leaf: leafTex,
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
   }, Number(params.get('bakepx') ?? forest.u.impostorPx.value)); // (the default switch size, before ?imppx=)
-  atlas.coverage = await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
+  const atlas: ImpostorAtlas = { ...baked, coverage: await impostorCoverage(renderer, baked, IMPOSTOR_CUT) };
   const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
   impostorMesh.receiveShadow = true;
   // an impostor looks the map up on its sun side (the neighbours' shadows), its own crown's shade is the average
   const impFade = makeFadeShadow(treeFarShadow);
-  impostorMesh.material.receivedShadowNode = Fn(([shadow]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))));
+  (impostorMesh.material as THREE.NodeMaterial).receivedShadowNode = asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))));
   demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
   demo.renderer = renderer;
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
@@ -156,20 +168,22 @@ async function start() {
   const touch = (HARNESS ? params.get('touch') === '1' : isTouchDevice(params)) ? new TouchControls(controls, renderer.domElement) : null; // (src/touch.js)
   controls.touchMode = Boolean(touch);
 
-  function setShadows(on) {
+  function setShadows(on: boolean): void {
     shadowsOn = on;
     sun.shadow.intensity = on ? 1 : 0;
     farShadowOn.value = on ? 1 : 0;
     sun.shadow.autoUpdate = on;
     sun.shadow.needsUpdate = true; // one last pass (empty when off: the casters are hidden)
-    forest.group.traverse((o) => o.isMesh && o.castShadow && (o.visible = on));
+    forest.group.traverse((o) => {
+      if (o instanceof THREE.Mesh && o.castShadow) o.visible = on;
+    });
   }
   setShadows(shadowsOn);
 
   // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
   // (a phone's budget is a 60 fps frame: its GPU is far from the 8 ms a desktop one is steered to)
   const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 8));
-  const auto = { on: params.get('auto') !== '0' && !HARNESS, budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  const auto: AutoQuality = { on: params.get('auto') !== '0' && !HARNESS, budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
   // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
@@ -177,14 +191,14 @@ async function start() {
   // resolution instead (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of
   // the cost doesn't depend on detail (MSAA + TAA fill, the culling of 1M trees), and phones hit that.
   let lastAdjust = 0;
-  const setScale = (s) => {
+  const setScale = (s: number): void => {
     auto.scale = s;
     renderer.setPixelRatio(pixelRatio * s);
     fitToWindow();
   };
-  function autoQuality(dt) {
+  function autoQuality(dt: number): void {
     const tau = forest.u.tau;
-    const step = (over) => {
+    const step = (over: number): void => {
       const now = performance.now();
       if (now - lastAdjust < (auto.scale < 1 ? 1500 : 500)) return;
       if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(1.3, over));
@@ -194,7 +208,7 @@ async function start() {
       else return;
       lastAdjust = now;
     };
-    if (!renderer.backend.trackTimestamp) {
+    if (!gpuBackend(renderer).trackTimestamp) {
       // no timestamp queries: fall back to frame time against 60 fps
       auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
       if (auto.on) step(auto.frameMs / 16.7);
@@ -204,8 +218,8 @@ async function start() {
     auto.busy = true;
     Promise.all([renderer.resolveTimestampsAsync('render'), renderer.resolveTimestampsAsync('compute')]).then(([r, c]) => {
       auto.busy = false;
-      if (!(r >= 0)) return;
-      const g = r + (c || 0), ease = (a, b) => (a ? a * 0.9 + b * 0.1 : b);
+      if (r === undefined || !(r >= 0)) return;
+      const g = r + (c || 0), ease = (a: number | undefined, b: number): number => (a ? a * 0.9 + b * 0.1 : b);
       auto.gpuMs = ease(auto.gpuMs, g);
       auto.renderMs = ease(auto.renderMs, r);
       auto.computeMs = ease(auto.computeMs, c || 0);
@@ -224,7 +238,7 @@ async function start() {
     if (code === 'KeyP') setShadows(!shadowsOn);
     if (code === 'KeyT') (taa.enabled = !taa.enabled), (taa.reset = true);
     if (code === 'KeyG') forest.u.wind.value = forest.u.wind.value > 0 ? 0 : 1;
-    if (code === 'KeyH') document.getElementById('help').classList.toggle('hidden', (showHelp = !showHelp) === false);
+    if (code === 'KeyH') document.getElementById('help')?.classList.toggle('hidden', (showHelp = !showHelp) === false);
   };
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
@@ -266,7 +280,7 @@ async function start() {
   // ---------------------------------------------------------------- frame
   let time = 0;
   const size = new THREE.Vector2();
-  function frame(dt) {
+  function frame(dt: number): void {
     fitToWindow();
     time += dt;
     touch?.update();
@@ -349,8 +363,8 @@ async function start() {
   // blocks the main thread; drawing one group of objects at a time (the rest hidden) lets the status line and the
   // bar move between groups. The last step, a real frame, compiles the culling compute passes.
   const tc = performance.now();
-  const byName = (prefix) => forest.group.children.filter((o) => o.name.startsWith(prefix));
-  const warm = [
+  const byName = (prefix: string): THREE.Object3D[] => forest.group.children.filter((o) => o.name.startsWith(prefix));
+  const warm: [string, THREE.Object3D[]][] = [
     ['terrain and sky', [terrain, sky]],
     ['bark', byName('nanite-bark')],
     ['leaves', byName('nanite-leaves')],
@@ -381,7 +395,7 @@ async function start() {
   // the compute passes, one stage at a time (each compiles on its first dispatch)
   renderer.getDrawingBufferSize(size);
   follow(camera, heightAt(camera.position.x, camera.position.z), demo.shadowShift);
-  const computeSteps = [
+  const computeSteps: [string, () => void][] = [
     ['culling', () => forest.update(camera, size, 0, shadowsOn ? sun.shadow.camera : null)],
     ['occlusion', () => forest.occlusion(camera, size.x, size.y)],
     ['software rasterizer', () => forest.rasterize(camera, size.x, size.y)],
@@ -392,7 +406,7 @@ async function start() {
     await ui.update(0.93 + (0.06 * k) / computeSteps.length, `Compiling shaders: ${label}`, false);
     const t = performance.now();
     run();
-    await renderer.backend.device.queue.onSubmittedWorkDone();
+    await gpuBackend(renderer).device.queue.onSubmittedWorkDone();
     ui.note(`Compiled ${label} (${Math.round(performance.now() - t)} ms)`);
   }
   ui.note(`First frame ready (${Math.round(performance.now() - tc)} ms)`);
@@ -403,6 +417,6 @@ async function start() {
 
 start().catch((e) => {
   console.error(e);
-  demo.error = String(e?.stack ?? e);
+  demo.error = String(e instanceof Error ? (e.stack ?? e) : e);
   ui.fail(e);
 });

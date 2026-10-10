@@ -34,6 +34,10 @@ Done, waiting for the user's check on the live site:
 - **Mobile controls** (GitHub issue #1): `src/touch.ts`, checked with `--probe=touch --query=touch=1` headless; not
   yet tried on a real phone (WebGPU on mobile: Chrome Android, Safari 26).
 
+- **TypeScript (user: "javascript is not maintainable")**: done, `src/` strict, `npm run build` type-checks.
+- **Mac: no real trees** (user report: "empty plains and semitransparent trees"): shaders bound up to 14 storage
+  buffers; now at most 8 (merged buffers). Ask the reporter to confirm.
+
 ## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
 
 1. Performance off the dev GPU: tuned only on an RTX 40; forest views 6-11 ms vs the 8 ms budget. Occlusion's

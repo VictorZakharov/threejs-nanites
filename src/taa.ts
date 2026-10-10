@@ -14,8 +14,9 @@ import {
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
 import { ditherShift } from './nanite/shading.ts';
+import type { Float, IVec2, Vec2, Vec3 } from './types.ts';
 
-const halton = (i, b) => {
+const halton = (i: number, b: number): number => {
   let f = 1, r = 0;
   for (; i > 0; i = Math.floor(i / b)) r += (f /= b) * (i % b);
   return r;
@@ -27,28 +28,48 @@ const SPREAD = Number(params.get('taajitter') ?? 0.5);
 const JITTER = Array.from({ length: 8 }, (_, i) => [(halton(i + 1, 2) - 0.5) * SPREAD, (halton(i + 1, 3) - 0.5) * SPREAD]);
 
 /** Colour <-> YCoCg (the neighbourhood box is tighter around foliage greens in it than in RGB). */
-const toYCoCg = (c) => vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
-const toRGB = (y) => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.sub(y.y).sub(y.z));
+const toYCoCg = (c: Vec3): Vec3 => vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
+const toRGB = (y: Vec3): Vec3 => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.sub(y.y).sub(y.z));
 // The history is blended in a perceptual space (the square root of linear light, near the display's gamma), not in
 // linear light: half a dark needle against the bright sky averaged in linear light reads much brighter than half on
 // screen, and the far crowns' tips, sub-pixel speckles that the jitter moves, turned into pale ghosts against the
 // sky (the user: "ghosted peaks"). `?taaspace=linear` for the old blend.
 const PERCEPTUAL = params.get('taaspace') !== 'linear';
-const enc = (c) => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
-const dec = (c) => (PERCEPTUAL ? c.mul(c) : c);
+const enc = (c: Vec3): Vec3 => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
+const dec = (c: Vec3): Vec3 => (PERCEPTUAL ? c.mul(c) : c);
 
 export class TAA {
   /**
    * `sceneRT`: the MSAA scene target (colour + depth texture), `samples` its sample count. `extra(uv)`: light added
    * to the scene before the resolve (the god rays: their noisy march is averaged with the rest).
    */
-  constructor(renderer, sceneRT, samples, { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1), extra = null } = {}) {
+  readonly renderer: THREE.WebGPURenderer;
+  readonly sceneRT: THREE.RenderTarget;
+  readonly extra: ((uv: Vec2) => Vec3) | null;
+  enabled: boolean;
+  frame = 0;
+  reset = true;
+  readonly history: THREE.RenderTarget[];
+  readonly u;
+  readonly viewProj = new THREE.Matrix4();
+  readonly prevViewProjCPU = new THREE.Matrix4();
+  readonly prevViewer = new THREE.Vector3();
+  readonly historyTex: THREE.TextureNode;
+  readonly quad: THREE.QuadMesh;
+  /** What the output pass shows: the latest resolved frame (or the scene itself with TAA off). */
+  readonly outputTex: THREE.TextureNode;
+  readonly displayNode: Vec3;
+
+  constructor(
+    renderer: THREE.WebGPURenderer,
+    sceneRT: THREE.RenderTarget,
+    samples: number,
+    { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1), extra = null }: { enabled?: boolean; feedback?: number; extra?: ((uv: Vec2) => Vec3) | null } = {},
+  ) {
     this.extra = extra;
     this.renderer = renderer;
     this.sceneRT = sceneRT;
     this.enabled = enabled;
-    this.frame = 0;
-    this.reset = true;
     const make = () => new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, depthBuffer: false });
     this.history = [make(), make()];
     this.u = {
@@ -62,22 +83,18 @@ export class TAA {
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
       off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
     };
-    this.viewProj = new THREE.Matrix4();
-    this.prevViewProjCPU = new THREE.Matrix4();
-    this.prevViewer = new THREE.Vector3();
     this.historyTex = texture(this.history[0].texture);
     const mat = new THREE.NodeMaterial();
     mat.fragmentNode = this._resolveNode(sceneRT, samples);
     mat.toneMapped = false;
     this.quad = new THREE.QuadMesh(mat);
-    /** What the output pass shows: the latest resolved frame (or the scene itself with TAA off). */
     this.outputTex = texture(sceneRT.texture);
     // ... through a light unsharp mask (4 neighbours) when TAA is on
     const px = vec2(1).div(screenSize);
     const c = extra ? this.outputTex.rgb.add(extra(screenUV).mul(this.u.off)) : this.outputTex.rgb;
     // (in a compressed space, x / (1 + x): in linear HDR the sun's disc, far above 1, pulled the pixels around it
     // below zero, a black ring round the sun, and isolated dark specks against the sky went black)
-    const squash = (v) => v.div(v.add(1));
+    const squash = (v: Vec3): Vec3 => v.div(v.add(1));
     const ring = [[1, 0], [-1, 0], [0, 1], [0, -1]].map(([x, y]) => squash(this.outputTex.sample(screenUV.add(px.mul(vec2(x, y)))).rgb));
     const avg = ring.reduce((a, b) => a.add(b)).mul(0.25);
     const t = clamp(squash(c).add(squash(c).sub(avg).mul(this.u.sharpen)), 0, 0.999);
@@ -87,13 +104,14 @@ export class TAA {
     if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenCoordinate.xy)).xyz).mul(200);
   }
 
-  _resolveNode(sceneRT, samples) {
+  _resolveNode(sceneRT: THREE.RenderTarget, samples: number) {
     const u = this.u;
-    const colour = sceneRT.texture, depth = sceneRT.depthTexture, wind = sceneRT.textures[1];
+    // (the scene target gets its depth texture before the TAA is made, see main.ts)
+    const colour = sceneRT.texture, depth = sceneRT.depthTexture!, wind = sceneRT.textures[1];
     const invTwoR = 1 / (2 * PLANET_RADIUS);
     return Fn(() => {
       const p = ivec2(screenCoordinate.xy);
-      const sceneAt = (q) => {
+      const sceneAt = (q: IVec2): Vec3 => {
         const c = textureLoad(colour, q).rgb;
         return this.extra ? c.add(this.extra(vec2(q).add(0.5).div(screenSize))) : c;
       };
@@ -121,7 +139,7 @@ export class TAA {
       const ndc = vec4(screenUV.x.mul(2).sub(1), screenUV.y.mul(-2).add(1), zMin, 1);
       const w4 = u.invViewProj.mul(ndc);
       const world = w4.xyz.div(w4.w);
-      const drop = (pos, v) => {
+      const drop = (pos: Vec3, v: Vec3): Float => {
         const dx = pos.x.sub(v.x), dz = pos.z.sub(v.z);
         return dx.mul(dx).add(dz.mul(dz)).mul(invTwoR);
       };
@@ -154,7 +172,7 @@ export class TAA {
    * The history at `uv`, Catmull-Rom filtered (5 bilinear taps): a plain bilinear lookup blurs a little more every
    * frame wherever things move (the leaves in the wind), and the trees went soft.
    */
-  _catmullRom(uv) {
+  _catmullRom(uv: Vec2): Vec3 {
     const size = screenSize;
     const pos = uv.mul(size);
     const t1 = pos.sub(0.5).floor().add(0.5);
@@ -165,7 +183,7 @@ export class TAA {
     const w3 = f.mul(f).mul(f.mul(0.5).sub(0.5));
     const w12 = w1.add(w2);
     const t0 = t1.sub(1).div(size), t3 = t1.add(2).div(size), t12 = t1.add(w2.div(w12)).div(size);
-    const tap = (x, y, w) => this.historyTex.sample(vec2(x, y)).rgb.mul(w);
+    const tap = (x: Float, y: Float, w: Float): Vec3 => this.historyTex.sample(vec2(x, y)).rgb.mul(w);
     const sum = tap(t12.x, t0.y, w12.x.mul(w0.y))
       .add(tap(t0.x, t12.y, w0.x.mul(w12.y)))
       .add(tap(t12.x, t12.y, w12.x.mul(w12.y)))
@@ -179,7 +197,7 @@ export class TAA {
    * Per frame, before anything is culled or drawn: jitters the camera's projection by this frame's sub-pixel offset
    * (the culling, the software rasterizer and the draws all see the same camera) and moves the dither pattern.
    */
-  jitter(camera, width, height) {
+  jitter(camera: THREE.PerspectiveCamera, width: number, height: number): void {
     camera.updateProjectionMatrix();
     camera.updateMatrixWorld();
     this.viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
@@ -200,7 +218,7 @@ export class TAA {
   }
 
   /** After the scene is drawn: blends it into the history; the output pass then shows `outputTex`. */
-  resolve(camera, viewer) {
+  resolve(camera: THREE.Camera, viewer: THREE.Vector3): void {
     const r = this.renderer;
     const w = this.sceneRT.width, h = this.sceneRT.height;
     if (!this.enabled) {

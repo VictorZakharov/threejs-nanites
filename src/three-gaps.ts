@@ -15,3 +15,7 @@ export const asReceivedShadow = (fn: unknown): (() => Node) => fn as () => Node;
 
 /** floatBitsToUint returns an untyped bitcast node. */
 export const floatBits = (f: Parameters<typeof floatBitsToUint>[0], impl: typeof floatBitsToUint): Uint => impl(f) as unknown as Uint;
+
+/** The renderer's WebGPU backend: its device and whether timestamp queries are on (typed as the generic Backend). */
+export const gpuBackend = (r: THREE.WebGPURenderer) =>
+  r.backend as unknown as { device: GPUDevice; trackTimestamp: boolean; isWebGPUBackend?: boolean };

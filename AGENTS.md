@@ -9,7 +9,8 @@ things that aren't obvious from the code.
 ```bash
 npm install
 npm run dev        # Vite dev server
-npm run build      # production build into dist/ (relative base: works under the Pages subpath)
+npm run build      # type-check (tsc, strict) + production build into dist/ (relative base: works under the Pages subpath)
+npm run typecheck  # tsc only
 npm run harness    # headless benchmark + screenshots, see below
 ```
 
@@ -40,6 +41,18 @@ retyped probe code drifts and compounds errors.
 
 `dev-journal.md` holds the current direction: what's being worked on, what's decided, the known issues. Read it
 first in a new session. Update it as you go, and keep it short and current, not historical: trim what's done.
+
+## TypeScript
+
+`src/` is TypeScript, `strict`, checked by `npm run build` (a type error fails the deploy). TSL nodes are typed by
+their shader type: helpers take `Float`, `Vec3`, `Uint`... from `src/types.ts` (`Node<'vec3'>` has the operators, a
+bare `Node` has none). Where `@types/three` lags the runtime (Lambert's `emissiveNode`, `receivedShadowNode`'s
+argument, the WebGPU backend's `device`, untyped bitcasts), the cast lives in `src/three-gaps.ts` with a note; don't
+scatter `as any`. The typings' `min`/`max` take floats only: use `minU`/`minI`/`maxI` (`src/nanite/constants.ts`)
+for integers. `uniformArray` needs its type explicitly (`uniformArray<'vec4'>(values, 'vec4')`). Objects with
+shader closures are built as typed locals and returned whole (see `_buildSet`, `_buildView`). The stage modules of
+`NaniteForest` declare `this: NaniteForest`; the class merges their types through an interface. The harness and
+its probes stay JavaScript (Node scripts and page-side expressions).
 
 ## Architecture notes
 

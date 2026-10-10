@@ -5,15 +5,29 @@
 // SAMPLES depth taps at a quarter of the pixels), no dependence on the shadow map's extent (three.js's GodraysNode
 // marches the shadow map, which here covers only part of the view).
 import * as THREE from 'three/webgpu';
-import { Fn, Loop, uniform, texture, textureLoad, ivec2, vec2, vec3, float, int, screenUV, screenCoordinate, select, exp, max, length } from 'three/tsl';
+import { Fn, Loop, uniform, texture, textureLoad, ivec2, vec2, vec3, vec4, float, int, screenUV, screenCoordinate, select, exp, max, length } from 'three/tsl';
 import { ditherAt } from './nanite/shading.ts';
+import type { Vec2, Vec3 } from './types.ts';
 
 const params = new URLSearchParams(location.search);
 const SAMPLES = 40;
 
 export class GodRays {
+  readonly renderer: THREE.WebGPURenderer;
+  readonly sunDir: THREE.Vector3;
+  enabled: boolean;
+  readonly rt: THREE.RenderTarget;
+  readonly u;
+  readonly intensity: number;
+  readonly decay: number;
+  readonly quad: THREE.QuadMesh;
+  /** The light it adds at `uv` (linear HDR, before the TAA resolve and tone mapping). */
+  readonly at: (uv: Vec2) => Vec3;
+  readonly _v = new THREE.Vector3();
+  readonly _fwd = new THREE.Vector3();
+
   /** `depth`: the scene's (MSAA) depth texture; `sunDir`: unit vector towards the sun. */
-  constructor(renderer, depth, sunDir, { enabled = true } = {}) {
+  constructor(renderer: THREE.WebGPURenderer, depth: THREE.DepthTexture, sunDir: THREE.Vector3, { enabled = true } = {}) {
     this.renderer = renderer;
     this.sunDir = sunDir;
     this.enabled = enabled;
@@ -47,18 +61,15 @@ export class GodRays {
         w.mulAssign(this.decay);
       });
       // (fading with the pixel's distance from the sun: the whole screen below a sun just out of view washed out)
-      return vec3(sum.mul(u.strength).mul(exp(span.mul(-falloff))).div(SAMPLES * 0.4)).toVec4(1);
+      return vec4(vec3(sum.mul(u.strength).mul(exp(span.mul(-falloff))).div(SAMPLES * 0.4)), 1);
     })();
     this.quad = new THREE.QuadMesh(mat);
-    /** The light it adds at `uv` (linear HDR, before the TAA resolve and tone mapping). */
     const tex = texture(this.rt.texture);
     this.at = (uv) => tex.sample(uv).rgb.mul(vec3(1.0, 0.86, 0.66));
-    this._v = new THREE.Vector3();
-    this._fwd = new THREE.Vector3();
   }
 
   /** After the scene is drawn. */
-  render(camera, width, height) {
+  render(camera: THREE.Camera, width: number, height: number): void {
     const u = this.u;
     camera.getWorldDirection(this._fwd);
     const facing = this._fwd.dot(this.sunDir);

@@ -10,3 +10,4 @@ export type Vec2 = Node<'vec2'>;
 export type Vec3 = Node<'vec3'>;
 export type Vec4 = Node<'vec4'>;
 export type UVec4 = Node<'uvec4'>;
+export type IVec2 = Node<'ivec2'>;
