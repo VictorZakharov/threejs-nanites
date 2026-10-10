@@ -52,6 +52,7 @@ export class NaniteForest {
   inst!: StorageBufferNode<'vec4'>;
   typeInfo!: UniformArrayNode<'vec4'>;
   instanceCount = 0;
+  treeCount = 0; // (of instanceCount: the rest are bushes)
   stats!: { clusters: number; verts: number; tris: number; types: TypeStats[] };
   hzb!: Hzb;
   hzbReady = false;
@@ -151,6 +152,7 @@ export class NaniteForest {
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
 
     this.instanceCount = instances.a.length / 4;
+    this.treeCount = instances.trees;
     // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
     const inst = new Float32Array(this.instanceCount * 8);
     for (let i = 0; i < this.instanceCount; i++) {

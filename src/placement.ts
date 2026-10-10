@@ -60,6 +60,7 @@ export interface TreeInstances {
   a: Float32Array;
   b: Float32Array;
   radius: number;
+  trees: number; // the first `trees` instances are trees, the rest bushes
 }
 
 export function placeTrees(count: number): TreeInstances {
@@ -88,8 +89,9 @@ export function placeTrees(count: number): TreeInstances {
     a.push(x, y - 0.3, z, scale);
     b.push(Math.cos(rot), Math.sin(rot), type, rnd() * 6.28);
   }
+  const trees = a.length / 4;
   placeBushes(Math.round(count * BUSHES_PER_TREE), radius, a, b);
-  return { a: new Float32Array(a), b: new Float32Array(b), radius };
+  return { a: new Float32Array(a), b: new Float32Array(b), radius, trees };
 }
 
 /** Undergrowth per tree (`?bushes=`; 0.5 on touch screens): instances of the bush variants in the same buffers. */
