@@ -1,6 +1,7 @@
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
-import { createTerrain, heightAt } from './terrain.ts';
+import { createTerrain, heightAt, TERRAIN_SEGMENTS } from './terrain.ts';
+import { createGrass } from './grass.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
@@ -134,6 +135,12 @@ async function start() {
   const cover = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5)).r;
   const groundFar = float(1).sub(cover.mul(groundShade));
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
+  // grass around the viewer (src/grass.ts)
+  const grass = createGrass({
+    terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
+    cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)),
+  });
+  scene.add(grass.group);
   scene.add(forest.group);
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
@@ -287,6 +294,7 @@ async function start() {
     camera.position.z = THREE.MathUtils.clamp(camera.position.z, -lim, lim);
     viewerPos.value.copy(camera.position);
     clouds.update(time, camera);
+    grass.update(camera);
     camera.updateMatrixWorld();
     renderer.getDrawingBufferSize(size);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
@@ -335,12 +343,12 @@ async function start() {
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
   const profile = (): Promise<string> => runProfile(
-    { auto, forest, taa, rays, clouds: clouds.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale },
+    { auto, forest, taa, rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale },
     (label, i, n) => hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`),
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)
-  createMenu({ controls, forest, taa, rays, clouds: clouds.group, auto, perf: hud.perf, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
+  createMenu({ controls, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
   let prev = performance.now();
   function loop() {

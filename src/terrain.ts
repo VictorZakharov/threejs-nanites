@@ -39,6 +39,9 @@ export function heightAt(x: number, z: number): number {
   return hills * (0.35 + 0.65 * flatten) + ridges * flatten;
 }
 
+/** Cells per side of the detailed terrain square (src/grass.ts reads its vertex heights). */
+export const TERRAIN_SEGMENTS = 1024;
+
 function terrainGeometry(size: number, seg: number, lowerInside = 0): THREE.PlaneGeometry {
   const geo = new THREE.PlaneGeometry(size, size, seg, seg);
   geo.rotateX(-Math.PI / 2);
@@ -78,7 +81,7 @@ function terrainMaterial(): THREE.MeshStandardNodeMaterial {
  */
 export function createTerrain(size: number): THREE.Group {
   const group = new THREE.Group();
-  const near = new THREE.Mesh(terrainGeometry(size, 1024), terrainMaterial());
+  const near = new THREE.Mesh(terrainGeometry(size, TERRAIN_SEGMENTS), terrainMaterial());
   near.receiveShadow = true;
   near.name = 'terrain';
   const m = 2 * Math.ceil(65000 / size) + 1; // odd: the square sits exactly in the middle

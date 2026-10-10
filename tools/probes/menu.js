@@ -20,7 +20,7 @@ async (demo) => {
   };
   const r = {
     open: !menu.classList.contains('hidden'),
-    shadows: flip('Shadows'), taa: flip('TAA'), rays: flip('God rays'), wind: flip('Wind'), clouds: flip('Clouds'),
+    shadows: flip('Shadows'), taa: flip('TAA'), rays: flip('God rays'), wind: flip('Wind'), clouds: flip('Clouds'), grass: flip('Grass'),
     occlusion: flip('Occlusion'), sw: flip('Software'),
     quality: [seg('quality', 'low'), seg('quality', 'auto')].join(' '),
     tau: demo.forest.u.tau.value,

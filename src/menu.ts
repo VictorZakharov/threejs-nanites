@@ -15,6 +15,7 @@ export interface MenuContext {
   taa: TAA;
   rays: GodRays;
   clouds: { visible: boolean };
+  grass: { visible: boolean };
   auto: AutoQuality;
   perf: PerfPanel | null;
   shadowsOn(): boolean;
@@ -57,6 +58,7 @@ export function createMenu(ctx: MenuContext) {
     { label: 'Anti-aliasing (TAA)', key: 'KeyT', get: () => taa.enabled, set: (v) => ((taa.enabled = v), (taa.reset = true)) },
     { label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v) => (rays.enabled = v) },
     { label: 'Wind', key: 'KeyG', get: () => u.wind.value > 0, set: (v) => (u.wind.value = v ? 1 : 0) },
+    { label: 'Grass', get: () => ctx.grass.visible, set: (v) => (ctx.grass.visible = v) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
     { label: 'Occlusion culling', get: () => u.occlusion.value > 0, set: (v) => (u.occlusion.value = v ? 1 : 0) },
     ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),

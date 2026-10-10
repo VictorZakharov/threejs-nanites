@@ -15,6 +15,7 @@ export interface ProfileContext {
   taa: TAA;
   rays: GodRays;
   clouds: THREE.Object3D;
+  grass: THREE.Object3D;
   terrain: THREE.Object3D[]; // terrain and sky
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
@@ -49,6 +50,7 @@ function steps(ctx: ProfileContext): Step[] {
     { label: 'shadow map off', off: flag(ctx.shadowsOn, ctx.setShadows) },
     { label: 'TAA off', off: flag(() => taa.enabled, (v) => ((taa.enabled = v), (taa.reset = true))) },
     { label: 'god rays off', off: flag(() => rays.enabled, (v) => (rays.enabled = v)) },
+    { label: 'grass off', off: flag(() => ctx.grass.visible, (v) => (ctx.grass.visible = v)) },
     { label: 'clouds off', off: flag(() => clouds.visible, (v) => (clouds.visible = v)) },
     { label: 'occlusion off', off: uflag(forest.u.occlusion) },
     { label: 'sw raster off', off: uflag(forest.u.sw) },

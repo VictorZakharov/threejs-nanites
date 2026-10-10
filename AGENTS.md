@@ -89,6 +89,13 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   reaches the page (opens the menu, releases the mouse) instead of leaving fullscreen (hold Esc to leave). Outside
   fullscreen Esc is the browser's (it releases the mouse), so losing the pointer lock opens the menu. Headless can't
   test the fullscreen path: check it by hand. `--probe=menu` clicks every switch and reads it back.
+- Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): three instanced rings of
+  blades round the viewer (cells 0.09 / 0.2 / 0.45 m out to 16 / 40 / 90 m), each a grid of world cells snapped to
+  the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered
+  fraction stays even. Blades stand on the terrain mesh's own vertex heights (a float texture, same triangle split as
+  PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. A dropped
+  blade collapses onto its root (collapsing per vertex, or to the origin, drew streaks across the screen). Double-sided
+  Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades). ~0.3 ms on the dev GPU.
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.
