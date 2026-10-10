@@ -17,7 +17,7 @@ export interface PerfDetails {
   quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean };
   resolution: { width: number; height: number; pixelRatio: number; msaa: number; taa: boolean };
   scene: {
-    trees: number; total: number; bushes: number; impostors: number; clusters: number; swClusters: number;
+    trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
     tris: number; swTris: number; shadowTris: number;
   } | null;
   camera: { x: number; z: number; agl: number; zoom: number; yaw: number; pitch: number };
@@ -191,7 +191,7 @@ export class PerfPanel {
 
   /** The plain-text report the panel copies. */
   report(): string {
-    const s = this.measure(), det = this.details(), g = det.gpu, r = det.resolution, sc = det.scene ?? { trees: 0, total: 0, bushes: 0, impostors: 0, clusters: 0, swClusters: 0, tris: 0, swTris: 0, shadowTris: 0 }, c = det.camera;
+    const s = this.measure(), det = this.details(), g = det.gpu, r = det.resolution, sc = det.scene ?? { trees: 0, total: 0, bushes: 0, statues: 0, impostors: 0, clusters: 0, swClusters: 0, tris: 0, swTris: 0, shadowTris: 0 }, c = det.camera;
     const lines = [
       `Nanite Forest performance report, ${new Date().toISOString()}`,
       `url          ${location.href}`,
@@ -205,7 +205,7 @@ export class PerfPanel {
       `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}`,
       `quality      error ${det.quality.tau.toFixed(2)} px, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
       '',
-      `plants       ${count(sc.trees)} visible (${count(sc.impostors)} impostors) of ${count(sc.total)} trees + ${count(sc.bushes)} bushes`,
+      `plants       ${count(sc.trees)} visible (${count(sc.impostors)} impostors) of ${count(sc.total)} trees + ${count(sc.bushes)} bushes + ${count(sc.statues)} statues`,
       `clusters     ${count(sc.clusters)} hardware, ${count(sc.swClusters)} software`,
       `triangles    ${count(sc.tris)} hardware, ${count(sc.swTris)} software, ${count(sc.shadowTris)} shadow casters`,
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,

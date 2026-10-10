@@ -27,6 +27,13 @@ export const VIEWS = {
   needlesclose: { x: 301, z: -222, agl: 0.6, yaw: 200, pitch: -60 },
   // the litter from 60 cm, steeply down, under the red stand (leaf shapes)
   litterclose: { x: -79, z: 33, agl: 0.6, yaw: 200, pitch: -60 },
+  // the cobblestone road's end, looking into the plaza with its ring of statues (src/road.ts); the plaza from the air
+  plaza: { x: -97.6, z: -163.7, agl: 1.8, yaw: 30, pitch: 6 },
+  plazaair: { x: -83.6, z: -139.4, agl: 30, yaw: 30, pitch: -28 },
+  // the road from the spawn point, from above and behind
+  roadair: { x: 45, z: 85, agl: 40, yaw: 30, pitch: -25 },
+  // a statue up close (a million triangles: Nanite detail)
+  statue: { x: -102.1, z: -171.5, agl: 2, yaw: 210, pitch: 14 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
   high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },

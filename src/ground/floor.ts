@@ -13,6 +13,8 @@ import { FLOOR_TILE, HEIGHT_CM, type PBRData } from './floor-maps.ts';
 import { LEAF_KINDS, LEAF_TILE } from './floor-leaves.ts';
 import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
+import { cobbles } from './cobbles.ts';
+import { roadDistanceNode } from '../road.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
 const RELIEF = { depth: HEIGHT_CM / 100, tile: TILE, fade: 40 };
@@ -132,9 +134,13 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   // under the canopy (and under lone trees) the litter, near the viewer: far away the ground's own colour, darkened by
   // the far shading (the litter's average brown turned the whole forest floor brown from the air); the meadow keeps
   // its plain colour (the litter's pattern in it read as pale stamped leaves up close)
-  mat.colorNode = mix(meadow, floor, under);
+  // the road and the plaza (src/road.ts): cobbles, the edge a little ragged
+  const paved = float(1).sub(smoothstep(-0.12, 0.12, roadDistanceNode(p).add(mx_noise_float(p.mul(1.7)).mul(0.25))));
+  const cob = cobbles(p);
+  mat.colorNode = mix(mix(meadow, floor, under), cob.colour, paved);
   // the maps' normals on the terrain's (v runs along +z: dh/dz = g)
-  const nW = normalWorld.add(vec3(nm.x, 0, nm.y.negate()).mul(under.mul(0.8))).normalize();
+  const ground = vec3(nm.x, 0, nm.y.negate()).mul(under.mul(0.8));
+  const nW = normalWorld.add(mix(ground, vec3(cob.tilt.x, 0, cob.tilt.y), paved)).normalize();
   mat.normalNode = cameraViewMatrix.mul(vec4(nW, 0)).xyz.normalize();
   mat.roughness = 0.95;
 }

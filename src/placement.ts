@@ -2,7 +2,8 @@
 // map the far-field ground shading uses.
 import * as THREE from 'three/webgpu';
 import { heightAt, fbm } from './terrain.ts';
-import { VARIANTS, isBush } from './trees.ts';
+import { VARIANTS, isBush, isModel } from './trees.ts';
+import { roadDistance, PLAZA } from './road.ts';
 import { autumnAt, withAutumn, autumnOfPhase, fallOf, NEEDLES } from './autumn.ts';
 
 const params = new URLSearchParams(location.search);
@@ -33,7 +34,7 @@ export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE
   const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
   for (let i = 0; i < a.length; i += 4) {
     const v = VARIANTS[b[i + 2]];
-    if (isBush(v)) continue; // (cover is the trees' canopy)
+    if (isBush(v) || isModel(v)) continue; // (cover is the trees' canopy)
     const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
     if (x < 0 || z < 0 || x >= N || z >= N) continue;
     const w = crown * a[i + 3] * a[i + 3], turn = autumnOfPhase(b[i + 3]);
@@ -80,7 +81,8 @@ export interface TreeInstances {
   a: Float32Array;
   b: Float32Array;
   radius: number;
-  trees: number; // the first `trees` instances are trees, the rest bushes
+  trees: number; // the first `trees` instances are trees, then the bushes, then `statues` models
+  statues: number;
 }
 
 export function placeTrees(count: number): TreeInstances {
@@ -88,7 +90,7 @@ export function placeTrees(count: number): TreeInstances {
   const radius = forestRadius(count);
   const a: number[] = [], b: number[] = [];
   const pineTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? i : -1)).filter((i) => i >= 0);
-  const leafTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') || isBush(v) ? -1 : i)).filter((i) => i >= 0);
+  const leafTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') || isBush(v) || isModel(v) ? -1 : i)).filter((i) => i >= 0);
   let tries = 0;
   while (a.length / 4 < count && tries++ < count * 20) {
     const ang = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * radius * 1.35;
@@ -97,6 +99,7 @@ export function placeTrees(count: number): TreeInstances {
     const edge = radius * (1 + 0.22 * Math.sin(ang * 3 + 0.7) + 0.12 * Math.sin(ang * 7 - 1.9) + 0.06 * Math.sin(ang * 13));
     if (r > edge && rnd() > Math.exp(-(r - edge) / 35)) continue;
     if (Math.hypot(x - 20, z - 40) < 14) continue; // keep the spawn point clear
+    if (roadDistance(x, z) < 3.5) continue; // (the road and the plaza: src/road.ts)
     // clearings
     const clearing = clearingAt(x, z);
     if (clearing > 0.75 && rnd() < 0.9) continue;
@@ -112,7 +115,8 @@ export function placeTrees(count: number): TreeInstances {
   }
   const trees = a.length / 4;
   placeBushes(Math.round(count * BUSHES_PER_TREE), radius, a, b);
-  return { a: new Float32Array(a), b: new Float32Array(b), radius, trees };
+  const statues = placeStatues(radius, a, b);
+  return { a: new Float32Array(a), b: new Float32Array(b), radius, trees, statues };
 }
 
 /** Undergrowth per tree (`?bushes=`; 0.5 on touch screens): instances of the bush variants in the same buffers. */
@@ -152,7 +156,7 @@ function placeBushes(count: number, radius: number, a: number[], b: number[]): v
   while (placed < count && tries++ < count * 30) {
     const ang = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * radius * 1.3;
     const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-    if (Math.hypot(x - 20, z - 40) < 6) continue; // (the spawn point)
+    if (Math.hypot(x - 20, z - 40) < 6 || roadDistance(x, z) < 1.2) continue; // (the spawn point, the road)
     const c = clearingAt(x, z);
     const rim = Math.exp(-(((c - 0.72) / 0.12) ** 2)); // the clearings' edges
     const edge = radius * (1 + 0.22 * Math.sin(ang * 3 + 0.7) + 0.12 * Math.sin(ang * 7 - 1.9) + 0.06 * Math.sin(ang * 13));
@@ -167,4 +171,40 @@ function placeBushes(count: number, radius: number, a: number[], b: number[]): v
     b.push(Math.cos(rot), Math.sin(rot), pool[Math.floor(rnd() * pool.length)], withAutumn(rnd() * 6.28, turn));
     placed++;
   }
+}
+
+/** Extra statues scattered over the clearings (`?statues=N`, a stress test: a million triangles each); the plaza's ring is always there. */
+const STATUES = Number(params.get('statues') ?? 0);
+
+/**
+ * Models in the scene: the plaza's ring at the road's end (src/road.ts), each facing its middle, then up to STATUES
+ * more on a jittered grid (14 m) over the clearings. A proof that the pipeline takes any mesh: each is a million
+ * triangles.
+ */
+function placeStatues(radius: number, a: number[], b: number[]): number {
+  const types = VARIANTS.map((v, i) => (isModel(v) ? i : -1)).filter((i) => i >= 0);
+  if (!types.length) return 0;
+  const rnd = mulberry32(13);
+  const add = (x: number, z: number, scale: number, face: number, type: number) => {
+    a.push(x, heightAt(x, z) - 0.05, z, scale);
+    b.push(Math.cos(face), Math.sin(face), type, 0); // (no wind: phase 0)
+  };
+  // the rotation that turns Lucy's front (-z after tools/nanite-model.mjs stood her up) towards (dx, dz)
+  const faceTo = (dx: number, dz: number) => Math.atan2(-dx, dz) + Math.PI;
+  const ring = params.get('plaza') === '0' ? 0 : PLAZA.statues; // (?plaza=0: no ring, for A/B)
+  for (let k = 0; k < ring; k++) {
+    const t = (k / PLAZA.statues) * Math.PI * 2;
+    const x = PLAZA.x + Math.cos(t) * PLAZA.ring, z = PLAZA.z + Math.sin(t) * PLAZA.ring;
+    add(x, z, 1, faceTo(PLAZA.x - x, PLAZA.z - z), types[k % types.length]);
+  }
+  let n = ring;
+  const step = 14, half = Math.ceil((radius * 1.2) / step);
+  for (let gz = -half; gz <= half && n < ring + STATUES; gz++)
+    for (let gx = -half; gx <= half && n < ring + STATUES; gx++) {
+      const x = (gx + (rnd() - 0.5) * 0.6) * step, z = (gz + (rnd() - 0.5) * 0.6) * step;
+      if (clearingAt(x, z) < 0.85 || Math.hypot(x, z) > radius || roadDistance(x, z) < 4) continue;
+      add(x, z, 0.8 + rnd() * 0.8, (rnd() - 0.5) * 6.28, types[Math.floor(rnd() * types.length)]);
+      n++;
+    }
+  return n;
 }

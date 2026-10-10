@@ -64,9 +64,24 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   (`window.__demo`) are split out of it.
 
 - `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
-- `src/dag-worker.ts` builds each variant's cluster DAG in a worker: bark via meshoptimizer (128-tri clusters,
-  groups of ~8, simplify to half with group-border vertices locked); leaves by keeping half the cards and growing
-  them √2 per level. Every cluster stores its LOD sphere/error and its parent group's sphere/error.
+- `src/dag-build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools): bark via
+  meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
+  (`dag-leaves.ts`) by keeping half the cards and growing them √2 per level; shared pieces in `dag-util.ts`. Every
+  cluster stores its LOD sphere/error and its parent group's sphere/error.
+- Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.mjs` (`npm run model`)
+  reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
+  simplifies to `--tris`, quantizes to 16 bits and meshopt-compresses (`public/models/*.nm`; `--dag` times the DAG
+  build in Node). `src/models.ts` decodes it, `model-source.ts` makes normals and planar uvs; it's "bark" with no
+  leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
+  or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
+  1M tris, 3.1 MB, DAG 15.7k clusters in ~3 s; `lucy-small.nm` (20k) with `?model=small`, the default on touch.
+  Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
+  same code: re-run before bisecting a regression (and compare with the live site via `--url`).
+- The road (`src/road.ts`): a cobblestone road from the spawn point ~240 m to a plaza (radius 24 m) with a ring of
+  12 statues facing its middle (the user's idea). Placement keeps trees/bushes off it; a half-float distance map
+  (25 cm texels; 32-bit float filtering is optional in WebGPU) feeds the grass (none on it) and the floor
+  (`ground/cobbles.ts`: Voronoi stones in TSL, domed normals, average colour where finer than the pixels).
+  `?plaza=0` drops the ring. Views `plaza`, `plazaair`, `roadair`, `statue`.
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
@@ -109,7 +124,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). ~+1.9 ms on the dev
   GPU at 1.5 (mostly the extra impostors). Nine variants overflow one atlas row (9216 px > WebGPU's guaranteed
   8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
-  colours are nine hues 40 degrees apart (typematch classifies within 20). Gains are linear: a measured sRGB ratio r
+  colours are ten hues 36 degrees apart (typematch classifies within 18). Gains are linear: a measured sRGB ratio r
   needs about r^2.
 - Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural floor without its leaves
   (soil, twigs, pebbles; 5 m tile; heights everywhere in cm / `HEIGHT_CM`); `floor-leaves.ts` the fallen leaves, a

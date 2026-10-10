@@ -11,6 +11,7 @@ import {
   mrt, select, sqrt, normalViewGeometry,
 } from 'three/tsl';
 import { curve, viewerPos } from './planet.ts';
+import { roadDistanceNode } from './road.ts';
 import type { Float, Vec2, Vec3 } from './types.ts';
 import type { ForestUniforms } from './nanite/types.ts';
 
@@ -111,7 +112,8 @@ export function createGrass(ctx: GrassContext) {
       const patch = mx_noise_float(xz.mul(0.045)).mul(0.5).add(0.5);
       // (thinner under the canopy, and where the fallen leaves lie thick: under the red trees most)
       const cv = coverAt(xz);
-      const density = float(1).sub(cv.r.mul(0.6)).mul(float(1).sub(cv.g.mul(1.4).min(1).mul(cv.r).mul(0.85))).mul(float(1).sub(smoothstep(0.45, 0.8, g.slope))).mul(smoothstep(0.05, 0.45, patch));
+      // (none on the road and the plaza: src/road.ts)
+      const density = smoothstep(0.1, 0.9, roadDistanceNode(xz)).mul(float(1).sub(cv.r.mul(0.6))).mul(float(1).sub(cv.g.mul(1.4).min(1).mul(cv.r).mul(0.85))).mul(float(1).sub(smoothstep(0.45, 0.8, g.slope))).mul(smoothstep(0.05, 0.45, patch));
       // morph towards the next ring across this one: fewer, wider blades, so where they hand over (the last 20%) both
       // look alike (a straight switch was a line in the grass that moved along with the camera: the user)
       const next = RINGS[k + 1];

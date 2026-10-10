@@ -13,7 +13,7 @@ import { typeMask, typeColours } from './images.mjs';
 import { at } from './status.mjs';
 
 // keep in sync with TYPE_IDS in src/nanite/shading.ts
-const TYPE_IDS = Array.from({ length: 9 }, (_, i) => { const h = i * 40, f = (n) => Math.max(0, Math.min(1, Math.abs(((h / 60 + n) % 6) - 3) - 1)); return [f(0), f(4), f(2)]; });
+const TYPE_IDS = Array.from({ length: 10 }, (_, i) => { const h = i * 36, f = (n) => Math.max(0, Math.min(1, Math.abs(((h / 60 + n) % 6) - 3) - 1)); return [f(0), f(4), f(2)]; });
 const MODES = { geometry: 0, impostors: 1e9 };
 const ROUNDS = 5; // calibration rounds
 const MIN_PIXELS = 3000; // a type covering fewer impostor pixels is left alone (too few to measure)

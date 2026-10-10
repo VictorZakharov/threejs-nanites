@@ -15,6 +15,7 @@ import { FlyControls } from './controls.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { LoadingScreen } from './loading.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
+import { stoneTextureUrl } from './stone.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.ts';
 import { createLighting } from './lighting.ts';
 import { runProfile } from './profile.ts';
@@ -102,10 +103,10 @@ async function start() {
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
-  const barkTypes = ['oak', 'birch', 'pine'];
+  const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
   const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
   const [barkTex, leafTex] = await Promise.all([
-    arrayTexture(barkTypes.map((t) => `./textures/${t}_color_1k.jpg`), 1024),
+    arrayTexture(barkTypes.map((t) => (t === 'stone' ? stoneTextureUrl() : `./textures/${t}_color_1k.jpg`)), 1024),
     arrayTexture(leafTypes.map((t) => `./textures/${t}_color.png`), 1024, true),
   ]);
   barkTex.colorSpace = leafTex.colorSpace = THREE.SRGBColorSpace;

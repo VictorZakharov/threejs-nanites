@@ -51,8 +51,10 @@ export class NaniteForest {
   cData!: StorageBufferNode<'vec4'>;
   inst!: StorageBufferNode<'vec4'>;
   typeInfo!: UniformArrayNode<'vec4'>;
+  windOf!: UniformArrayNode<'float'>; // per type: 1 trees, 0 models (statues don't sway)
   instanceCount = 0;
-  treeCount = 0; // (of instanceCount: the rest are bushes)
+  treeCount = 0; // (of instanceCount: then the bushes, then statueCount models)
+  statueCount = 0;
   stats!: { clusters: number; verts: number; tris: number; types: TypeStats[] };
   hzb!: Hzb;
   hzbReady = false;
@@ -150,9 +152,11 @@ export class NaniteForest {
     this.idx = storage(sb(idx, 1), 'uint', nIdx).toReadOnly();
     this.cData = storage(sb(cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
+    this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
 
     this.instanceCount = instances.a.length / 4;
     this.treeCount = instances.trees;
+    this.statueCount = instances.statues;
     // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
     const inst = new Float32Array(this.instanceCount * 8);
     for (let i = 0; i < this.instanceCount; i++) {

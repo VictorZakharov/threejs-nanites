@@ -7,7 +7,8 @@
     "build": "tsc -p . && vite build",
     "typecheck": "tsc -p .",
     "preview": "vite preview",
-    "harness": "node tools/harness.mjs"
+    "harness": "node tools/harness.mjs",
+    "model": "node --max-old-space-size=8000 tools/nanite-model.mjs"
   },
   "keywords": [],
   "author": "",

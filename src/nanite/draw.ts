@@ -37,11 +37,12 @@ export const drawMethods = {
     const windAt = (time: Float): Vec3 => {
       const t = time.mul(1.1).add(b.w);
       const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
-      const bend = h.mul(h).mul(gust).mul(u.wind).mul(0.06).mul(ti.w).mul(s);
+      const sway = u.wind.mul(this.windOf.element(type)); // (0 for models)
+      const bend = h.mul(h).mul(gust).mul(sway).mul(0.06).mul(ti.w).mul(s);
       let off: Vec3 = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
       if (leaf !== false) {
         const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
-        const fl = sin(time.mul(7.0).add(ph)).mul(0.04).mul(u.wind).mul(s);
+        const fl = sin(time.mul(7.0).add(ph)).mul(0.04).mul(sway).mul(s);
         const flutter = vec3(fl, fl.mul(0.5), fl.mul(-0.7));
         off = off.add(leaf === true ? flutter : select(leaf, flutter, vec3(0)));
       }

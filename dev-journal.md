@@ -49,6 +49,13 @@ Done, waiting for the user's check on the live site:
   above them in shape and color", conifers "a thick layer" with a photo): in, per tree through the litter map near
   the viewer. Leaf edges are texel-stepped up close (5 mm texels, binary key); the floor reads dark in shade.
 
+## Models (user: "generalize our nanites for any model... Lucy... to prove it works"; "a cobblestone road through
+the forest towards an open area with statues circle")
+
+- In: the model pipeline, Lucy x12 round the plaza at the road's end. Next if wanted: glTF/OBJ input to the tool, a
+  model's own textures (now one generated stone), impostor gains for Lucy (1,1,1, not calibrated), the road from
+  the air reads as a plain grey band (fine?).
+
 ## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
 
 1. Performance off the dev GPU: tuned only on an RTX 40; forest views 6-11 ms vs the 8 ms budget. Occlusion's

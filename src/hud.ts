@@ -53,7 +53,7 @@ export function createHud(ctx: HudContext) {
     quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
     resolution: { width: size.x, height: size.y, pixelRatio: renderer.getPixelRatio(), msaa: samples, taa: taa.enabled },
     scene: gs && {
-      trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount, impostors: gs.impostors,
+      trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,
       tris: gs.barkTris + gs.leafTris, swTris: gs.swTris ?? 0, shadowTris,
     },
@@ -74,7 +74,7 @@ export function createHud(ctx: HudContext) {
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
       // (short lines: the panel is as wide as the longest; the user: "wasting space")
       ['plants', `${(gs.instances + gs.impostors).toLocaleString()} shown · ${gs.impostors.toLocaleString()} impostors`],
-      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount)} bushes`],
+      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount - forest.statueCount)} bushes + ${forest.statueCount} statues`],
       ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
       ['clusters', `${(gs.barkClusters + gs.leafClusters).toLocaleString()} (${gs.barkClusters.toLocaleString()} bark)`],
       ['triangles', `${(tris / 1e6).toFixed(2)} M + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M software`],

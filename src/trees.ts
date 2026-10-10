@@ -1,6 +1,7 @@
 import { Tree, Billboard } from '@dgreenheck/ez-tree';
 import type { BarkSource, DagReply, DagResult, LeafSource } from './dag-types.ts';
 import type { LoadingScreen } from './loading.ts';
+import { loadModel } from './models.ts';
 
 type RGB = [number, number, number];
 export interface TreeVariant {
@@ -8,7 +9,9 @@ export interface TreeVariant {
   seed: number;
   height: number;
   bark: string;
-  leaf: string;
+  leaf: string; // ('none': a model)
+  /** A model file (tools/nanite-model.mjs) instead of an ez-tree preset: any high-poly mesh, as a variant. */
+  model?: string;
   /** Impostor colour gains for side and top-down views. */
   impGain: { side: RGB; top: RGB };
 }
@@ -40,11 +43,16 @@ export const VARIANTS: TreeVariant[] = [
   { preset: 'Bush 1', seed: 11, height: 1.8, bark: 'oak', leaf: 'ash', impGain: { side: [1.34, 0.96, 1.63], top: [0.67, 0.56, 0.96] } },
   { preset: 'Bush 2', seed: 23, height: 2.3, bark: 'oak', leaf: 'oak', impGain: { side: [1.25, 0.85, 1.57], top: [0.6, 0.47, 0.59] } },
   { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] } },
+  // a model through the same pipeline (placeStatues): Stanford's Lucy scan, decimated to 1M triangles
+  // (tools/nanite-model.mjs; credit: Stanford Computer Graphics Laboratory, non-commercial use)
+  { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', impGain: { side: [1, 1, 1], top: [1, 1, 1] } },
 ];
 
 /** Generates the source meshes of one variant with ez-tree, scaled to metres. */
 /** Bushes are variants too (same cluster LOD, impostors and shadows); the tree scatter leaves them out. */
 export const isBush = (v: TreeVariant): boolean => v.preset.startsWith('Bush');
+/** Models (statues): no leaves, no wind, not in the canopy or the litter. */
+export const isModel = (v: TreeVariant): boolean => Boolean(v.model);
 
 export function generateTree(variant: TreeVariant): TreeSource {
   const tree = new Tree();
@@ -108,11 +116,14 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
   const jobs: Promise<BuiltTree>[] = [];
   for (let id = 0; id < n; id++) {
     const v = VARIANTS[id];
-    await ui.update(0.06 + (0.24 * id) / n, `Growing ${v.preset}`, false);
+    await ui.update(0.06 + (0.24 * id) / n, v.model ? `Loading ${v.preset}` : `Growing ${v.preset}`, false);
     const t = performance.now();
-    const src = generateTree(v);
+    // (?model=small: the models' 20k-triangle versions, `<name>-small.nm`; the default on touch screens)
+    const q = new URLSearchParams(location.search).get('model') ?? (matchMedia('(pointer: coarse)').matches ? 'small' : 'full');
+    const url = v.model && (q === 'small' ? v.model.replace(/\.nm$/, '-small.nm') : v.model);
+    const src = url ? await loadModel(`./${url}`, v.height) : generateTree(v);
     const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
-    ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+    ui.note(`${v.model ? 'Loaded' : 'Grew'} ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
     jobs.push(
       new Promise<BuiltTree>((resolve, reject) => {
         const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });

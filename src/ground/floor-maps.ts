@@ -33,7 +33,7 @@ function makePeriodicNoise(seed: number, period: number): Noise2D {
 }
 
 /** Fractal noise, tileable over the unit square (u, v in [0, 1)). */
-function makeFbm(seed: number, basePeriod: number, octaves = 4): Noise2D {
+export function makeFbm(seed: number, basePeriod: number, octaves = 4): Noise2D {
   const layers: Noise2D[] = [];
   for (let o = 0; o < octaves; o++) layers.push(makePeriodicNoise(seed + o * 101, basePeriod << o));
   return (u, v) => {
