@@ -10,7 +10,10 @@ async (demo) => {
   const f = demo.forest, r = demo.renderer, v = f.main;
   for (let i = 0; i < 3; i++) await demo.renderOnce(); // (phase 1 needs a previous frame's HZB of this view)
   const u32 = async (attr) => new Uint32Array(await r.getArrayBufferAsync(attr));
-  const [retest, a, b] = await Promise.all([u32(v.retestCountAttr), u32(v.sets[0].statsAttr), u32(v.sets[1].statsAttr)]);
+  // (the view's counters buffer: per set its stats at base + STATS, the retest counts at RETEST; see constants.ts)
+  const ctr = await u32(v.ctr.attr), L = f.ctrLayout;
+  const stats = (set) => ctr.subarray(set.base + L.STATS, set.base + L.STATS + 5);
+  const [retest, a, b] = [ctr.subarray(L.RETEST, L.RETEST + 4), stats(v.sets[0]), stats(v.sets[1])];
   const mtris = (s) => +((s[0] + s[1]) / 1e6).toFixed(2);
   return {
     phase1Trees: a[2],

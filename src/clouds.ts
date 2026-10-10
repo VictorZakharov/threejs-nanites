@@ -11,14 +11,14 @@ const SIZE = 512;
 
 function noiseTexture() {
   // tileable value-noise fbm, 5 octaves
-  const hash = (x, y, p) => {
+  const hash = (x: number, y: number, p: number): number => {
     x = ((x % p) + p) % p;
     y = ((y % p) + p) % p;
     let h = (x * 374761393 + y * 668265263) | 0;
     h = Math.imul(h ^ (h >>> 13), 1274126177);
     return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
   };
-  const sm = (t) => t * t * (3 - 2 * t);
+  const sm = (t: number): number => t * t * (3 - 2 * t);
   const data = new Uint8Array(SIZE * SIZE * 4);
   for (let y = 0; y < SIZE; y++)
     for (let x = 0; x < SIZE; x++) {
@@ -45,7 +45,7 @@ function noiseTexture() {
   return tex;
 }
 
-export function createClouds() {
+export function createClouds(): { group: THREE.Group; update(t: number, cam: THREE.Camera): void } {
   const tex = noiseTexture();
   const time = uniform(0);
   const offset = uniform(new THREE.Vector3()); // the group's position (the sheets follow the camera)
@@ -79,7 +79,7 @@ export function createClouds() {
   }
   return {
     group,
-    update(t, cam) {
+    update(t: number, cam: THREE.Camera) {
       time.value = t;
       // follow the camera (snapped, so the vertex grid doesn't swim)
       const snap = 900;

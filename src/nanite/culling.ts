@@ -2,11 +2,13 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, workgroupId, localId, numWorkgroups, uint, vec3,
-  vec4, uvec2, atomicAdd, atomicStore, select, max, min, length, dot,
+  vec4, uvec2, atomicAdd, atomicStore, atomicLoad, select, max, min, length, dot,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
-import { FADE_HI, MAX_TRIS, WG, MAX_ITEMS, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin } from './constants.ts';
+import {
+  FADE_HI, WG, MAX_ITEMS, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
+} from './constants.ts';
 
 export const cullingMethods = {
   // ------------------------------------------------------------------ culling (one set of passes per view)
@@ -20,44 +22,45 @@ export const cullingMethods = {
   //   phase 2 (set B)  the retest lists are tested again against the new HZB and what's visible is drawn too.
   // Everything visible is drawn in the frame it becomes visible (no one-frame holes when the camera moves), and the
   // test is per cluster: the trunk and lower crown behind the canopy, the far side of a tree, are skipped too.
-  /** occ: null (no occlusion), 'retest' (phase 1: failures go to the retest list), 'final' (phase 2) */
-  _buildSet(v, tau, occ) {
+  /**
+   * occ: null (no occlusion), 'retest' (phase 1: failures go to the retest list), 'final' (phase 2); k: the set's
+   * index in the view (its slice of the view's counters).
+   */
+  _buildSet(v, tau, occ, k) {
     const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
     const u = this.u;
+    const base = k * SET_STRIDE;
     const set = {
+      base,
       itemsAttr: sb(new Uint32Array(MAX_ITEMS * 2), 2),
       dispatchAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4),
-      barkArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
-      leafArgsAttr: new THREE.IndirectStorageBufferAttribute(new Uint32Array([MAX_TRIS * 3, 0, 0, 0]), 4),
-      statsAttr: sb(new Uint32Array(5), 1), // bark tris, leaf tris, trees, occluded trees, occluded impostors
-      itemCountAttr: sb(new Uint32Array(1), 1),
-      barkListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
-      leafListAttr: sb(new Uint32Array(LIST_CAP * 2), 2),
+      // the bark list, then the leaf list (one buffer: see makeCounters)
+      listAttr: sb(new Uint32Array(LIST_CAP * 4), 2),
+      ctr: v.ctr,
     };
     const items = storage(set.itemsAttr, 'uvec2', MAX_ITEMS);
     const dispatchA = storage(set.dispatchAttr, 'uint', 4).toAtomic();
-    const barkA = storage(set.barkArgsAttr, 'uint', 4).toAtomic();
-    const leafA = storage(set.leafArgsAttr, 'uint', 4).toAtomic();
-    set.statsA = storage(set.statsAttr, 'uint', 5).toAtomic();
-    const barkList = storage(set.barkListAttr, 'uvec2', LIST_CAP);
-    const leafList = storage(set.leafListAttr, 'uvec2', LIST_CAP);
+    const ctrA = v.ctr.atomic;
+    const barkCount = ctrA.element(base + ARGS.bark + 1), leafCount = ctrA.element(base + ARGS.leaf + 1);
+    set.stat = (i) => ctrA.element(base + STATS + i);
+    const list = storage(set.listAttr, 'uvec2', LIST_CAP * 2);
 
     /**
      * Appends cluster c of tree inst to the bark or leaf draw list; in the main view a cluster that's tiny on screen
      * (centre cw, radius rad) goes to the software rasterizer's list instead.
      */
     set.append = (inst, c, cw, rad) => {
-      const tris = this.cMeta.element(c).y;
-      const isBark = this.cData.element(c.mul(4).add(3)).w.lessThan(0.5);
+      const tris = this._meta(c).y;
+      const isBark = this._cd(c, 3).w.lessThan(0.5);
       const hwAppend = (chain) =>
         chain(isBark, () => {
-          const slot = atomicAdd(barkA.element(1), uint(1)).toVar();
-          atomicAdd(set.statsA.element(0), tris);
-          If(slot.lessThan(LIST_CAP), () => barkList.element(slot).assign(uvec2(inst, c)));
+          const slot = atomicAdd(barkCount, uint(1)).toVar();
+          atomicAdd(set.stat(0), tris);
+          If(slot.lessThan(LIST_CAP), () => list.element(slot).assign(uvec2(inst, c)));
         }).Else(() => {
-          const slot = atomicAdd(leafA.element(1), uint(1)).toVar();
-          atomicAdd(set.statsA.element(1), tris);
-          If(slot.lessThan(LIST_CAP), () => leafList.element(slot).assign(uvec2(inst, c)));
+          const slot = atomicAdd(leafCount, uint(1)).toVar();
+          atomicAdd(set.stat(1), tris);
+          If(slot.lessThan(LIST_CAP), () => list.element(slot.add(LIST_CAP)).assign(uvec2(inst, c)));
         });
       if (occ) {
         const sw = If(this.sw.wants(cw, rad, tris), () => this.sw.append(inst, c, tris));
@@ -67,9 +70,9 @@ export const cullingMethods = {
 
     set.reset = Fn(() => {
       atomicStore(dispatchA.element(0), uint(0));
-      atomicStore(barkA.element(1), uint(0));
-      atomicStore(leafA.element(1), uint(0));
-      for (let i = 0; i < 5; i++) atomicStore(set.statsA.element(i), uint(0));
+      atomicStore(barkCount, uint(0));
+      atomicStore(leafCount, uint(0));
+      for (let i = 0; i < 5; i++) atomicStore(set.stat(i), uint(0));
     })().compute(1, [1]);
 
     /** Emits the work items for tree i (called from an instance pass). */
@@ -81,13 +84,13 @@ export const cullingMethods = {
       Loop(14, () => {
         If(lo.lessThan(hi), () => {
           const mid = lo.add(hi).div(2).toVar();
-          If(this.cData.element(start.add(mid).mul(4).add(3)).y.greaterThan(thr), () => lo.assign(mid.add(1))).Else(() => hi.assign(mid));
+          If(this._cd(start.add(mid), 3).y.greaterThan(thr), () => lo.assign(mid.add(1))).Else(() => hi.assign(mid));
         });
       });
       const n = lo;
       const nItems = n.add(WG - 1).div(WG).toVar();
       const base = atomicAdd(dispatchA.element(0), nItems).toVar();
-      atomicAdd(set.statsA.element(2), uint(1));
+      atomicAdd(set.stat(2), uint(1));
       Loop({ start: uint(0), end: nItems, type: 'uint', condition: '<' }, ({ i: k }) => {
         If(base.add(k).lessThan(MAX_ITEMS), () => {
           items.element(base.add(k)).assign(uvec2(i, k.mul(WG).bitOr(n.shiftLeft(16))));
@@ -98,29 +101,27 @@ export const cullingMethods = {
     // turn the item count into a 2D dispatch; the cluster pass gets the count from a separate buffer (a buffer can't
     // be both the indirect args and a storage binding of the same dispatch)
     const dispatchRW = storage(set.dispatchAttr, 'uint', 4);
-    const itemCountW = storage(set.itemCountAttr, 'uint', 1);
     set.clampDispatch = Fn(() => {
       const total = min(dispatchRW.element(0), uint(MAX_ITEMS)).toVar();
-      itemCountW.element(0).assign(total);
+      v.ctr.rw.element(base + ITEM_COUNT).assign(total);
       dispatchRW.element(0).assign(min(total, uint(MAX_DIM)));
       dispatchRW.element(1).assign(total.add(MAX_DIM - 1).div(MAX_DIM));
     })().compute(1, [1]);
 
-    const itemCount = storage(set.itemCountAttr, 'uint', 1).toReadOnly();
     set.clusters = Fn(() => {
       const itemIdx = workgroupId.x.add(workgroupId.y.mul(numWorkgroups.x));
       const item = items.element(min(itemIdx, uint(MAX_ITEMS - 1)));
       const inst = item.x;
       const local = item.y.bitAnd(0xffff).add(localId.x);
       const n = item.y.shiftRight(16);
-      If(local.lessThan(n).and(itemIdx.lessThan(itemCount.element(0))), () => {
-        const a = this.instA.element(inst);
-        const b = this.instB.element(inst);
+      If(local.lessThan(n).and(itemIdx.lessThan(atomicLoad(ctrA.element(base + ITEM_COUNT)))), () => {
+        const a = this._a(inst);
+        const b = this._b(inst);
         const ti = this.typeInfo.element(uint(b.z));
         const c = uint(ti.x).add(local).toVar();
         const s = a.w;
-        const lod = this.cData.element(c.mul(4)), par = this.cData.element(c.mul(4).add(1));
-        const cs = this.cData.element(c.mul(4).add(2)), e = this.cData.element(c.mul(4).add(3));
+        const lod = this._cd(c, 0), par = this._cd(c, 1);
+        const cs = this._cd(c, 2), e = this._cd(c, 3);
         const projErr = (sph, err) => {
           const w = a.xyz.add(rotY(sph.xyz, b.x, b.y).mul(s));
           const dist = max(length(w.sub(v.lodPos)).sub(sph.w.mul(s)), 0.05);
@@ -144,11 +145,9 @@ export const cullingMethods = {
       });
     })().compute(MAX_ITEMS * WG, [WG]);
 
-    const barkRW = storage(set.barkArgsAttr, 'uint', 4);
-    const leafRW = storage(set.leafArgsAttr, 'uint', 4);
+    const ctrRW = v.ctr.rw;
     set.clampDraw = Fn(() => {
-      barkRW.element(1).assign(min(barkRW.element(1), uint(LIST_CAP)));
-      leafRW.element(1).assign(min(leafRW.element(1), uint(LIST_CAP)));
+      for (const k of [ARGS.bark, ARGS.leaf]) ctrRW.element(base + k + 1).assign(min(ctrRW.element(base + k + 1), uint(LIST_CAP)));
     })().compute(1, [1]);
     return set;
   },
@@ -168,7 +167,9 @@ export const cullingMethods = {
       // collapses the unflagged ones, which is far cheaper)
       // (the shadow view's: trees that cast their impostor's shadow, see buildImpostorShadowMesh)
       impFlagAttr: sb(new Uint32Array(this.instanceCount), 1),
+      ctr: main ? this.mainCtr : makeCounters(), // (the main view's is shared with the software rasterizer)
     };
+    const ctrA = v.ctr.atomic;
     const tau = u.tau.mul(v.tauMul);
     const impFlag = storage(v.impFlagAttr, 'uint', this.instanceCount);
     v.sphereVisible = (c, r) => {
@@ -185,26 +186,24 @@ export const cullingMethods = {
       const n = this.instanceCount;
       v.retestTreesAttr = sb(new Uint32Array(n), 1);
       v.retestClustersAttr = sb(new Uint32Array(LIST_CAP * 2), 2);
-      v.retestCountAttr = sb(new Uint32Array(4), 1); // trees, clusters (appended), trees, clusters (clamped)
       v.retestTreeDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
       v.retestClusterDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
       const retestTrees = storage(v.retestTreesAttr, 'uint', n);
       const retestClusters = storage(v.retestClustersAttr, 'uvec2', LIST_CAP);
-      const countA = storage(v.retestCountAttr, 'uint', 4).toAtomic();
       v.retestTree = (i) => {
-        const slot = atomicAdd(countA.element(0), uint(1)).toVar();
+        const slot = atomicAdd(ctrA.element(RETEST), uint(1)).toVar();
         If(slot.lessThan(n), () => retestTrees.element(slot).assign(i)); // (a tree can be listed twice, see IMP_BIT)
       };
       v.retestCluster = (inst, c) => {
-        const slot = atomicAdd(countA.element(1), uint(1)).toVar();
+        const slot = atomicAdd(ctrA.element(RETEST + 1), uint(1)).toVar();
         If(slot.lessThan(LIST_CAP), () => retestClusters.element(slot).assign(uvec2(inst, c)));
       };
       v.resetRetest = Fn(() => {
-        atomicStore(countA.element(0), uint(0));
-        atomicStore(countA.element(1), uint(0));
+        atomicStore(ctrA.element(RETEST), uint(0));
+        atomicStore(ctrA.element(RETEST + 1), uint(0));
       })().compute(1, [1]);
       // indirect dispatch sizes of the two retest passes (64 threads per workgroup), and the counts they read
-      const countRW = storage(v.retestCountAttr, 'uint', 4);
+      const countRW = { element: (i) => v.ctr.rw.element(RETEST + i) };
       const dT = storage(v.retestTreeDispatch, 'uint', 4), dC = storage(v.retestClusterDispatch, 'uint', 4);
       v.retestArgs = Fn(() => {
         const nc = min(countRW.element(1), uint(LIST_CAP)).toVar();
@@ -213,17 +212,17 @@ export const cullingMethods = {
         dT.element(0).assign(countRW.element(0).add(WG - 1).div(WG));
         dC.element(0).assign(nc.add(WG - 1).div(WG));
       })().compute(1, [1]);
-      v.retestCounts = storage(v.retestCountAttr, 'uint', 4).toReadOnly();
+      v.retestCount = (i) => atomicLoad(ctrA.element(RETEST + i)); // (the passes that read it also add to the counters)
       v.retestTreesRO = storage(v.retestTreesAttr, 'uint', n).toReadOnly();
       v.retestClustersRO = storage(v.retestClustersAttr, 'uvec2', LIST_CAP).toReadOnly();
     }
-    v.sets = [this._buildSet(v, tau, main ? 'retest' : null)];
-    if (main) v.sets.push(this._buildSet(v, tau, 'final'));
+    v.sets = [this._buildSet(v, tau, main ? 'retest' : null, 0)];
+    if (main) v.sets.push(this._buildSet(v, tau, 'final', 1));
 
     /** The per-tree basics shared by the instance passes. */
     const treeInfo = (i) => {
-      const a = this.instA.element(i);
-      const b = this.instB.element(i);
+      const a = this._a(i);
+      const b = this._b(i);
       const ti = this.typeInfo.element(uint(b.z));
       const s = a.w;
       const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
@@ -264,7 +263,7 @@ export const cullingMethods = {
       // phase 2: trees that failed phase 1, against the new HZB
       v.retestTreesPass = Fn(() => {
         const k = instanceIndex;
-        If(k.lessThan(v.retestCounts.element(2)), () => {
+        If(k.lessThan(v.retestCount(2)), () => {
           const e = v.retestTreesRO.element(k);
           const i = e.bitAnd(IMP_BIT - 1);
           const { ti, s, centerC, r, dCam } = treeInfo(i);
@@ -273,11 +272,11 @@ export const cullingMethods = {
             // an impostor: drop it if hidden
             If(hidden, () => {
               impFlag.element(i).assign(0);
-              atomicAdd(setB.statsA.element(4), uint(1));
+              atomicAdd(setB.stat(4), uint(1));
             });
           })
             .ElseIf(hidden, () => {
-              atomicAdd(setB.statsA.element(3), uint(1));
+              atomicAdd(setB.stat(3), uint(1));
             })
             .Else(() => setB.emit(i, ti, s, dCam, r));
         });
@@ -285,13 +284,13 @@ export const cullingMethods = {
       // ... and the clusters that failed phase 1 (of trees that passed)
       v.retestClustersPass = Fn(() => {
         const k = instanceIndex;
-        If(k.lessThan(v.retestCounts.element(3)), () => {
+        If(k.lessThan(v.retestCount(3)), () => {
           const e = v.retestClustersRO.element(k);
           const inst = e.x, c = e.y;
-          const a = this.instA.element(inst), b = this.instB.element(inst);
+          const a = this._a(inst), b = this._b(inst);
           const ti = this.typeInfo.element(uint(b.z));
           const s = a.w;
-          const cs = this.cData.element(c.mul(4).add(2));
+          const cs = this._cd(c, 2);
           const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
           If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });

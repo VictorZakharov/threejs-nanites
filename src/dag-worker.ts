@@ -9,6 +9,35 @@
 // reduced by keeping half the leaves and growing each kept leaf by sqrt(2) (area preserving) - same DAG, same
 // runtime selection.
 import { MeshoptClusterizer, MeshoptSimplifier } from 'meshoptimizer';
+import type { DagReply, DagRequest } from './dag-types.ts';
+
+/** Bounding sphere: centre x, y, z and radius. */
+type Sphere = [number, number, number, number];
+type Point = ArrayLike<number>;
+interface Cluster {
+  idx: Uint32Array;
+  level: number;
+  err: number;
+  lod: Sphere;
+  cull: Sphere;
+  parentErr: number;
+  parentLod: Sphere | null;
+}
+/** A leaf card: its first vertex, the base of its stem, its size. */
+interface Leaf {
+  first: number;
+  base: number[];
+  size: number;
+}
+interface LeafCluster extends Cluster {
+  leaves: Leaf[];
+}
+/** The leaves' vertex store: grows as reduced (grown) leaves are appended. */
+interface LeafVerts {
+  pos: number[];
+  nrm: number[];
+  uv: number[];
+}
 
 const MAX_TRIS = 128;
 const MAX_VERTS = 128;
@@ -16,7 +45,7 @@ const GROUP_SIZE = 8;
 const LEAF_GROUP_SIZE = 4;
 
 // ---------------------------------------------------------------- math helpers
-function sphereOfPoints(pos, verts) {
+function sphereOfPoints(pos: ArrayLike<number>, verts: Set<number>): Sphere {
   // centroid + max distance (good enough, cheap)
   let cx = 0, cy = 0, cz = 0;
   for (const v of verts) {
@@ -24,7 +53,7 @@ function sphereOfPoints(pos, verts) {
     cy += pos[v * 3 + 1];
     cz += pos[v * 3 + 2];
   }
-  const n = verts.size ?? verts.length;
+  const n = verts.size;
   cx /= n; cy /= n; cz /= n;
   let r = 0;
   for (const v of verts) {
@@ -34,7 +63,7 @@ function sphereOfPoints(pos, verts) {
   return [cx, cy, cz, Math.sqrt(r)];
 }
 
-function mergeSpheres(spheres) {
+function mergeSpheres(spheres: Sphere[]): Sphere {
   // centre = radius-weighted average, radius = max(dist + r)
   let cx = 0, cy = 0, cz = 0, w = 0;
   for (const s of spheres) {
@@ -47,8 +76,8 @@ function mergeSpheres(spheres) {
   return [cx, cy, cz, r];
 }
 
-function morton3(x, y, z) {
-  const part = (v) => {
+function morton3(x: number, y: number, z: number): number {
+  const part = (v: number): number => {
     v = Math.min(1023, Math.max(0, v | 0));
     v = (v | (v << 16)) & 0x030000ff;
     v = (v | (v << 8)) & 0x0300f00f;
@@ -59,7 +88,7 @@ function morton3(x, y, z) {
   return (part(x) | (part(y) << 1) | (part(z) << 2)) >>> 0;
 }
 
-function mortonOrder(points /* [x,y,z][] */) {
+function mortonOrder(points: Point[]): number[] {
   let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (const p of points) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], p[k]); mx[k] = Math.max(mx[k], p[k]); }
   const ext = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2], 1e-6);
@@ -68,9 +97,9 @@ function mortonOrder(points /* [x,y,z][] */) {
 }
 
 /** Compacts a global index list into a local mesh. */
-function compact(globalIdx) {
-  const map = new Map();
-  const verts = [];
+function compact(globalIdx: ArrayLike<number>): { local: Uint32Array; verts: number[] } {
+  const map = new Map<number, number>();
+  const verts: number[] = [];
   const local = new Uint32Array(globalIdx.length);
   for (let i = 0; i < globalIdx.length; i++) {
     const g = globalIdx[i];
@@ -86,7 +115,7 @@ function compact(globalIdx) {
 }
 
 /** Splits a global triangle list into <=128-triangle clusters; returns arrays of global indices. */
-function meshletize(globalIdx, pos) {
+function meshletize(globalIdx: Uint32Array, pos: Float32Array): Uint32Array[] {
   const { local, verts } = compact(globalIdx);
   const lpos = new Float32Array(verts.length * 3);
   for (let i = 0; i < verts.length; i++) {
@@ -95,7 +124,7 @@ function meshletize(globalIdx, pos) {
     lpos[i * 3 + 2] = pos[verts[i] * 3 + 2];
   }
   const buffers = MeshoptClusterizer.buildMeshlets(local, lpos, 3, MAX_VERTS, MAX_TRIS, 0.0);
-  const out = [];
+  const out: Uint32Array[] = [];
   for (let m = 0; m < buffers.meshletCount; m++) {
     const { vertices, triangles } = MeshoptClusterizer.extractMeshlet(buffers, m);
     const idx = new Uint32Array(triangles.length);
@@ -105,18 +134,18 @@ function meshletize(globalIdx, pos) {
   return out;
 }
 
-function makeCluster(idx, pos, level, err, lodSphere) {
+function makeCluster(idx: Uint32Array, pos: Float32Array, level: number, err: number, lodSphere: Sphere | null): Cluster {
   const cull = sphereOfPoints(pos, new Set(idx));
   return { idx, level, err, lod: lodSphere ?? cull, cull, parentErr: 1e30, parentLod: null };
 }
 
 // ---------------------------------------------------------------- bark
-function groupByAdjacency(clusters, remap) {
+function groupByAdjacency(clusters: Cluster[], remap: Uint32Array): Cluster[][] {
   const n = clusters.length;
   // vertex -> clusters
-  const vmap = new Map();
+  const vmap = new Map<number, number[]>();
   clusters.forEach((c, ci) => {
-    const s = new Set();
+    const s = new Set<number>();
     for (const v of c.idx) s.add(remap[v]);
     for (const r of s) {
       let l = vmap.get(r);
@@ -124,7 +153,7 @@ function groupByAdjacency(clusters, remap) {
       l.push(ci);
     }
   });
-  const adj = clusters.map(() => new Map());
+  const adj = clusters.map(() => new Map<number, number>());
   for (const l of vmap.values()) {
     if (l.length < 2) continue;
     for (let a = 0; a < l.length; a++)
@@ -137,14 +166,14 @@ function groupByAdjacency(clusters, remap) {
   const rank = new Int32Array(n);
   order.forEach((ci, i) => (rank[ci] = i));
   const assigned = new Int32Array(n).fill(-1);
-  const groups = [];
+  const groups: Cluster[][] = [];
   for (const seed of order) {
     if (assigned[seed] >= 0) continue;
     const gi = groups.length;
     const group = [seed];
     assigned[seed] = gi;
-    const score = new Map();
-    const addNeighbours = (c) => {
+    const score = new Map<number, number>();
+    const addNeighbours = (c: number): void => {
       for (const [nb, w] of adj[c]) if (assigned[nb] < 0) score.set(nb, (score.get(nb) ?? 0) + w);
     };
     addNeighbours(seed);
@@ -176,7 +205,7 @@ function groupByAdjacency(clusters, remap) {
   return groups;
 }
 
-function buildBark(pos, attr, idx, out) {
+function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out: Cluster[]): number {
   const nv = pos.length / 3;
   const remap = MeshoptSimplifier.generatePositionRemap(pos, 3);
   let current = meshletize(idx, pos).map((ci) => makeCluster(ci, pos, 0, 0, null));
@@ -197,7 +226,7 @@ function buildBark(pos, attr, idx, out) {
           else if (owner[r] !== gi) shared[r] = 1;
         }
     });
-    const next = [];
+    const next: Cluster[] = [];
     let progress = false;
     for (const g of groups) {
       let total = 0;
@@ -245,12 +274,11 @@ function buildBark(pos, attr, idx, out) {
 }
 
 // ---------------------------------------------------------------- leaves
-function buildLeaves(lv, vpl, out) {
-  // lv: growable vertex store { pos: number[], nrm: number[], uv: number[] }
+function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[]): number {
   const leafCount = lv.pos.length / 3 / vpl;
   const quadsPerLeaf = vpl / 4;
   const leavesPerCluster = Math.floor(MAX_TRIS / (quadsPerLeaf * 2));
-  const leaves = []; // { first: vertex, base: [x,y,z] }
+  const leaves: Leaf[] = [];
   const P = lv.pos;
   for (let i = 0; i < leafCount; i++) {
     const f = i * vpl;
@@ -259,8 +287,8 @@ function buildLeaves(lv, vpl, out) {
     const size = Math.hypot(P[(f + 2) * 3] - P[(f + 1) * 3], P[(f + 2) * 3 + 1] - P[(f + 1) * 3 + 1], P[(f + 2) * 3 + 2] - P[(f + 1) * 3 + 2]);
     leaves.push({ first: f, base, size });
   }
-  const leafIdx = (leaf) => {
-    const r = [];
+  const leafIdx = (leaf: Leaf): number[] => {
+    const r: number[] = [];
     for (let q = 0; q < quadsPerLeaf; q++) {
       const i = leaf.first + q * 4;
       r.push(i, i + 1, i + 2, i, i + 2, i + 3);
@@ -268,16 +296,16 @@ function buildLeaves(lv, vpl, out) {
     return r;
   };
   const posArr = () => P; // live array (grows)
-  const clusterFrom = (ls, level, err, lod) => {
+  const clusterFrom = (ls: Leaf[], level: number, err: number, lod: Sphere | null): LeafCluster => {
     const idx = new Uint32Array(ls.flatMap(leafIdx));
     const verts = new Set(idx);
     const cull = sphereOfPoints(posArr(), verts);
     return { idx, leaves: ls, level, err, lod: lod ?? cull, cull, parentErr: 1e30, parentLod: null };
   };
-  const chunk = (ls, level, err, lod) => {
+  const chunk = (ls: Leaf[], level: number, err: number, lod: Sphere | null): LeafCluster[] => {
     const order = mortonOrder(ls.map((l) => l.base));
     const sorted = order.map((i) => ls[i]);
-    const res = [];
+    const res: LeafCluster[] = [];
     // balanced chunks
     const nChunks = Math.ceil(sorted.length / leavesPerCluster);
     for (let c = 0; c < nChunks; c++) {
@@ -293,7 +321,7 @@ function buildLeaves(lv, vpl, out) {
   while (current.length > 1 && level < 32) {
     level++;
     const order = mortonOrder(current.map((c) => c.cull));
-    const next = [];
+    const next: LeafCluster[] = [];
     for (let g0 = 0; g0 < order.length; g0 += LEAF_GROUP_SIZE) {
       const g = order.slice(g0, g0 + LEAF_GROUP_SIZE).map((i) => current[i]);
       if (g.length === 1 && order.length > 1) {
@@ -305,7 +333,7 @@ function buildLeaves(lv, vpl, out) {
       const lorder = mortonOrder(ls.map((l) => l.base));
       const keepN = Math.max(1, Math.ceil(ls.length / 2));
       const scale = Math.sqrt(ls.length / keepN);
-      const kept = [];
+      const kept: Leaf[] = [];
       for (let k = 0; k < keepN; k++) {
         const src = ls[lorder[Math.floor((k * ls.length) / keepN)]];
         const first = P.length / 3;
@@ -339,7 +367,9 @@ function buildLeaves(lv, vpl, out) {
 }
 
 // ---------------------------------------------------------------- entry
-self.onmessage = async (e) => {
+// (typed as a worker scope: the project's lib is the DOM's, where `self` is the window)
+const scope = self as unknown as { onmessage: (e: MessageEvent<DagRequest>) => void; postMessage(msg: DagReply, transfer?: Transferable[]): void };
+scope.onmessage = async (e) => {
   const { id, bark, leaves } = e.data;
   try {
     await MeshoptClusterizer.ready;
@@ -347,7 +377,7 @@ self.onmessage = async (e) => {
     const t0 = performance.now();
 
     // bark
-    const barkClusters = [];
+    const barkClusters: Cluster[] = [];
     const battr = new Float32Array((bark.pos.length / 3) * 5);
     for (let i = 0; i < bark.pos.length / 3; i++) {
       battr.set(bark.nrm.subarray(i * 3, i * 3 + 3), i * 5);
@@ -356,21 +386,21 @@ self.onmessage = async (e) => {
     const barkLevels = buildBark(bark.pos, battr, bark.idx, barkClusters);
 
     // leaves (vertex arrays grow as reduced leaves are appended)
-    const lv = { pos: Array.from(leaves.pos), nrm: Array.from(leaves.nrm), uv: Array.from(leaves.uv) };
-    const leafClusters = [];
+    const lv: LeafVerts = { pos: Array.from(leaves.pos), nrm: Array.from(leaves.nrm), uv: Array.from(leaves.uv) };
+    const leafClusters: LeafCluster[] = [];
     const leafLevels = leaves.pos.length ? buildLeaves(lv, leaves.vpl, leafClusters) : 0;
 
     // ---- pack: vertex = [x y z u nx ny nz v]
     const nb = bark.pos.length / 3, nl = lv.pos.length / 3;
     const vtx = new Float32Array((nb + nl) * 8);
-    const put = (i, p, pi, n, ni, uv, ui) => {
+    const put = (i: number, p: ArrayLike<number>, pi: number, n: ArrayLike<number>, ni: number, uv: ArrayLike<number>, ui: number): void => {
       vtx[i * 8] = p[pi * 3]; vtx[i * 8 + 1] = p[pi * 3 + 1]; vtx[i * 8 + 2] = p[pi * 3 + 2]; vtx[i * 8 + 3] = uv[ui * 2];
       vtx[i * 8 + 4] = n[ni * 3]; vtx[i * 8 + 5] = n[ni * 3 + 1]; vtx[i * 8 + 6] = n[ni * 3 + 2]; vtx[i * 8 + 7] = uv[ui * 2 + 1];
     };
     for (let i = 0; i < nb; i++) put(i, bark.pos, i, bark.nrm, i, bark.uv, i);
     for (let i = 0; i < nl; i++) put(nb + i, lv.pos, i, lv.nrm, i, lv.uv, i);
 
-    const all = [...barkClusters.map((c) => [c, 0]), ...leafClusters.map((c) => [c, 1])];
+    const all: [Cluster, number][] = [...barkClusters.map((c): [Cluster, number] => [c, 0]), ...leafClusters.map((c): [Cluster, number] => [c, 1])];
     let totalIdx = 0;
     for (const [c] of all) totalIdx += c.idx.length;
     const idx = new Uint32Array(totalIdx);
@@ -405,8 +435,8 @@ self.onmessage = async (e) => {
       leafRoots: leafClusters.filter((c) => c.parentErr >= 1e30).length,
       ms: Math.round(performance.now() - t0),
     };
-    self.postMessage({ id, vtx, idx, rec, meta, stats }, [vtx.buffer, idx.buffer, rec.buffer, meta.buffer]);
+    scope.postMessage({ id, vtx, idx, rec, meta, stats }, [vtx.buffer, idx.buffer, rec.buffer, meta.buffer]);
   } catch (err) {
-    self.postMessage({ id, error: String(err?.stack ?? err) });
+    scope.postMessage({ id, error: String(err instanceof Error ? (err.stack ?? err) : err) });
   }
 };

@@ -1,21 +1,36 @@
 // Startup screen: progress bar, status line, timestamped log, error panel (after the cape-physics demo's).
 const t0 = performance.now();
 
+/** The element under `root` matching `selector` (the page's markup is fixed: missing means a broken page). */
+function find<T extends Element = HTMLElement>(root: ParentNode, selector: string): T {
+  const el = root.querySelector<T>(selector);
+  if (!el) throw new Error(`Loading screen markup is missing ${selector}.`);
+  return el;
+}
+
 export class LoadingScreen {
+  readonly root: HTMLElement;
+  readonly bar: HTMLElement;
+  readonly status: HTMLElement;
+  readonly progress: HTMLElement;
+  readonly log: HTMLElement;
+  readonly errorPanel: HTMLElement;
+  readonly errorDetail: HTMLElement;
+  estimate: number | null = null;
+  value = 0;
+
   constructor() {
-    this.root = document.querySelector('[data-loading]');
-    this.bar = this.root.querySelector('[data-loading-bar]');
-    this.status = this.root.querySelector('[data-loading-status]');
-    this.progress = this.root.querySelector('[data-loading-progress]');
-    this.log = this.root.querySelector('[data-loading-log]');
-    this.errorPanel = this.root.querySelector('[data-loading-error]');
-    this.errorDetail = this.root.querySelector('[data-loading-error-detail]');
-    this.estimate = null;
-    this.value = 0;
+    this.root = find(document, '[data-loading]');
+    this.bar = find(this.root, '[data-loading-bar]');
+    this.status = find(this.root, '[data-loading-status]');
+    this.progress = find(this.root, '[data-loading-progress]');
+    this.log = find(this.root, '[data-loading-log]');
+    this.errorPanel = find(this.root, '[data-loading-error]');
+    this.errorDetail = find(this.root, '[data-loading-error-detail]');
   }
 
   /** Logs a line without moving the bar. */
-  note(message) {
+  note(message: string): void {
     console.info(`[loading] ${message}`); // (the harness keeps the page console: boot breakdown)
     const li = document.createElement('li');
     const time = document.createElement('time');
@@ -28,7 +43,7 @@ export class LoadingScreen {
   }
 
   /** Moves the bar to `progress` (0..1), sets the status, logs it, and lets the browser paint. */
-  async update(progress, message, log = true) {
+  async update(progress: number, message: string, log = true): Promise<void> {
     this._cancelEstimate();
     this.value = Math.max(this.value, Math.min(1, progress));
     const pct = Math.round(this.value * 100);
@@ -45,13 +60,13 @@ export class LoadingScreen {
    * Before a long synchronous stage (shader compilation) the bar keeps easing towards `anticipated` on the
    * compositor, so it doesn't look frozen while the main thread is busy.
    */
-  async beginLongStage(progress, anticipated, message, ms = 4000) {
+  async beginLongStage(progress: number, anticipated: number, message: string, ms = 4000): Promise<void> {
     await this.update(progress, message);
     const start = this.value, end = Math.max(start, anticipated), began = performance.now();
     this.bar.style.transitionDuration = `${ms}ms`;
     this.bar.style.transitionTimingFunction = 'cubic-bezier(0.16, 0.72, 0.25, 1)';
     this.bar.style.width = `${(end * 100).toFixed(1)}%`;
-    const tick = (now) => {
+    const tick = (now: number): void => {
       const k = Math.min(1, (now - began) / ms);
       this.progress.textContent = `${((start + (end - start) * (1 - (1 - k) ** 3)) * 100).toFixed(1)}%`;
       this.estimate = k < 1 ? requestAnimationFrame(tick) : null;
@@ -60,14 +75,14 @@ export class LoadingScreen {
     await nextPaint();
   }
 
-  async reveal() {
+  async reveal(): Promise<void> {
     await this.update(1, 'Enter the forest');
     document.body.classList.add('is-ready');
   }
 
-  fail(error) {
+  fail(error: unknown): void {
     this._cancelEstimate();
-    const message = error?.message ?? String(error);
+    const message = error instanceof Error ? error.message : String(error);
     this.root.classList.add('has-error');
     this.status.textContent = 'Startup failed';
     this.progress.textContent = 'FAILED';
@@ -76,13 +91,13 @@ export class LoadingScreen {
     this.errorPanel.hidden = false;
   }
 
-  _cancelEstimate() {
+  _cancelEstimate(): void {
     if (this.estimate !== null) cancelAnimationFrame(this.estimate);
     this.estimate = null;
   }
 }
 
-function nextPaint() {
+function nextPaint(): Promise<void> {
   // two frames: the first lets style/layout apply, the second is after the paint
   return new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r())));
 }

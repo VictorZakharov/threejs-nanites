@@ -1,8 +1,9 @@
 // Texture arrays for the bark and leaf images (one draw samples any tree type), with coverage-preserving alpha.
 import * as THREE from 'three/webgpu';
 import { float, select, uint } from 'three/tsl';
+import type { Float, Uint } from './types.ts';
 
-async function loadImage(url) {
+async function loadImage(url: string): Promise<HTMLImageElement> {
   const img = new Image();
   img.src = url;
   await img.decode();
@@ -15,7 +16,7 @@ async function loadImage(url) {
  * card thins out (or, with a crude boost, thickens) depending on its mip, so a tree's density and brightness jump
  * when its LOD swaps to fewer, bigger cards, and distant canopies speckle.
  */
-function coverageScales(px, size, levels) {
+function coverageScales(px: Uint8ClampedArray, size: number, levels: number): number[] {
   let a = new Float32Array(size * size);
   for (let i = 0; i < a.length; i++) a[i] = px[i * 4 + 3] / 255;
   let target = 0;
@@ -40,13 +41,14 @@ function coverageScales(px, size, levels) {
 }
 
 /** Stacks images into one mipmapped DataArrayTexture (so one draw can sample any tree's texture). */
-export async function arrayTexture(urls, size, fillTransparent = false) {
+export async function arrayTexture(urls: string[], size: number, fillTransparent = false): Promise<THREE.DataArrayTexture> {
   const canvas = document.createElement('canvas');
   canvas.width = canvas.height = size;
   const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('No 2D canvas context.');
   const data = new Uint8Array(size * size * 4 * urls.length);
   const imgs = await Promise.all(urls.map(loadImage));
-  const alphaScales = [];
+  const alphaScales: number[] = [];
   imgs.forEach((img, i) => {
     ctx.clearRect(0, 0, size, size);
     ctx.drawImage(img, 0, 0, size, size);
@@ -77,9 +79,9 @@ export async function arrayTexture(urls, size, fillTransparent = false) {
 }
 
 /** Maps a tree type (uint node) to a texture layer via a select chain. */
-export function layerLookup(layers) {
+export function layerLookup(layers: number[]): (type: Uint) => Float {
   return (type) => {
-    let node = float(layers[layers.length - 1]);
+    let node: Float = float(layers[layers.length - 1]);
     for (let i = layers.length - 2; i >= 0; i--) node = select(type.equal(uint(i)), float(layers[i]), node);
     return node;
   };

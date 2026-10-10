@@ -52,7 +52,7 @@ export const billboardMethods = {
     q.position = Fn(() => {
       const inst = instanceIndex;
       const on = flags.element(inst).equal(1).toVar();
-      const a = this.instA.element(inst), b = this.instB.element(inst);
+      const a = this._a(inst), b = this._b(inst);
       const type = uint(b.z);
       const ti = this.typeInfo.element(type);
       const s = a.w;

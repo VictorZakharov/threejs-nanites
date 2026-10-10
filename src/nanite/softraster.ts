@@ -21,7 +21,7 @@ import {
   numWorkgroups, instanceIndex, screenCoordinate, texture, positionGeometry, output, mix, cameraViewMatrix, normalize,
   length,
 } from 'three/tsl';
-import { LIST_CAP, MAX_TRIS, PHASE2_LAYER } from './constants.ts';
+import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW } from './constants.ts';
 import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
@@ -49,13 +49,14 @@ export class SoftRaster {
     this.near = uniform(0.3);
     const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
     this.listAttr = sb(new Uint32Array(LIST_CAP * 2), 2);
-    this.countAttr = sb(new Uint32Array(4), 1); // clusters, triangles (appended), clusters (clamped)
+    // (its counts: clusters, triangles (appended), clusters (clamped), in the main view's counters at SW)
+    const ctr = forest.mainCtr;
+    this.ctr = ctr;
     this.dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
     this.depthAttr = sb(new Uint32Array(MAX_PIXELS), 1);
     this.idAttr = sb(new Uint32Array(MAX_PIXELS), 1);
 
     const list = storage(this.listAttr, 'uvec2', LIST_CAP);
-    const countA = storage(this.countAttr, 'uint', 4).toAtomic();
     /** True if a cluster (curved centre cw, radius rad) is small enough on screen for the software rasterizer. */
     /**
      * True if a cluster (curved centre cw, radius rad, `tris` triangles) is for the software rasterizer: its
@@ -71,17 +72,17 @@ export class SoftRaster {
         .and(d.sub(rad).greaterThan(this.near.mul(4)));
     };
     this.append = (inst, c, tris) => {
-      const slot = atomicAdd(countA.element(0), uint(1)).toVar();
-      atomicAdd(countA.element(1), tris);
+      const slot = atomicAdd(ctr.atomic.element(SW), uint(1)).toVar();
+      atomicAdd(ctr.atomic.element(SW + 1), tris);
       If(slot.lessThan(LIST_CAP), () => list.element(slot).assign(uvec2(inst, c)));
     };
     this.reset = Fn(() => {
-      atomicStore(countA.element(0), uint(0));
-      atomicStore(countA.element(1), uint(0));
+      atomicStore(ctr.atomic.element(SW), uint(0));
+      atomicStore(ctr.atomic.element(SW + 1), uint(0));
     })().compute(1, [1]);
 
     // the cluster count as a 2D dispatch (65535 workgroups per dimension), one workgroup per cluster
-    const countRW = storage(this.countAttr, 'uint', 4);
+    const countRW = { element: (i) => ctr.rw.element(SW + i) };
     const disp = storage(this.dispatchAttr, 'uint', 4);
     this.args = Fn(() => {
       const n = min(countRW.element(0), uint(LIST_CAP)).toVar();
@@ -148,18 +149,18 @@ export class SoftRaster {
   _rasterPass(mode) {
     const f = this.forest;
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
-    const counts = storage(this.countAttr, 'uint', 4).toReadOnly();
+
     const depthA = storage(this.depthAttr, 'uint', MAX_PIXELS).toAtomic();
     const idA = storage(this.idAttr, 'uint', MAX_PIXELS).toAtomic();
     const tex = f.textures;
     return Fn(() => {
       const slot = workgroupId.x.add(workgroupId.y.mul(numWorkgroups.x)).toVar();
       const tri = localId.x;
-      If(slot.lessThan(counts.element(2)), () => {
+      If(slot.lessThan(this.ctr.ro.element(SW + 2)), () => {
         const e = list.element(slot);
         const inst = e.x.toVar(), c = e.y.toVar();
-        If(tri.lessThan(f.cMeta.element(c).y), () => {
-          const leaf = f.cData.element(c.mul(4).add(3)).w.greaterThanEqual(0.5).toVar();
+        If(tri.lessThan(f._meta(c).y), () => {
+          const leaf = f._cd(c, 3).w.greaterThanEqual(0.5).toVar();
           const t = this._triangle(inst, c, tri, leaf);
           // bark is single-sided (front = counter-clockwise in NDC = negative area with y down); leaves aren't
           const facing = leaf.or(t.area.lessThan(0));
@@ -172,7 +173,7 @@ export class SoftRaster {
             const x1 = min(min(int(hi.x.sub(0.5).floor()), W.sub(1)), x0.add(MAX_BOX - 1)).toVar();
             const y1 = min(min(int(hi.y.sub(0.5).floor()), H.sub(1)), y0.add(MAX_BOX - 1)).toVar();
             const fade = f._geometryShare(inst).toVar();
-            const layer = tex.leafLayerOf(f.instB.element(inst).z.toUint()).toVar();
+            const layer = tex.leafLayerOf(f._b(inst).z.toUint()).toVar();
             const slopes = this._uvSlopes(t);
             const lod = this._lod(slopes, tex.leaf.image.width).toVar();
             const id = slot.mul(MAX_TRIS).add(tri).add(1);
@@ -253,7 +254,7 @@ export class SoftRaster {
     const entry = list.element(e.shiftRight(7));
     const inst = entry.x, c = entry.y;
     const tri = e.bitAnd(MAX_TRIS - 1);
-    const leaf = f.cData.element(c.mul(4).add(3)).w.greaterThanEqual(0.5);
+    const leaf = f._cd(c, 3).w.greaterThanEqual(0.5);
     const t = this._triangle(inst, c, tri, leaf);
     const w = this._weights(t, screenCoordinate.xy);
     const lerp = (k) => t.V[0][k].mul(w.q[0]).add(t.V[1][k].mul(w.q[1])).add(t.V[2][k].mul(w.q[2]));
@@ -298,7 +299,7 @@ export class SoftRaster {
   /** Clusters and triangles in this frame's list (async readback, for the HUD / harness). */
   async readStats(renderer) {
     if (!this.ran) return { swClusters: 0, swTris: 0 };
-    const c = new Uint32Array(await renderer.getArrayBufferAsync(this.countAttr));
-    return { swClusters: c[0], swTris: c[1] };
+    const c = new Uint32Array(await renderer.getArrayBufferAsync(this.ctr.attr));
+    return { swClusters: c[SW], swTris: c[SW + 1] };
   }
 }

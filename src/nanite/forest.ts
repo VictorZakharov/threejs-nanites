@@ -13,9 +13,9 @@
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
-import { storage, uniform, uniformArray, uint, vec4, length } from 'three/tsl';
+import { storage, uniform, uniformArray, uint, vec4, length, bitcast } from 'three/tsl';
 import { SoftRaster } from './softraster.ts';
-import { SHADOW_TAU_MUL, PHASE2_LAYER } from './constants.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
@@ -48,6 +48,9 @@ export class NaniteForest {
     this.textures = textures;
     this._buildBuffers(trees, instances);
     this._buildHzb();
+    // (the main view's counters: its draw args, stats, retest and software-raster counts in one buffer, see CTR_SIZE)
+    this.mainCtr = makeCounters();
+    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW }; // (for the harness probes)
     this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/nanite/softraster.js)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
@@ -71,10 +74,13 @@ export class NaniteForest {
       nVerts += t.vtx.length / 8;
       nIdx += t.idx.length;
     }
-    const vA = new Float32Array(nVerts * 4), vB = new Float32Array(nVerts * 4);
+    // (few, merged buffers: a shader may bind only 8 storage buffers on some GPUs, Macs among them)
+    const vtx = new Float32Array(nVerts * 8); // per vertex: (x y z u), (nx ny nz v)
     const idx = new Uint32Array(nIdx);
-    const cData = new Float32Array(nClusters * 16); // per cluster: lod sphere, parent lod sphere, cull sphere, err
-    const cMeta = new Uint32Array(nClusters * 4);
+    // per cluster CD_STRIDE vec4s: lod sphere, parent lod sphere, cull sphere, (err, parent err, level, kind), and
+    // its meta as uint bits (first index, triangles, level, kind)
+    const cBuf = new ArrayBuffer(nClusters * CD_STRIDE * 16);
+    const cData = new Float32Array(cBuf), cMeta = new Uint32Array(cBuf);
     const typeInfo = [];
     let co = 0, vo = 0, io = 0;
     this.stats = { clusters: nClusters, verts: nVerts, tris: nIdx / 3, types: [] };
@@ -86,20 +92,18 @@ export class NaniteForest {
       const cy = t.height / 2;
       order.forEach((src, k) => {
         const d = co + k, r = t.rec.subarray(src * 16, src * 16 + 16);
-        cData.set(r, d * 16);
-        cMeta[d * 4] = t.meta[src * 4] + io;
-        cMeta[d * 4 + 1] = t.meta[src * 4 + 1];
-        cMeta[d * 4 + 2] = t.meta[src * 4 + 2];
-        cMeta[d * 4 + 3] = t.meta[src * 4 + 3];
+        const o = d * CD_STRIDE * 4;
+        cData.set(r, o);
+        cMeta[o + 16] = t.meta[src * 4] + io;
+        cMeta[o + 17] = t.meta[src * 4 + 1];
+        cMeta[o + 18] = t.meta[src * 4 + 2];
+        cMeta[o + 19] = t.meta[src * 4 + 3];
         for (const s of [r.subarray(0, 4), r.subarray(4, 8), r.subarray(8, 12)])
           radius = Math.max(radius, Math.hypot(s[0], s[1] - cy, s[2]) + s[3]);
       });
       for (let i = 0; i < t.idx.length; i++) idx[io + i] = t.idx[i] + vo;
       const nv = t.vtx.length / 8;
-      for (let i = 0; i < nv; i++) {
-        vA.set(t.vtx.subarray(i * 8, i * 8 + 4), (vo + i) * 4);
-        vB.set(t.vtx.subarray(i * 8 + 4, i * 8 + 8), (vo + i) * 4);
-      }
+      vtx.set(t.vtx, vo * 8);
       typeInfo.push(new THREE.Vector4(co, n, radius, t.height));
       this.stats.types.push({ name: t.variant.preset, ...t.stats, radius: +radius.toFixed(1) });
       co += n;
@@ -107,16 +111,41 @@ export class NaniteForest {
       io += t.idx.length;
     }
     const sb = (arr, item) => new THREE.StorageBufferAttribute(arr, item);
-    this.vA = storage(sb(vA, 4), 'vec4', nVerts).toReadOnly();
-    this.vB = storage(sb(vB, 4), 'vec4', nVerts).toReadOnly();
+    this.vtx = storage(sb(vtx, 4), 'vec4', nVerts * 2).toReadOnly();
     this.idx = storage(sb(idx, 1), 'uint', nIdx).toReadOnly();
-    this.cData = storage(sb(cData, 4), 'vec4', nClusters * 4).toReadOnly();
-    this.cMeta = storage(sb(cMeta, 4), 'uvec4', nClusters).toReadOnly();
+    this.cData = storage(sb(cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeInfo = uniformArray(typeInfo, 'vec4');
 
     this.instanceCount = instances.a.length / 4;
-    this.instA = storage(sb(instances.a, 4), 'vec4', this.instanceCount).toReadOnly();
-    this.instB = storage(sb(instances.b, 4), 'vec4', this.instanceCount).toReadOnly();
+    // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
+    const inst = new Float32Array(this.instanceCount * 8);
+    for (let i = 0; i < this.instanceCount; i++) {
+      inst.set(instances.a.subarray(i * 4, i * 4 + 4), i * 8);
+      inst.set(instances.b.subarray(i * 4, i * 4 + 4), i * 8 + 4);
+    }
+    this.inst = storage(sb(inst, 4), 'vec4', this.instanceCount * 2).toReadOnly();
+  }
+
+  // ------------------------------------------------------------------ buffer accessors (node -> node)
+  /** Tree i's position and scale. */
+  _a(i) {
+    return this.inst.element(i.mul(2));
+  }
+  /** Tree i's rotation (cos, sin), type and wind phase. */
+  _b(i) {
+    return this.inst.element(i.mul(2).add(1));
+  }
+  /** Cluster c's k-th vec4: 0 LOD sphere, 1 parent LOD sphere, 2 culling sphere, 3 (err, parent err, level, kind). */
+  _cd(c, k) {
+    return this.cData.element(c.mul(CD_STRIDE).add(k));
+  }
+  /** Cluster c's (first index, triangles, level, kind). */
+  _meta(c) {
+    return bitcast(this.cData.element(c.mul(CD_STRIDE).add(4)), 'uvec4');
+  }
+  /** Vertex vi: (x, y, z, u) for k = 0, (nx, ny, nz, v) for k = 1. */
+  _vtx(vi, k) {
+    return this.vtx.element(vi.mul(2).add(k));
   }
 
   // ------------------------------------------------------------------ per frame
@@ -172,21 +201,22 @@ export class NaniteForest {
     if (!view.ran) return out;
     const get = (a) => this.renderer.getArrayBufferAsync(a);
     const sets = view.sets.filter((s, k) => k === 0 || s.ran);
-    const [flags, ...per] = await Promise.all([
+    const [flags, ctrBuf] = await Promise.all([
       view === this.main ? get(view.impFlagAttr) : Promise.resolve(new ArrayBuffer(4)),
-      ...sets.map((s) => Promise.all([get(s.barkArgsAttr), get(s.leafArgsAttr), get(s.statsAttr), get(s.itemCountAttr)])),
+      get(view.ctr.attr),
     ]);
-    per.forEach(([bark, leaf, st, disp], k) => {
-      const b = new Uint32Array(bark), l = new Uint32Array(leaf), s = new Uint32Array(st);
-      out.barkClusters += b[1];
-      out.leafClusters += l[1];
-      out.barkTris += s[0];
-      out.leafTris += s[1];
-      out.instances += s[2];
-      out.occluded += s[3];
-      out.occludedImpostors += s[4];
-      out.items += new Uint32Array(disp)[0];
-      if (k === 1) out.phase2 = s[2];
+    const ctr = new Uint32Array(ctrBuf);
+    sets.forEach((set, k) => {
+      const b = set.base, s = b + STATS;
+      out.barkClusters += ctr[b + ARGS.bark + 1];
+      out.leafClusters += ctr[b + ARGS.leaf + 1];
+      out.barkTris += ctr[s];
+      out.leafTris += ctr[s + 1];
+      out.instances += ctr[s + 2];
+      out.occluded += ctr[s + 3];
+      out.occludedImpostors += ctr[s + 4];
+      out.items += ctr[b + ITEM_COUNT];
+      if (k === 1) out.phase2 = ctr[s + 2];
     });
     out.impostors = countFlags(flags);
     if (view === this.main) Object.assign(out, await this.sw.readStats(this.renderer));

@@ -4,11 +4,12 @@ import { Fn, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, f
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { heightAt } from './terrain.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
+import type { Float, Vec3 } from './types.ts';
 
 const params = new URLSearchParams(location.search);
 const SHADOW_MAX = Number(params.get('shadowmax') ?? 6000); // largest half-extent of the shadow map (m)
 
-export function createLighting(scene, { harness }) {
+export function createLighting(scene: THREE.Scene, { harness }: { harness: boolean }) {
   // sky + sun
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 32), THREE.MathUtils.degToRad(215));
   const sky = new SkyMesh();
@@ -27,18 +28,19 @@ export function createLighting(scene, { harness }) {
   // terrain and trees melt into the sky instead of meeting it at a grey band. Below the horizon it uses the horizon.
   const skyCapture = new THREE.Scene();
   const sky2 = new SkyMesh();
-  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'sunPosition', 'cloudCoverage', 'cloudDensity', 'cloudElevation'])
-    sky2[k].value = sky[k].value.clone?.() ?? sky[k].value;
+  for (const k of ['turbidity', 'rayleigh', 'mieCoefficient', 'mieDirectionalG', 'cloudCoverage', 'cloudDensity', 'cloudElevation'] as const)
+    sky2[k].value = sky[k].value;
+  sky2.sunPosition.value.copy(sky.sunPosition.value);
   sky2.cloudSpeed.value = 0;
   sky2.scale.setScalar(100);
   skyCapture.add(sky2);
   const skyCube = new THREE.CubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   const cubeCam = new THREE.CubeCamera(1, 1000, skyCube);
   const fogNear = uniform(400), fogFar = uniform(4000);
-  const fogColour = (pos) => {
+  const fogColour = (pos: Vec3): Vec3 => {
     const viewDir = pos.sub(cameraPosition).normalize();
     const horizonDir = vec3(viewDir.x, max(viewDir.y, 0.015), viewDir.z).normalize();
-    return cubeTexture(skyCube.texture, horizonDir).level(2).rgb;
+    return cubeTexture(skyCube.texture, horizonDir).level(float(2)).rgb;
   };
   scene.fogNode = fog(fogColour(positionWorld), rangeFogFactor(fogNear, fogFar));
 
@@ -52,7 +54,7 @@ export function createLighting(scene, { harness }) {
   // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
   let SH = 0;
   const sunBack = () => Math.max(800, SH * 1.2);
-  function setShadowExtent(h) {
+  function setShadowExtent(h: number): void {
     if (h === SH) return;
     SH = h;
     // (depth range: the sun sits `sunBack` from the focus; the ground across the map spans about its width in depth)
@@ -70,7 +72,7 @@ export function createLighting(scene, { harness }) {
   // (Impostors cast their shadow too, so the real map is used wherever it reaches: an average shadow where the trees
   // turned impostor changed visibly at the switch and with the zoom.)
   // (`pos`: the receiver's world position, for materials that compute their own, see softraster.js)
-  const makeFadeShadow = (far, pos = positionWorld) => Fn(([shadow]) => {
+  const makeFadeShadow = (far: Float, pos: Vec3 = positionWorld) => Fn(([shadow]: [Float]) => {
     const c = shadowMatrix.mul(vec4(pos, 1)).xy;
     const edge = max(abs(c.x.sub(0.5)), abs(c.y.sub(0.5))).mul(2);
     const fade = max(smoothstep(0.75, 0.97, edge), farEverywhere);
@@ -84,7 +86,7 @@ export function createLighting(scene, { harness }) {
   sun.layers.enable(PHASE2_LAYER);
 
   /** Per frame: the shadow map centred on the ground the camera looks at (`gy`: ground height under the camera). */
-  function follow(camera, gy, shift) {
+  function follow(camera: THREE.Camera, gy: number, shift: THREE.Vector3): void {
     // shadow map: centred on the ground the camera looks at, extent from altitude
     const agl = Math.max(0, camera.position.y - gy);
     // (no lower cap than the view needs: at 1.8 km a 640 m map was a rectangle of real shadows in an evenly shaded

@@ -6,7 +6,7 @@ import {
   cameraViewMatrix,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
-import { FADE_HI, MAX_TRIS, LIST_CAP } from './constants.ts';
+import { FADE_HI, MAX_TRIS, LIST_CAP, ARGS } from './constants.ts';
 import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
 
 export const drawMethods = {
@@ -18,10 +18,10 @@ export const drawMethods = {
    */
   _vertex(inst, c, k, leaf) {
     const u = this.u;
-    const m = this.cMeta.element(c);
+    const m = this._meta(c);
     const vi = this.idx.element(m.x.add(k));
-    const va = this.vA.element(vi), vb = this.vB.element(vi);
-    const a = this.instA.element(inst), b = this.instB.element(inst);
+    const va = this._vtx(vi, 0), vb = this._vtx(vi, 1);
+    const a = this._a(inst), b = this._b(inst);
     const type = uint(b.z);
     const ti = this.typeInfo.element(type);
     const s = a.w;
@@ -53,7 +53,7 @@ export const drawMethods = {
   /** Share of tree inst drawn as geometry (1, or less in the impostor cross-fade band): by its projected height. */
   _geometryShare(inst, view = this.main) {
     const u = this.u;
-    const a = this.instA.element(inst), b = this.instB.element(inst);
+    const a = this._a(inst), b = this._b(inst);
     const ti = this.typeInfo.element(uint(b.z));
     const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(a.w), 0)).sub(view.lodPos));
     const px = ti.w.mul(a.w).mul(u.projScale).div(max(dCam, 0.1)); // (same as the instance pass)
@@ -67,7 +67,7 @@ export const drawMethods = {
    */
   _debugColour(inst, c, type) {
     const u = this.u;
-    const level = this.cMeta.element(c).z;
+    const level = this._meta(c).z;
     const dbgSeed = select(u.debug.equal(1), c, select(u.debug.equal(2), level.mul(7919).add(3), inst));
     const palette = vec3(hash(dbgSeed), hash(dbgSeed.add(17)), hash(dbgSeed.add(43)));
     const levelRamp = mix(vec3(0.1, 0.9, 0.2), vec3(1.0, 0.15, 0.1), clamp(float(level).div(8), 0, 1));
@@ -77,11 +77,11 @@ export const drawMethods = {
   _buildMesh(kind, view, set, shadowOnly) {
     const u = this.u;
     const textures = this.textures;
-    const list = storage(kind === 0 ? set.barkListAttr : set.leafListAttr, 'uvec2', LIST_CAP).toReadOnly();
+    const list = storage(set.listAttr, 'uvec2', LIST_CAP * 2).toReadOnly(); // (bark, then leaves)
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
-    geo.setIndirect(kind === 0 ? set.barkArgsAttr : set.leafArgsAttr);
+    geo.setIndirect(set.ctr.attr, (set.base + (kind === 0 ? ARGS.bark : ARGS.leaf)) * 4); // (byte offset)
 
     const vUv = varying(vec2(0), 'vUv');
     const vLayer = varying(float(0), 'vLayer');
@@ -92,9 +92,9 @@ export const drawMethods = {
     const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
 
     const position = Fn(() => {
-      const entry = list.element(instanceIndex);
+      const entry = list.element(kind === 0 ? instanceIndex : instanceIndex.add(LIST_CAP));
       const inst = entry.x, c = entry.y;
-      const m = this.cMeta.element(c);
+      const m = this._meta(c);
       const valid = vertexIndex.div(3).lessThan(m.y);
       const vx = this._vertex(inst, c, min(vertexIndex, m.y.mul(3).sub(1)), kind === 1);
       const type = vx.type;

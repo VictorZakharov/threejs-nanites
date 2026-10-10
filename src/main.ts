@@ -42,7 +42,8 @@ async function start() {
     powerPreference: 'high-performance',
     trackTimestamp: true, // GPU time drives the auto quality (and the harness numbers)
     requiredLimits: {
-      maxStorageBuffersPerShaderStage: lim.maxStorageBuffersPerShaderStage,
+      // (?maxsb=N: pretend the GPU allows only N, to reproduce smaller GPUs' limits)
+      maxStorageBuffersPerShaderStage: Math.min(lim.maxStorageBuffersPerShaderStage, Number(params.get('maxsb') ?? Infinity)),
       maxStorageBufferBindingSize: lim.maxStorageBufferBindingSize,
       maxBufferSize: lim.maxBufferSize,
     },

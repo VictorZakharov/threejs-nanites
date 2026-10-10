@@ -158,6 +158,13 @@ first in a new session. Update it as you go, and keep it short and current, not 
   control responds).
 - The scene target's alpha is not shown: the output pass writes alpha 1. Alpha-to-coverage leaves left alpha < 1
   there, and the canvas showed the light-blue page background through them (the whole forest read paler and bluer).
+- **Storage buffers per shader: at most 8** (WebGPU's guaranteed minimum; a Mac allowed fewer than our shaders
+  bound, and the cluster passes failed: only impostors, "semitransparent trees"). Hence the merged buffers: per
+  tree one `inst` buffer (2 vec4s, `_a`/`_b`), per vertex one `vtx` (`_vtx`), per cluster 5 vec4s in `cData` with
+  the meta bit-cast in the 5th (`_cd`/`_meta`), one list buffer per set (bark, then leaves), and per view one
+  counters buffer (`makeCounters` in `constants.ts`: draw args at offsets, stats, item count, retest and
+  software-raster counts). A shader uses one access mode of the counters (`atomic` + atomicLoad where it reads and
+  adds). Check new passes with `?maxsb=8` (caps the device limit): no validation errors in `console.log`.
 - Occlusion culling (`src/nanite/culling.ts`, `hzb.ts`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each

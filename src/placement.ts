@@ -6,7 +6,7 @@ import { VARIANTS } from './trees.ts';
 
 const params = new URLSearchParams(location.search);
 
-function mulberry32(seed) {
+function mulberry32(seed: number): () => number {
   return () => {
     seed = (seed + 0x6d2b79f5) | 0;
     let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
@@ -19,10 +19,10 @@ function mulberry32(seed) {
 export const TREE_SPACING = 9;
 export const MAX_ALTITUDE = 9000;
 /** Radius (m) of the forest disc for `count` trees. */
-export const forestRadius = (count) => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
+export const forestRadius = (count: number): number => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
 
 /** Canopy cover (0..1) of the ground on a grid over the forest, for the far-field ground darkening. */
-export function forestDensity({ a, radius }) {
+export function forestDensity({ a, radius }: TreeInstances): { texture: THREE.DataTexture; extent: number } {
   const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
   const cov = new Float32Array(N * N);
   const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
@@ -54,10 +54,17 @@ export function forestDensity({ a, radius }) {
   return { texture: tex, extent };
 }
 
-export function placeTrees(count) {
+/** Per tree: `a` = (x, y, z, scale), `b` = (cos, sin of the rotation, type, wind phase); `radius` of the forest. */
+export interface TreeInstances {
+  a: Float32Array;
+  b: Float32Array;
+  radius: number;
+}
+
+export function placeTrees(count: number): TreeInstances {
   const rnd = mulberry32(42);
   const radius = forestRadius(count);
-  const a = [], b = [];
+  const a: number[] = [], b: number[] = [];
   const pineTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? i : -1)).filter((i) => i >= 0);
   const leafTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? -1 : i)).filter((i) => i >= 0);
   let tries = 0;

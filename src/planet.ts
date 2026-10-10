@@ -4,6 +4,7 @@
 // culling go through the same function, so the horizon is a curve and nothing is culled where it's shown.
 import { uniform, vec3 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
+import type { Float, Vec3 } from './types.ts';
 
 export const PLANET_RADIUS = Number(new URLSearchParams(location.search).get('planet') ?? 150000);
 
@@ -12,18 +13,18 @@ export const viewerPos = uniform(new THREE.Vector3());
 const invTwoR = uniform(1 / (2 * PLANET_RADIUS));
 
 /** Curvature drop (m) at horizontal distance from the viewer. */
-export function dropAt(p) {
+export function dropAt(p: Vec3): Float {
   const dx = p.x.sub(viewerPos.x), dz = p.z.sub(viewerPos.z);
   return dx.mul(dx).add(dz.mul(dz)).mul(invTwoR);
 }
 
 /** World position as seen on the planet. */
-export function curve(p) {
+export function curve(p: Vec3): Vec3 {
   return vec3(p.x, p.y.sub(dropAt(p)), p.z);
 }
 
 /** CPU version, e.g. for placing the camera or the sun. */
-export function dropAtCPU(x, z, vx, vz) {
+export function dropAtCPU(x: number, z: number, vx: number, vz: number): number {
   const dx = x - vx, dz = z - vz;
   return (dx * dx + dz * dz) / (2 * PLANET_RADIUS);
 }
