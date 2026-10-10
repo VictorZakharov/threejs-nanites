@@ -3,6 +3,7 @@
 import * as THREE from 'three/webgpu';
 import { heightAt, fbm } from './terrain.ts';
 import { VARIANTS, isBush } from './trees.ts';
+import { autumnAt, withAutumn, autumnOfPhase, fallOf } from './autumn.ts';
 
 const params = new URLSearchParams(location.search);
 
@@ -21,18 +22,43 @@ export const MAX_ALTITUDE = 9000;
 /** Radius (m) of the forest disc for `count` trees. */
 export const forestRadius = (count: number): number => Math.sqrt((count * TREE_SPACING * TREE_SPACING) / Math.PI) * 1.15;
 
-/** Canopy cover (0..1) of the ground on a grid over the forest, for the far-field ground darkening. */
+/**
+ * Canopy cover (0..1, red) of the ground on a grid over the forest, for the far-field ground darkening; and the fallen
+ * leaves under it (src/ground/floor.ts): green their amount (0..1: the trees' fallOf, weighted by crown), blue their
+ * autumn level / 2 (src/autumn.ts). Pines drop none.
+ */
 export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE.DataTexture; extent: number } {
   const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
-  const cov = new Float32Array(N * N);
+  const cov = new Float32Array(N * N), fall = new Float32Array(N * N), hue = new Float32Array(N * N);
   const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
   for (let i = 0; i < a.length; i += 4) {
-    if (isBush(VARIANTS[b[i + 2]])) continue; // (cover is the trees' canopy)
+    const v = VARIANTS[b[i + 2]];
+    if (isBush(v)) continue; // (cover is the trees' canopy)
     const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
-    if (x >= 0 && z >= 0 && x < N && z < N) cov[z * N + x] += crown * a[i + 3] * a[i + 3];
+    if (x < 0 || z < 0 || x >= N || z >= N) continue;
+    const w = crown * a[i + 3] * a[i + 3], turn = autumnOfPhase(b[i + 3]);
+    const f = v.leaf === 'pine' ? 0 : w * fallOf(turn);
+    cov[z * N + x] += w;
+    fall[z * N + x] += f;
+    hue[z * N + x] += f * turn;
   }
-  // two box blurs (~ a few tens of metres), then clamp to full cover
-  let src = cov, dst = new Float32Array(N * N);
+  const [c, fl, h] = [cov, fall, hue].map((m) => blur(m, N));
+  const data = new Uint8Array(N * N * 4);
+  for (let i = 0; i < N * N; i++) {
+    data[i * 4] = Math.round(Math.min(1, c[i]) * 255);
+    data[i * 4 + 1] = c[i] > 1e-4 ? Math.round(Math.min(1, fl[i] / c[i]) * 255) : 0;
+    data[i * 4 + 2] = fl[i] > 1e-4 ? Math.round(Math.min(1, h[i] / fl[i] / 2) * 255) : 0;
+  }
+  const tex = new THREE.DataTexture(data, N, N);
+  tex.magFilter = THREE.LinearFilter;
+  tex.minFilter = THREE.LinearFilter;
+  tex.needsUpdate = true;
+  return { texture: tex, extent };
+}
+
+/** Two box blurs each way (~ a few tens of metres). */
+function blur(m: Float32Array<ArrayBuffer>, N: number): Float32Array<ArrayBuffer> {
+  let src = m, dst = new Float32Array(N * N);
   for (let pass = 0; pass < 4; pass++) {
     const horiz = pass % 2 === 0;
     for (let z = 0; z < N; z++)
@@ -46,16 +72,10 @@ export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE
       }
     [src, dst] = [dst, src];
   }
-  const data = new Uint8Array(N * N * 4);
-  for (let i = 0; i < N * N; i++) data[i * 4] = Math.round(Math.min(1, src[i]) * 255);
-  const tex = new THREE.DataTexture(data, N, N);
-  tex.magFilter = THREE.LinearFilter;
-  tex.minFilter = THREE.LinearFilter;
-  tex.needsUpdate = true;
-  return { texture: tex, extent };
+  return src;
 }
 
-/** Per tree: `a` = (x, y, z, scale), `b` = (cos, sin of the rotation, type, wind phase); `radius` of the forest. */
+/** Per tree: `a` = (x, y, z, scale), `b` = (cos, sin of the rotation, type, wind phase + autumn: src/autumn.ts); `radius` of the forest. */
 export interface TreeInstances {
   a: Float32Array;
   b: Float32Array;
@@ -87,7 +107,8 @@ export function placeTrees(count: number): TreeInstances {
     const scale = 0.75 + rnd() * 0.5;
     const rot = rnd() * Math.PI * 2;
     a.push(x, y - 0.3, z, scale);
-    b.push(Math.cos(rot), Math.sin(rot), type, rnd() * 6.28);
+    const turn = pool === pineTypes ? 0 : autumnAt(x, z, rnd());
+    b.push(Math.cos(rot), Math.sin(rot), type, withAutumn(rnd() * 6.28, turn));
   }
   const trees = a.length / 4;
   placeBushes(Math.round(count * BUSHES_PER_TREE), radius, a, b);
@@ -142,7 +163,8 @@ function placeBushes(count: number, radius: number, a: number[], b: number[]): v
     const pool = evergreen.length && rnd() < THREE.MathUtils.smoothstep(y, 0, 40) * 0.6 + 0.15 ? evergreen : leafy;
     const rot = rnd() * Math.PI * 2;
     a.push(x, y - 0.15, z, 0.8 + rnd() * 0.9);
-    b.push(Math.cos(rot), Math.sin(rot), pool[Math.floor(rnd() * pool.length)], rnd() * 6.28);
+    const turn = pool === evergreen ? 0 : autumnAt(x, z, rnd());
+    b.push(Math.cos(rot), Math.sin(rot), pool[Math.floor(rnd() * pool.length)], withAutumn(rnd() * 6.28, turn));
     placed++;
   }
 }

@@ -47,8 +47,9 @@ function makeFbm(seed: number, basePeriod: number, octaves = 4): Noise2D {
   };
 }
 
-/** Per-pixel output of a PBR sampler: height, albedo rgb (0..1), roughness. */
-interface PBRSample { h: number; r: number; g: number; b: number; rough: number }
+/** Per-pixel output of a PBR sampler: height, albedo rgb (0..1), roughness; `leaf` the fallen leaf's key (0 none, else
+ * 0.1..1: it lies there if the amount of leaves is over (key - 0.1) / 0.9), `fresh` how fresh it is (0..1). */
+interface PBRSample { h: number; r: number; g: number; b: number; rough: number; leaf: number; fresh: number }
 type PBRSampler = (u: number, v: number, out: PBRSample) => void;
 /** A material's maps as RGBA pixels, `size` square. */
 export interface PBRData { size: number; albedo: Uint8ClampedArray<ArrayBuffer>; normal: Uint8ClampedArray<ArrayBuffer>; rough: Uint8ClampedArray<ArrayBuffer> }
@@ -58,7 +59,7 @@ function buildPBR(size: number, sampler: PBRSampler, normalStrength = 2.5): PBRD
   const height = new Float32Array(n);
   const albedo = new Uint8ClampedArray(n * 4);
   const rough = new Uint8ClampedArray(n * 4);
-  const out: PBRSample = { h: 0, r: 0, g: 0, b: 0, rough: 0.8 };
+  const out: PBRSample = { h: 0, r: 0, g: 0, b: 0, rough: 0.8, leaf: 0, fresh: 0 };
   for (let y = 0; y < size; y++) {
     for (let x = 0; x < size; x++) {
       sampler(x / size, y / size, out);
@@ -66,7 +67,8 @@ function buildPBR(size: number, sampler: PBRSampler, normalStrength = 2.5): PBRD
       height[i] = out.h;
       albedo[i * 4] = out.r * 255; albedo[i * 4 + 1] = out.g * 255; albedo[i * 4 + 2] = out.b * 255; albedo[i * 4 + 3] = 255;
       const rv = out.rough * 255;
-      rough[i * 4] = rv; rough[i * 4 + 1] = rv; rough[i * 4 + 2] = rv; rough[i * 4 + 3] = 255;
+      // (red: the height, below; green / blue: the leaf's key and freshness, for the leaves under each tree: floor.ts)
+      rough[i * 4] = rv; rough[i * 4 + 1] = out.leaf * 255; rough[i * 4 + 2] = out.fresh * 255; rough[i * 4 + 3] = 255;
     }
   }
   const normal = new Uint8ClampedArray(n * 4);
@@ -145,9 +147,10 @@ export function forestFloor(): PBRData {
     const damp = smooth(clamp((s - 0.55) / 0.2, 0, 1));
     const k = (0.75 + c * 0.5) * (1 - damp * 0.3);
     r *= k; g *= k; b *= k;
-    const lay = (top: number, cr: number, cg: number, cb: number, ro: number) => {
+    let leaf = 0, fresh = 0;
+    const lay = (top: number, cr: number, cg: number, cb: number, ro: number, lk = 0, lf = 0) => {
       if (top <= h) return;
-      h = top; r = cr; g = cg; b = cb; rough = ro;
+      h = top; r = cr; g = cg; b = cb; rough = ro; leaf = lk; fresh = lf;
     };
     // the leaves, layer by layer up
     layers.forEach((layer, li) => {
@@ -171,7 +174,9 @@ export function forestFloor(): PBRData {
         const age = clamp(layer.id[key] * 0.7 + (2 - li) * 0.18 + rotten * 0.5, 0, 0.999);
         const col = LEAF_COLOURS[Math.floor(age * LEAF_COLOURS.length)];
         const shade = (1 - cup * 0.35) * (1 + rib * 0.25) * (1 - vein * 0.25) * (0.85 + c * 0.3);
-        lay(top, col[0] * shade, col[1] * shade, col[2] * shade, 0.72 + age * 0.2);
+        // (its key: the upper layers go first as the amount drops, the leaves of a layer at random)
+        const drop = 0.1 + 0.9 * clamp(li / 3 + ((Math.imul(key + li * 7919, 2654435761) >>> 0) / 4294967296) / 3, 0, 0.999);
+        lay(top, col[0] * shade, col[1] * shade, col[2] * shade, 0.72 + age * 0.2, drop, 1 - age);
       }
     });
     // twigs: capsules lying over the litter, 16 to 38 cm long and 1.2 to 2 cm thick
@@ -206,6 +211,6 @@ export function forestFloor(): PBRData {
         lay(1.2 + dome * radius * 0.75, grey, grey * 0.97, grey * 0.9, 0.6);
       }
     }
-    o.h = h; o.r = clamp(r, 0, 1); o.g = clamp(g, 0, 1); o.b = clamp(b, 0, 1); o.rough = rough;
+    o.h = h; o.r = clamp(r, 0, 1); o.g = clamp(g, 0, 1); o.b = clamp(b, 0, 1); o.rough = rough; o.leaf = leaf; o.fresh = fresh;
   }, 1 / (2 * FLOOR_CM));
 }

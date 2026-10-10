@@ -5,8 +5,9 @@
 import * as THREE from 'three/webgpu';
 import {
   texture, positionWorld, cameraPosition, float, vec3, vec4, mix, smoothstep, mx_noise_float, normalWorld, cameraViewMatrix,
+  select, dot,
 } from 'three/tsl';
-import type { Float, Vec2, Vec3 } from '../types.ts';
+import type { Float, Vec2, Vec3, Vec4 } from '../types.ts';
 import type { PBRData } from './floor-maps.ts';
 import { reliefUv } from './relief.ts';
 
@@ -49,16 +50,34 @@ export function loadFloorMaps(): Promise<FloorMaps> {
 }
 
 /**
- * Gives the terrain material the floor: `meadow` is its own (grass / dirt) colour, `cover` the canopy cover (0..1)
- * at the world position.
+ * Gives the terrain material the floor: `meadow` is its own (grass / dirt) colour, `cover` the cover map at the world
+ * position (forestDensity: red the canopy cover 0..1, green the amount of fallen leaves, blue their autumn level / 2).
  */
-export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, cover: Float): void {
-  const sample = (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2): Float => texture(t, p).grad(dx, dy).r;
+export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, coverMap: Vec4): void {
+  // (the map's amount is blurred over the neighbouring stands and the pines, which drop none: x 1.4)
+  const cover = coverMap.r, amount = coverMap.g.mul(1.4).min(1), hue = coverMap.b;
+  const dist = positionWorld.sub(cameraPosition).length();
+  // the leaves under each tree: as many as its kind drops (src/autumn.ts), the rest of the litter soil; up close by
+  // each leaf's key (the maps' green), further away (where the mips average the keys) by the share
+  const far = smoothstep(15, 45, dist);
+  const lies = (key: Float): Float => mix(select(key.sub(0.1).div(0.9).lessThan(amount), float(1), float(0)), amount, far);
+  const isLeaf = (key: Float): Float => smoothstep(0.02, 0.08, key);
+  const sample = (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2): Float => {
+    const s = texture(t, p).grad(dx, dy);
+    return s.r.mul(mix(float(1), mix(float(0.4), float(1), lies(s.g)), isLeaf(s.g))); // (missing leaves sink to the soil)
+  };
   const uv0 = positionWorld.xz.div(TILE);
-  const under = smoothstep(0.3, 0.75, cover).mul(float(1).sub(smoothstep(80, 200, positionWorld.sub(cameraPosition).length())));
+  const under = smoothstep(0.3, 0.75, cover).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
   const dx = uv0.dFdx(), dy = uv0.dFdy();
-  const litter = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
+  const raw = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
+  const info = texture(maps.height, uv).grad(dx, dy);
+  // fresh leaves take their trees' colour: yellow, then red (green trees' keep the browns)
+  const lum = dot(raw, vec3(0.3, 0.59, 0.11));
+  const turned = mix(vec3(2.4, 1.75, 0.25), vec3(2.5, 0.55, 0.2), smoothstep(0.55, 0.85, hue)).mul(lum);
+  const leafCol = mix(raw, turned, smoothstep(0.2, 0.45, hue).mul(info.b.mul(0.6).add(0.4)));
+  const soil = vec3(0.05, 0.032, 0.018).mul(mx_noise_float(positionWorld.xz.mul(2.3)).mul(0.25).add(1));
+  const litter = mix(raw, mix(soil, leafCol, lies(info.g)), isLeaf(info.g));
   const nm = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)
   // moss over the litter in world space (large patches: a texture would tile)
   const p = positionWorld.xz;

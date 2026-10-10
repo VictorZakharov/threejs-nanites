@@ -118,6 +118,15 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   menu switch); `floor.ts` puts the litter where the canopy is dense and within ~200 m (applied everywhere, its
   average brown turned the whole forest floor brown from the air), and the meadow keeps its plain colour (the litter's
   pattern in it read as pale stamped leaves). `floor` view looks down at it. Relief ~0.4 ms looking down on the dev GPU.
+- Autumn (`src/autumn.ts`, `?autumn=` 0 = summer): broadleaf trees and bushes are green, yellow or red by stands
+  (noise ranked by its sampled quantiles: 40 / 32 / 28%) plus a jitter per tree; pines stay green. The level rides in
+  the instance's wind phase as whole turns (b.w = phase + 2 pi L), so no buffer grew (a 9th storage buffer would
+  break the 8 limit). `autumnColour` turns the leaf colour in the hardware draw, the software resolve and the
+  impostors (masked to green texels there: the atlas has bark). Fallen leaves: `forestDensity` also writes the leaves'
+  amount (green 0.2, yellow 0.6, red 1 x crown) and level into the cover map's G / B; the floor maps carry a key per
+  leaf (shown if the amount is over it, else soil, sunk in the relief) and its freshness (takes the trees' colour);
+  grass thins where leaves lie thick. Views `autumnred` / `autumnyellow` / `autumngreen`, `--probe=autumn`.
+  Calibrate impostor gains with `autumn=0`.
 - Clearings (`clearingAt` in `placement.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
   land). They were a sum of sines: from the air a lattice of same-sized gaps (the user: "repetitive"; `aerial` view).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that

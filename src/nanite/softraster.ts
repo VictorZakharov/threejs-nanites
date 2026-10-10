@@ -27,6 +27,7 @@ import type { NaniteForest } from './forest.ts';
 import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
 import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
+import { autumnOf } from '../autumn.ts';
 import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
@@ -296,7 +297,7 @@ export class SoftRaster {
     const bark = texture(tex.bark, uv).depth(tex.barkLayerOf(type)).level(this._lod(slopes, tex.bark.image.width)).rgb;
     const leafLayer = tex.leafLayerOf(type);
     const leafRgb = texture(tex.leaf, uv).depth(leafLayer).level(this._lod(slopes, tex.leaf.image.width)).rgb;
-    const albedo = select(leaf, leafColour(leafRgb, leafLayer, treeTint(inst)), barkColour(bark));
+    const albedo = select(leaf, leafColour(leafRgb, leafLayer, treeTint(inst), autumnOf(f._b(inst).w)), barkColour(bark));
     const dbg = f._debugColour(inst, c, type);
 
     const mat = new THREE.MeshLambertNodeMaterial();

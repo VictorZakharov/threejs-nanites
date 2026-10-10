@@ -133,13 +133,15 @@ async function start() {
   }));
   // ground: darkened by how much canopy stands over it
   const density = forestDensity(instances);
+  demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves)
   const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
-  const cover = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5)).r;
+  const coverMap = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5));
+  const cover = coverMap.r;
   const groundFar = float(1).sub(cover.mul(groundShade));
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
   // the forest floor near the viewer: leaf litter under the canopy, parallax relief (src/ground/)
   const nearGround = terrain.getObjectByName('terrain') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
-  applyFloor(nearGround.material, await floorMaps, meadowColour(), cover);
+  applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap);
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,

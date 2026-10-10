@@ -11,6 +11,7 @@ import type { NaniteForest } from './forest.ts';
 import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { ClusterVertex, CullSet, View } from './types.ts';
 import { setEmissive } from '../three-gaps.ts';
+import { autumnOf } from '../autumn.ts';
 import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
 
 export const drawMethods = {
@@ -92,6 +93,7 @@ export const drawMethods = {
     const vLayer = varying(float(0), 'vLayer');
     const vDebug = varying(vec3(0), 'vDebug');
     const vTint = varying(float(1), 'vTint');
+    const vAutumn = varying(float(0), 'vAutumn');
     const vFade = varying(float(1), 'vFade'); // share of this tree drawn as geometry (impostor cross-fade)
     // clip positions with this and last frame's wind (same camera): the wind's motion on screen, for TAA
     const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
@@ -110,6 +112,7 @@ export const drawMethods = {
       if (!shadowOnly) {
         vFade.assign(this._geometryShare(inst, view));
         vTint.assign(treeTint(inst));
+        vAutumn.assign(autumnOf(this._b(inst).w));
         vDebug.assign(this._debugColour(inst, c, type));
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         vClip.assign(viewProj.mul(vec4(vx.world, 1)));
@@ -138,7 +141,7 @@ export const drawMethods = {
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
       const tex = texture(textures.leaf, vUv).depth(layerI);
       const alpha = leafAlpha(tex.a, layerI);
-      const col = leafColour(tex.rgb, layerI, vTint);
+      const col = leafColour(tex.rgb, layerI, vTint, vAutumn);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)
       mat.normalNode = normalViewGeometry;

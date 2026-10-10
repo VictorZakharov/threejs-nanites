@@ -43,7 +43,11 @@ Done, waiting for the user's check on the live site:
 - Grass (rings of instanced blades), bushes (ez-tree bush presets as Nanite variants) and last-stand's forest floor
   with parallax relief are in. Waiting for the user's look. The floor under dense canopy reads dark (shade).
 - Tree impostor gains have drifted (typematch on `d550`: pines 1.17/1.16/1.47, before the bushes too): recalibrate
-  the trees with `--typematch=calibrate` and check the fog line again.
+  the trees with `--typematch=calibrate` and check the fog line again (with `--query=autumn=0`: the gains are for
+  green leaves).
+- Autumn (user: "trees of varying color... leaves underneath match, red fall the most"): in. The fallen leaves follow
+  the cover map's 20 m cells (blurred ~80 m), so they match stands, not single trees; per-tree litter would need a
+  finer map near the viewer. Grass thins where the leaves lie thick.
 
 ## Roadmap toward open source (user plans to publish it, maybe a three.js contribution; "has to be good")
 

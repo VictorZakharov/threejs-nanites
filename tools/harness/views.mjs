@@ -17,6 +17,11 @@ export const VIEWS = {
   sunrays: { x: 90, z: 120, agl: 1.8, yaw: 35, pitch: 26 },
   // the forest floor up close under the canopy, looking down (leaf litter, parallax relief: src/ground/)
   floor: { x: 90, z: 120, agl: 1.8, yaw: 35, pitch: -55 },
+  // inside a red / yellow / green stand, looking down a little: the trees' autumn colours and the leaves under them
+  // (src/autumn.ts; spots from --probe=autumn)
+  autumnred: { x: -79, z: 33, agl: 1.8, yaw: 200, pitch: -22 },
+  autumnyellow: { x: -190, z: -5, agl: 1.8, yaw: 200, pitch: -22 },
+  autumngreen: { x: 72, z: 211, agl: 1.8, yaw: 200, pitch: -22 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
   high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },

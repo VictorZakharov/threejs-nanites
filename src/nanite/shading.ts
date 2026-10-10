@@ -5,6 +5,7 @@ import {
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
 import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
+import { autumnColour } from '../autumn.ts';
 
 /** A texture layer or type index: a uint, or a float holding a whole number. */
 type Index = Uint | Float;
@@ -29,8 +30,9 @@ export function makeLeafAlphaLod(leafTex: THREE.DataArrayTexture): (a: Float, la
   };
 }
 
-/** Leaf colour before lighting (shared by the hardware draw and the software rasterizer's resolve). */
-export function leafColour(rgb: Vec3, layerI: Float, tint: Float): Vec3 {
+/** Leaf colour before lighting (shared by the hardware draw and the software rasterizer's resolve); `autumn`: the
+ * tree's level (src/autumn.ts; pine needles, layer 3, stay green). */
+export function leafColour(rgb: Vec3, layerI: Float, tint: Float, autumn: Float): Vec3 {
   // per-tree hue variation, x 0.76 (meant as "darker towards the bottom of the crown" from the normal, but the
   // fragment stage's normalLocal is the geometry's zero normal attribute, so it always was this constant, and the
   // impostor colours are calibrated against it)
@@ -42,7 +44,8 @@ export function leafColour(rgb: Vec3, layerI: Float, tint: Float): Vec3 {
     vec3(0.5, 0.82, 0.85),
     select(layerI.equal(3), vec3(0.62, 0.78, 1.0), vec3(1)),
   );
-  return rgb.mul(layerTint).mul(vec3(tint.mul(0.92), tint, tint.mul(0.8))).mul(inner).mul(1.2);
+  const col = rgb.mul(layerTint).mul(vec3(tint.mul(0.92), tint, tint.mul(0.8))).mul(inner).mul(1.2);
+  return autumnColour(col, autumn, select(layerI.equal(3), float(0), float(1)));
 }
 
 /** Bark colour before lighting. */

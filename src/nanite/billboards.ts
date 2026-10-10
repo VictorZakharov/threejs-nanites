@@ -16,6 +16,7 @@ import type { ImpostorAtlas } from '../impostors.ts';
 import type { TreeVariant } from '../trees.ts';
 import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
+import { autumnOf, autumnColour } from '../autumn.ts';
 
 /** A billboard's shader pieces (see _impostorQuad). */
 interface ImpostorQuad {
@@ -23,6 +24,7 @@ interface ImpostorQuad {
   vW: ReturnType<typeof varying<'vec4'>>;
   vType: Float;
   vTint: Float;
+  vAutumn: Float;
   vFade: Float;
   vRight: Vec3;
   vUp: Vec3;
@@ -68,6 +70,7 @@ export const billboardMethods = {
       vW: varying(vec4(1, 0, 0, 0), 'vImpW'), // weights of the tiles (ELEVATIONS)
       vType: varying(float(0), 'vImpType'),
       vTint: varying(float(1), 'vImpTint'),
+      vAutumn: varying(float(0), 'vImpAutumn'), // (src/autumn.ts)
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
       vRight: varying(vec3(1, 0, 0), 'vImpRight'), // billboard basis (right incl. mirroring), for the normals
       vUp: varying(vec3(0, 1, 0), 'vImpUp'),
@@ -128,6 +131,7 @@ export const billboardMethods = {
       const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(h)));
       if (screen) {
         q.vTint.assign(treeTint(inst));
+        q.vAutumn.assign(select(this.textures.leafLayerOf(type).equal(3), float(0), autumnOf(b.w))); // (pines stay green)
         q.vRight.assign(select(flip, right.negate(), right));
         q.vUp.assign(up);
         q.vDir.assign(dir);
@@ -192,7 +196,9 @@ export const billboardMethods = {
     // (the tiles between: side and top gains mixed by elevation)
     const gS = gainSide.element(tile), gT = gainTop.element(tile);
     const gain = ELEVATIONS.reduce<Vec3>((acc, e, k) => acc.add(mix(gS, gT, e / 90).mul(q.a[k])), vec3(0)).div(wSum);
-    const col = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
+    // (autumn on the leaf texels only: the atlas has bark too, and leaves are the green ones)
+    const green = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
+    const col = autumnColour(green, q.vAutumn, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b))));
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
