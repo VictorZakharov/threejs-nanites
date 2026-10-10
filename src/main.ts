@@ -181,6 +181,10 @@ async function start() {
   controls.pitch = THREE.MathUtils.degToRad(4);
   const touch = (HARNESS ? params.get('touch') === '1' : isTouchDevice(params)) ? new TouchControls(controls, renderer.domElement) : null; // (src/touch.js)
   controls.touchMode = Boolean(touch);
+  // walking on the ground (double jump flies, landing walks); the harness places its views in the air: flying only
+  controls.groundAt = heightAt;
+  controls.walkEnabled = !HARNESS || params.get('walk') === '1';
+  controls.walking = controls.walkEnabled;
 
   function setShadows(on: boolean): void {
     shadowsOn = on;

@@ -39,12 +39,12 @@ type Preset = keyof typeof PRESETS;
 const DEBUG = ['off', 'cluster', 'level', 'tree', 'type', 'raster'];
 
 const CONTROLS: [string, string][] = [
-  ['WASD', 'move'], ['Space / Ctrl', 'up / down'], ['Shift', 'fast'], ['Mouse', 'look'], ['Right mouse', 'zoom 5×'],
+  ['WASD', 'walk / fly'], ['Space', 'jump, twice: fly'], ['Space / Ctrl', 'up / down (land: walk)'], ['Shift', 'fast'], ['Mouse', 'look'], ['Right mouse', 'zoom 5×'],
   ['F', 'freeze culling'], ['[ ]', 'error threshold'], ['Q', 'auto quality'], ['L', 'debug colours'],
   ['H', 'help'], ['F11', 'fullscreen'], ['Esc', 'this menu'],
 ];
 const TOUCH_CONTROLS: [string, string][] = [
-  ['Left thumb', 'move'], ['Right thumb', 'look'], ['▲ ▼', 'up / down'], ['5×', 'zoom'], ['⚙', 'this menu'],
+  ['Left thumb', 'move'], ['Right thumb', 'look'], ['▲', 'jump, twice: fly'], ['▼', 'down (land: walk)'], ['5×', 'zoom'], ['⚙', 'this menu'],
 ];
 
 export function createMenu(ctx: MenuContext) {

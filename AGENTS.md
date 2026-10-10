@@ -206,6 +206,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
   40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.
 - The output's unsharp mask runs in x/(1+x): in linear HDR it made a black ring round the sun.
+- Walking (`src/controls.ts`): on the ground at eye height 1.7 m with gravity; Space jumps, Space again in the air
+  flies; flying down onto the ground walks again. Off under the harness (views are placed in the air) unless
+  `?walk=1`; `--probe=walk --query=walk=1` checks it.
 - Touch controls (`src/touch.ts`, GitHub issue #1): a floating stick under the left thumb, look drag on the right,
   hold buttons for up / down / zoom; they feed `FlyControls.analog` and yaw/pitch. On by `(pointer: coarse)`, or
   `?touch=1|0`; the harness only with `touch=1` (`--probe=touch` fires synthetic finger events and checks each

@@ -13,7 +13,8 @@ Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close t
 |---|---|
 | WASD / mouse | move / look |
 | Right mouse (hold) | zoom 5× |
-| Space / Ctrl | up / down |
+| Space | jump; twice (in the air) takes off flying |
+| Space / Ctrl | up / down while flying; fly down onto the ground to walk again |
 | Shift | fast (speed also builds up the longer you hold a movement key) |
 | L | debug colours: clusters / DAG level / trees / tree types |
 | F | freeze culling (fly around and inspect what was selected) |
