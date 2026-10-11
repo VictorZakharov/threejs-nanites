@@ -140,6 +140,31 @@ export function forestTiles(radius: number): number[] {
   return tiles.sort((p, q) => p.d - q.d).map((p) => p.t);
 }
 
+/** Bits 0..9 of v spread to the even bits (a Morton code's half). */
+const spread = (v: number): number => {
+  v &= 0x3ff;
+  v = (v | (v << 8)) & 0x00ff00ff;
+  v = (v | (v << 4)) & 0x0f0f0f0f;
+  v = (v | (v << 2)) & 0x33333333;
+  return (v | (v << 1)) & 0x55555555;
+};
+
+/**
+ * The plants (8 floats each) in Morton order of their place in the tile at (x0, z0): runs of consecutive ones are then
+ * compact patches, and the instance passes cull whole runs at once (src/nanite/chunks.ts).
+ */
+function mortonOrder(rec: number[], x0: number, z0: number): Float32Array {
+  const n = rec.length / 8, q = (v: number) => Math.min(1023, Math.max(0, Math.floor((v / TILE) * 1024)));
+  const key = new Uint32Array(n);
+  for (let i = 0; i < n; i++) key[i] = spread(q(rec[i * 8] - x0)) | (spread(q(rec[i * 8 + 2] - z0)) << 1);
+  const order = Array.from({ length: n }, (_, i) => i).sort((p, r) => key[p] - key[r]);
+  const out = new Float32Array(n * 8);
+  order.forEach((src, j) => {
+    for (let k = 0; k < 8; k++) out[j * 8 + k] = rec[src * 8 + k];
+  });
+  return out;
+}
+
 /** Plants tile `t`: its own seeds, a fixed number of candidates for its area. */
 export function plantTile(cfg: PlantConfig, t: number): TilePlants {
   const { n, origin } = tileGrid(cfg.radius);
@@ -148,7 +173,7 @@ export function plantTile(cfg: PlantConfig, t: number): TilePlants {
     const out: number[] = [];
     const rnd = mulberry32(Math.imul(t + 1, 0x9e3779b1) ^ Math.imul(salt, 0x85ebca6b));
     for (let k = Math.floor(density * TILE * TILE + rnd()); k > 0; k--) tryOne(cfg, x0 + rnd() * TILE, z0 + rnd() * TILE, rnd, out);
-    return new Float32Array(out);
+    return mortonOrder(out, x0, z0);
   };
   return { tile: t, trees: plant(cfg.treeDensity, tryTree, 1), bushes: plant(cfg.bushDensity, tryBush, 2) };
 }

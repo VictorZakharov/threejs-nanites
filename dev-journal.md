@@ -27,7 +27,8 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   Leaf fragments (main view, `plazane` / `canopy`): all lighting 0.6 / 1.5 ms, of it the shadow lookup 0.26 / 0.66,
   fog 0.07 / 0.34; a depth prepass didn't pay (the vertex work twice). Compute dispatches batched into ~5 passes a
   frame (were ~36): -0.4..0.8 ms of frame time the GPU timers never showed. `plazane` now ~7.2 ms frame (~138 fps). The software rasterizer only from 25 m up (it lost 0.3-0.4 ms on the
-  ground): `plazane` 6.96 ms (~144 fps). Tried, no gain: a 2-tap shadow filter rotated per frame (-0.03..0.1 ms). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
+  ground): `plazane` 6.96 ms (~144 fps). Instance passes over the chunks in view only (was 2.5M threads, for the
+  camera and the sun): 6.5 ms (~154 fps), `ground` 6.9. Tried, no gain: a 2-tap shadow filter rotated per frame (-0.03..0.1 ms). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
   the per-pixel cost (relief floor, leaf overdraw), frame time ~1 ms over the GPU sum (bubbles between passes?).
 - Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
   now the bulk of "First frame ready".

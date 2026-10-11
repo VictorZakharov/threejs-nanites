@@ -22,6 +22,8 @@ import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
 import { billboardMethods } from './billboards.ts';
 import { computeBatch } from '../three-gaps.ts';
+import { InstanceChunks, CHUNK } from './chunks.ts';
+import { viewerPos } from '../planet.ts';
 import type { BuiltTree } from '../trees.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { Uint, UVec4 } from '../types.ts';
@@ -45,6 +47,7 @@ export class NaniteForest {
   cData!: StorageBufferNode<'vec4'>;
   inst!: StorageBufferNode<'vec4'>;
   typeInfo!: UniformArrayNode<'vec4'>;
+  chunks!: InstanceChunks; // (the instances in compact runs: the instance passes cull them on the CPU first)
   windOf!: UniformArrayNode<'float'>; // per type: 1 trees, 0 models (statues don't sway)
   instanceCount = 0;
   treeCount = 0; // (of instanceCount: then the bushes, then statueCount models)
@@ -147,6 +150,7 @@ export class NaniteForest {
     this.idx = storage(sb(idx, 1), 'uint', nIdx).toReadOnly();
     this.cData = storage(sb(cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
+    this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo);
     this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
 
     this.instanceCount = instances.a.length / 4;
@@ -193,11 +197,13 @@ export class NaniteForest {
     const r = this.renderer;
     view.ran = true; // (its buffers exist on the GPU from now on)
     const A = view.sets[0];
+    // the chunks of instances in view (the instance pass runs a thread per instance slot of each)
+    const seen = this.chunks.visible(f, viewerPos.value, view.lodPos.value, this.u.maxDist.value, view.chunkValues);
     computeBatch(r, [
       ...view.sets.map((set) => set.reset), // (phase 2 draws nothing unless occlusion() runs)
       ...(view.retest ? [view.retest.reset] : []),
       view.impReset,
-      view.instances,
+      [view.instances, seen * CHUNK],
       A.clampDispatch,
       [A.clusters, A.dispatchAttr],
       A.clampDraw,

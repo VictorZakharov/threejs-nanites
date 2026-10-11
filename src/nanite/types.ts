@@ -87,6 +87,10 @@ export interface ViewBase {
   impListAttr: THREE.StorageBufferAttribute; // the trees drawn as impostors this frame (their count: IMP_ARGS)
   impRetest: U<'uint', number>; // (main view) 1: phase 2 lists the impostors that pass the occlusion test
   ctr: Counters;
+  // the chunks it can see this frame: (first instance, count) each (a uniform array: the main view's instance pass
+  // already binds 8 storage buffers), see chunks.ts
+  chunkValues: THREE.Vector4[];
+  chunkList: UniformArrayNode<'vec4'>;
   sphereVisible(c: Vec3, r: Float): Bool;
   retest: Retest | null;
 }

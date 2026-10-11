@@ -113,7 +113,12 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy.
   Each stage's compute dispatches run in one compute pass (`computeBatch` in `three-gaps.ts`: a node's own size or
   indirect buffer): one `renderer.compute()` per dispatch was ~36 passes a frame, most a few threads, and their
-  overhead was frame time the GPU timers don't show (-0.4..0.8 ms; `orbit` with occlusion 8 -> 5.5 ms). Shadow-caster
+  overhead was frame time the GPU timers don't show (-0.4..0.8 ms; `orbit` with occlusion 8 -> 5.5 ms).
+  The instance passes run over the chunks in view only (`chunks.ts`): the instances in runs of up to 2048 (a planting
+  tile's plants, which the workers put in Morton order) with boxes round their spheres, tested on the CPU per frame and
+  view (frustum, fog distance, curvature) and listed two a vec4 in a uniform array (the main view's instance pass
+  already binds 8 storage buffers; ~1.1k chunks). It was a thread per instance, 2.5M, twice: the shadow map covers a
+  few hundred metres (-0.4 ms compute on the ground, -0.2..0.4 from above; `?chunks=0` tests every chunk: same image). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU

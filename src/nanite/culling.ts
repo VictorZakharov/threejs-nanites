@@ -6,6 +6,7 @@ import {
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
+import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
   FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
 } from './constants.ts';
@@ -197,6 +198,7 @@ export const cullingMethods = {
     const main = name === 'main';
     const planeValues = Array.from({ length: 6 }, () => new THREE.Vector4());
     const planes = uniformArray<'vec4'>(planeValues, 'vec4');
+    const chunkValues = Array.from({ length: Math.ceil(this.chunks.count / 2) }, () => new THREE.Vector4());
     const ctr = main ? this.mainCtr : makeCounters(); // (the main view's is shared with the software rasterizer)
     const v: ViewBase = {
       name,
@@ -212,6 +214,8 @@ export const cullingMethods = {
       // test (~2k at ground level, of ~240k in view).
       // (the shadow view's: trees that cast their impostor's shadow, see buildImpostorShadowMesh)
       impListAttr: new THREE.StorageBufferAttribute(new Uint32Array(this.instanceCount), 1),
+      chunkValues,
+      chunkList: uniformArray<'vec4'>(chunkValues, 'vec4'),
       impRetest: uniform(0, 'uint'),
       ctr,
       sphereVisible: (c, r) => {
@@ -256,28 +260,35 @@ export const cullingMethods = {
     // phase 1 (and the only pass of the shadow view)
     const setA = sets[0];
     const instances = Fn(() => {
-      const i = instanceIndex;
-      const { ti, s, centerC, r, dCam, px, visible } = treeInfo(i);
-      // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
-      const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
-      const far = px.lessThan(swPx);
-      const retest = v.retest;
-      if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
-      else {
-        // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
-        // phase 2 won't run (occlusion off, no HZB yet)
-        If(visible.and(px.lessThan(swPx.mul(FADE_HI))), () => {
-          If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i));
-        });
-      }
-      If(visible.and(far.not()), () => {
-        if (retest) {
-          If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
-        } else {
-          setA.emit(i, ti, s, dCam, r);
+      // thread k: slot k % CHUNK of the (k / CHUNK)-th chunk in view (see chunks.ts)
+      const k = instanceIndex.shiftRight(CHUNK_SHIFT);
+      const pair = v.chunkList.element(k.shiftRight(1)), odd = k.bitAnd(1).equal(1);
+      const first = uint(select(odd, pair.z, pair.x)), count = uint(select(odd, pair.w, pair.y));
+      const slot = instanceIndex.bitAnd(CHUNK - 1);
+      If(slot.lessThan(count), () => {
+        const i = first.add(slot).toVar();
+        const { ti, s, centerC, r, dCam, px, visible } = treeInfo(i);
+        // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
+        const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
+        const far = px.lessThan(swPx);
+        const retest = v.retest;
+        if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
+        else {
+          // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
+          // phase 2 won't run (occlusion off, no HZB yet)
+          If(visible.and(px.lessThan(swPx.mul(FADE_HI))), () => {
+            If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i));
+          });
         }
+        If(visible.and(far.not()), () => {
+          if (retest) {
+            If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
+          } else {
+            setA.emit(i, ti, s, dCam, r);
+          }
+        });
       });
-    })().compute(this.instanceCount, [WG]);
+    })().compute(this.chunks.count * CHUNK, [WG]);
 
     const retest = v.retest;
     if (retest) {
