@@ -54,8 +54,8 @@ export const CD_STRIDE = 5;
 // uints, the last firstInstance, always 0), the stats (STATS: bark tris,
 // leaf tris, trees, occluded trees, occluded impostors) and the clamped work-item count (ITEM_COUNT); then the main
 // view's retest counts (RETEST: trees, clusters appended; trees, clusters clamped) and the software rasterizer's
-// (SW: clusters, triangles appended; clusters clamped); last the impostor draw's indirect args (IMP_ARGS: 6 vertices,
-// instances = the impostors listed this frame, see View.impListAttr).
+// (SW: clusters, triangles appended; clusters clamped); last the impostor draw's indirect args (IMP_ARGS, indexed: 6
+// indices, instances = the impostors listed this frame (see View.impListAttr), then 0s).
 export const SET_STRIDE = 16;
 export const ARGS = { bark: 0, leaf: 4 };
 export const STATS = 9;
@@ -63,7 +63,7 @@ export const ITEM_COUNT = 14;
 export const RETEST = 32;
 export const SW = 36;
 export const IMP_ARGS = 40;
-export const CTR_SIZE = 44;
+export const CTR_SIZE = 45;
 
 /**
  * A view's counters buffer, with one node per access mode: a shader must use only one of them (two bindings of the
@@ -73,7 +73,7 @@ export const CTR_SIZE = 44;
 export function makeCounters() {
   const init = new Uint32Array(CTR_SIZE);
   for (const s of [0, SET_STRIDE]) init[s + ARGS.bark] = init[s + ARGS.leaf] = MAX_TRIS * 3; // (vertices / indices per draw instance)
-  init[IMP_ARGS] = 6; // (an impostor quad: two triangles)
+  init[IMP_ARGS] = 6; // (an impostor quad: two triangles, four vertices)
   const attr = new THREE.IndirectStorageBufferAttribute(init, 1);
   return {
     attr,

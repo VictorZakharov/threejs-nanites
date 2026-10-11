@@ -275,7 +275,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   switch size (`dagCut`, `?bakepx=`, 0 = full detail).
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
-  per tree, otherwise sub-pixel trees flicker on/off as the camera moves. The instance pass already leaves out the
+  per tree, otherwise sub-pixel trees flicker on/off as the camera moves. The share kept is `(w / MIN_PX)^2`: the
+  quad grows `MIN_PX / w` both ways, so that keeps the coverage (`w / MIN_PX` drew `MIN_PX / w` times the trees'
+  coverage, `?impkeep=width`: ~3x from 9 km; the image barely changed, the mean colour came a little closer to all
+  geometry, `imppx=0`; 1080p `orbit` 702k -> 391k impostors, -0.5 ms; the phone's 9 km view 636k -> 504k). The quads
+  are indexed (`IMP_INDEX`: 4 vertex shader runs, not 6): a phone 8-9 km up spent its time by their count (35 ms for
+  553k, ~20 for 317k), not by its pixels. The instance pass already leaves out the
   ones sure to be dropped (`_impostorKept`: the quad's test at its widest enlargement); listed, they collapsed in the
   vertex shader: from 9 km up the user's phone drew 898k impostors for a 288x521 screen and phase 2 retested them
   all (`phonetop` at the phone's size: 1.35M listed -> 375k, same image).

@@ -45,7 +45,14 @@ const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
 const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const GROW_MAX = Math.max(...GROW);
+// the share of sub-MIN_PX trees kept: drawn MIN_PX / w times wider and taller, a tree keeps its coverage when (w /
+// MIN_PX)^2 of them are drawn (?impkeep=width: w / MIN_PX, MIN_PX / w times the coverage)
+const KEEP_AREA = new URLSearchParams(location.search).get('impkeep') !== 'width';
+const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(MIN_PX).pow(2) : wPx.div(MIN_PX));
 const deg = Math.PI / 180;
+// an impostor's quad, indexed: its vertex shader runs 4 times, not 6 (as the leaf cards, LEAF_INDEX in draw.ts); from
+// high up a phone draws ~500k of them, and its time followed their count, not the pixels
+const IMP_INDEX = new THREE.BufferAttribute(new Uint16Array([0, 1, 2, 0, 2, 3]), 1);
 // extra colour gains on top of each variant's impGain (side / top-down views), for experiments: ?impgain=r,g,b
 const gainParam = (name: string): number[] => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
 const IMP_GAIN = gainParam('impgain');
@@ -65,11 +72,11 @@ export const billboardMethods = {
     const fr = this.impFrame.element(uint(this._b(i).z));
     const pivot = a.xyz.add(vec3(0, fr.y.mul(s).mul(0.5), 0));
     const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
-    return wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(wPx.div(MIN_PX)));
+    return wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx)));
   },
 
   /**
-   * The billboard of tree `instanceIndex` (one quad, 6 vertices), facing `dirOf(pivot)` (towards the viewer: the
+   * The billboard of tree `instanceIndex` (one quad, 4 vertices), facing `dirOf(pivot)` (towards the viewer: the
    * camera, or the sun for the shadow casters), showing the atlas tiles baked from the nearest elevations (0, 30,
    * 60, 90 degrees; see ELEVATIONS): upright when seen from the side (base on the ground), lying flat when seen from
    * above (a cylindrical billboard would be seen edge-on from above, leaving a bald patch under the camera).
@@ -104,10 +111,10 @@ export const billboardMethods = {
       const type = uint(b.z);
       const ti = this.typeInfo.element(type);
       const s = a.w;
-      // corners of a quad, two triangles: (0,0) (1,0) (1,1) / (0,0) (1,1) (0,1)
+      // corners of the quad (0,0) (1,0) (1,1) (0,1), two triangles by IMP_INDEX
       const vi = vertexIndex;
-      const cx = select(vi.equal(1).or(vi.equal(2)).or(vi.equal(4)), float(1), float(0));
-      const cy = select(vi.equal(2).or(vi.equal(4)).or(vi.equal(5)), float(1), float(0));
+      const cx = select(vi.equal(1).or(vi.equal(2)), float(1), float(0));
+      const cy = select(vi.equal(2).or(vi.equal(3)), float(1), float(0));
       const h0 = frameH.element(type).mul(s);
       const pivot = a.xyz.add(vec3(0, h0.mul(0.5), 0));
       const dir = dirOf(pivot);
@@ -128,7 +135,7 @@ export const billboardMethods = {
         // there's no flicker, only a rare tree fading out as you climb)
         const wPx = frameW.element(type).mul(s).mul(grow).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
         If(wPx.lessThan(MIN_PX), () => {
-          on.assign(on.and(hash(inst.add(7)).lessThan(wPx.div(MIN_PX))));
+          on.assign(on.and(hash(inst.add(7)).lessThan(keepShare(wPx))));
           grow.mulAssign(float(MIN_PX).div(max(wPx, 1e-3)));
         });
         // same projected height as the instance pass (geometry share of the cross-fade)
@@ -254,8 +261,9 @@ export const billboardMethods = {
   /** One instance per impostor the view listed this frame (the draw args in its counters, IMP_ARGS). */
   _impostorGeometry(this: NaniteForest, view: View): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
-    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
-    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
+    geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
+    geo.setIndex(IMP_INDEX);
     geo.setIndirect(view.ctr.attr, IMP_ARGS * 4); // (byte offset)
     return geo;
   },
