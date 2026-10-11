@@ -20,9 +20,9 @@ comes from the live site, by screenshot and the performance panel's copied repor
 - **Phones high up.** The shadow map, grass and occlusion are off up there, auto quality keeps the resolution when
   lowering it doesn't pay, impostors keep their coverage when enlarged ((w / 2 px)^2 kept) and are indexed quads.
   The phone's GPU time follows the impostor count (35 ms for 553k at 9 km on a 576x1248 screen), not its pixels:
-  from 9 km most trees are still ~2 px there. Next: its Profile GPU at 9 km; cheaper tiny impostors (8 atlas
-  fetches a pixel for 4 elevations; a compute splat into the software rasterizer's buffer, as Nanite does with tiny
-  triangles?). The floor shader computes litter and cobbles everywhere (8 noises, a Voronoi) and multiplies them by 0
+  from 9 km most trees are still ~2 px there; a pixel now reads 4 atlas texels, not 8. Next: its Profile GPU at
+  9 km; a compute splat of tiny impostors into the software rasterizer's buffer (as Nanite does with tiny
+  triangles)? The floor shader computes litter and cobbles everywhere (8 noises, a Voronoi) and multiplies them by 0
   past 200 m.
 - **Occlusion bounds.** On `ground` (`--probe=cullcheck --query=ids=1`): 1.07M triangles seen of 3.5M drawn; the
   largest unculled share (1.27M) is clusters whose sphere's rect shows something farther: tighter bounds (cluster

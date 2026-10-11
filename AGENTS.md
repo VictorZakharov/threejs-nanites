@@ -280,7 +280,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   coverage, `?impkeep=width`: ~3x from 9 km; the image barely changed, the mean colour came a little closer to all
   geometry, `imppx=0`; 1080p `orbit` 702k -> 391k impostors, -0.5 ms; the phone's 9 km view 636k -> 504k). The quads
   are indexed (`IMP_INDEX`: 4 vertex shader runs, not 6): a phone 8-9 km up spent its time by their count (35 ms for
-  553k, ~20 for 317k), not by its pixels. The instance pass already leaves out the
+  553k, ~20 for 317k), not by its pixels. A pixel samples only the two elevation tiles the quad blends (the ±7.5 degree bands don't
+  overlap; `vBlend`: the lower tile, the upper's weight), colour and normal: 4 atlas texels, not 8 (same image;
+  `slope` 2.67 -> 2.12 ms, `fogline` -0.4, `topdown700` -0.3, 9 km -0.3 on the dev GPU). The instance pass already leaves out the
   ones sure to be dropped (`_impostorKept`: the quad's test at its widest enlargement); listed, they collapsed in the
   vertex shader: from 9 km up the user's phone drew 898k impostors for a 288x521 screen and phase 2 retested them
   all (`phonetop` at the phone's size: 1.35M listed -> 375k, same image).
