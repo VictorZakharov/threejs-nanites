@@ -241,7 +241,10 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   switch size (`dagCut`, `?bakepx=`, 0 = full detail).
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
-  per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
+  per tree, otherwise sub-pixel trees flicker on/off as the camera moves. The instance pass already leaves out the
+  ones sure to be dropped (`_impostorKept`: the quad's test at its widest enlargement); listed, they collapsed in the
+  vertex shader: from 9 km up the user's phone drew 898k impostors for a 288x521 screen and phase 2 retested them
+  all (`phonetop` at the phone's size: 1.35M listed -> 375k, same image).
 - The impostor draws (view and shadow map) have one instance per entry of the view's impostor list (`impListAttr`,
   count in the counters at `IMP_ARGS`, the indirect args). The main view's is appended by phase 2 for the impostors
   that pass its occlusion test (`impRetest`: phase 1 appends them itself when phase 2 won't run: `willOcclude`).

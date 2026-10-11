@@ -15,7 +15,7 @@ import type { NaniteForest } from './forest.ts';
 import type { View } from './types.ts';
 import type { ImpostorAtlas } from '../impostors.ts';
 import type { TreeVariant } from '../trees.ts';
-import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
+import type { Bool, Float, Uint, Vec2, Vec3 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { autumnOf, autumnColour } from '../autumn.ts';
 
@@ -44,6 +44,7 @@ const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new
 const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
 const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
+const GROW_MAX = Math.max(...GROW);
 const deg = Math.PI / 180;
 // extra colour gains on top of each variant's impGain (side / top-down views), for experiments: ?impgain=r,g,b
 const gainParam = (name: string): number[] => (new URLSearchParams(location.search).get(name) ?? '1,1,1').split(',').map(Number);
@@ -53,6 +54,20 @@ const v3 = (c: number[]) => new THREE.Vector3(c[0], c[1], c[2]);
 
 export const billboardMethods = {
   // ------------------------------------------------------------------ impostors (far field)
+  /**
+   * False if tree i's impostor is sure to be thinned out (the quad's own test below, MIN_PX, with its widest
+   * enlargement: it keeps all the quad would): the instance pass then doesn't list it. Listed, the quads collapsed
+   * themselves: from 9 km up a phone drew 898k impostors for a 288x521 screen, and phase 2 tested them all.
+   */
+  _impostorKept(this: NaniteForest, i: Uint): Bool {
+    const u = this.u;
+    const a = this._a(i), s = a.w;
+    const fr = this.impFrame.element(uint(this._b(i).z));
+    const pivot = a.xyz.add(vec3(0, fr.y.mul(s).mul(0.5), 0));
+    const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
+    return wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(wPx.div(MIN_PX)));
+  },
+
   /**
    * The billboard of tree `instanceIndex` (one quad, 6 vertices), facing `dirOf(pivot)` (towards the viewer: the
    * camera, or the sun for the shadow casters), showing the atlas tiles baked from the nearest elevations (0, 30,
@@ -65,6 +80,7 @@ export const billboardMethods = {
     const u = this.u;
     const n = atlas.frames.length;
     const frameW = uniformArray<'float'>(atlas.frames.map((f) => f.w), 'float');
+    atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, 0, 0)); // (for _impostorKept)
     const frameH = uniformArray<'float'>(atlas.frames.map((f) => f.h), 'float');
     const v = {
       vUv: varying(vec2(0), 'vImpUv'),

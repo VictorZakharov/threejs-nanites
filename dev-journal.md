@@ -35,6 +35,12 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   the per-pixel cost (relief floor, leaf overdraw), frame time ~1 ms over the GPU sum (bubbles between passes?).
 - Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
   now the bulk of "First frame ready".
+- Phone (S25, 2026-10-11): 60 fps on the ground, 21 at 9 km (`phonetop`: 898k impostors listed, GPU 43 ms); the
+  sure-to-be-dropped sub-2 px ones are no longer listed (1.35M -> 375k at its size). Still: the keep share is
+  wPx / MIN_PX while the quad grows (MIN_PX / wPx)^2, so coverage grows as trees shrink (squared would draw ~4x
+  fewer from high up, but changes the look: calibrate against geometry first).
+- Low-end laptop (AMD RDNA-2 iGPU, 2026-10-11): 15 fps at the spawn, GPU 62 ms at tau 8, 52% resolution, 471k
+  triangles: fixed per-pixel/pass costs (shadow map, floor relief, render targets); waiting for its Profile GPU.
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms
   frame). If it's still far off: auto quality has no knob for the remaining fixed costs (instance passes over 2.5M,
   ~240k impostor retests, the shadow map, grass): a last tier (bushes nearer, shadows off) or a Mac start preset.

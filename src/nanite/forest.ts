@@ -48,6 +48,10 @@ export class NaniteForest {
   inst!: StorageBufferNode<'vec4'>;
   typeInfo!: UniformArrayNode<'vec4'>;
   chunks!: InstanceChunks; // (the instances in compact runs: the instance passes cull them on the CPU first)
+  // per tree type its impostor frame (width, height in metres at scale 1), from the atlas once it's baked (until
+  // then wide: no impostor is thinned out, see _impostorKept)
+  impFrameValues!: THREE.Vector4[];
+  impFrame!: UniformArrayNode<'vec4'>;
   windOf!: UniformArrayNode<'float'>; // per type: 1 trees, 0 models (statues don't sway)
   instanceCount = 0;
   treeCount = 0; // (of instanceCount: then the bushes, then statueCount models)
@@ -151,6 +155,8 @@ export class NaniteForest {
     this.cData = storage(sb(cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
     this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo);
+    this.impFrameValues = typeInfo.map(() => new THREE.Vector4(1e9, 0, 0, 0));
+    this.impFrame = uniformArray<'vec4'>(this.impFrameValues, 'vec4');
     this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
 
     this.instanceCount = instances.a.length / 4;

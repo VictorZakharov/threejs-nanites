@@ -276,7 +276,7 @@ export const cullingMethods = {
         else {
           // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
           // phase 2 won't run (occlusion off, no HZB yet)
-          If(visible.and(px.lessThan(swPx.mul(FADE_HI))), () => {
+          If(visible.and(px.lessThan(swPx.mul(FADE_HI))).and(this._impostorKept(i)), () => {
             If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i));
           });
         }

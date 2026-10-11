@@ -54,6 +54,8 @@ export const VIEWS = {
   inclouds: { x: 0, z: 3000, y: 2260, yaw: 10, pitch: -5 },
   aboveclouds: { x: 0, z: 4000, y: 3200, yaw: 0, pitch: -12 },
   orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
+  // the user's Samsung S25 report (20 fps "all the way up": 898k impostors listed for a 288x521 screen), straight down
+  phonetop: { x: 20, z: 40, agl: 9004, yaw: -0.7, pitch: -85.7 },
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
   // looking down (impostor top views, coverage)
   // the forest from ~2.5 km at an angle (user: "from up top pattern of trees looks repetitive")
