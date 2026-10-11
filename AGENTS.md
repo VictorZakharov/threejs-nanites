@@ -135,7 +135,10 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
   is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
   last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). It's off
+  "optimize the algo before we downgrade"). A resolution step down is a trial: if it saved under a third of its share of the pixels
+  (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
+  10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
+  shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
   `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
@@ -167,7 +170,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
   that moved with the camera (the user). Each ring's grid is drawn as 8 x 8 tiles (`?grasstiles=`; `tileOff` is a
   per-object uniform) and `update()` draws only the tiles in the view frustum and the ring's annulus: one draw of the
-  whole square ran every blade's vertex shader behind the camera too (`plazane` 0.57 -> 0.21 ms, same image; ~0.6 ms
+  whole square ran every blade's vertex shader behind the camera too; a tile is out of the ring by its 3D distance (by
+  the ground distance alone, from high up every tile under the camera was drawn, every blade dropped: 20% of a phone's
+  GPU time 8 km up) (`plazane` 0.57 -> 0.21 ms, same image; ~0.6 ms
   more CPU for the draws). Blades: 4 segments, normals rounded across the width, colour per pixel
   (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
   the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
@@ -245,7 +250,11 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   `lighting.ts`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
   (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
   where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs the real map on `topdown700`, comparing
-  mean image colour.
+  mean image colour.  From high up the map is skipped: past `FAR_TEXEL` (`?fartexel=`, 5 m) texels it can't draw one
+  crown's shadow, so the average blends in from half that texel size (by altitude: ~0.9-1.8 km on desktop, 0.2-0.4 km
+  on a phone's 512 map) and the shadow pass and its culling stop (`shadowFarOnly`; a phone 8 km up spent ~30% of its
+  GPU time on ~800k impostor shadow quads in 23 m texels). The coarse map lets light through: the average is up to
+  6-8/255 darker there, blended over ~700 m of climb rather than a jump.
 - Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
   shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
   to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.
@@ -356,7 +365,10 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Impostors are
   drawn there too, tested once against this frame's HZB (they're listed in the retest list with `IMP_BIT`; hidden
   ones get their flag cleared). Clouds are on that layer too, so they're drawn after every tree. Check with the
-  `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. Foliage's gaps let far depth
+  `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. Only below `OCC_ALTITUDE` (150 m above the
+  ground, `?occalt=`; `forest.occlusionOn` is the menu's switch): from above little hides anything and its passes
+  cost (260 m up 0.24 ms, 8.8 km 0.4, a phone 9%), and the gap closing culled some visible 2-3 px trees (the user:
+  "disappearing trees when going up"). Foliage's gaps let far depth
   into every block of a max pyramid: on the ground 86% of the drawn triangles were hidden (`--probe=visible
   --query=ids=1`). Gaps up to 2 px are closed before it's built (`HZB_CLOSE`, `?hzbclose=`: not conservative, 1% of
   the seen triangles lost, no added flicker; -0.6..0.9 ms on the ground). A test reads 8x8 texels (`HZB_TAPS`) at a

@@ -42,6 +42,10 @@ export interface NaniteForest
 export class NaniteForest {
   readonly renderer: THREE.WebGPURenderer;
   frozen = false;
+  /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (main.ts). */
+  occlusionOn = true;
+  /** The shadow view ran this frame (its stats are stale otherwise: shadows off, or the average shadow from high up). */
+  shadowActive = false;
   readonly u: ForestUniforms;
   readonly textures: ForestTextures;
   // GPU data (see _buildBuffers and the accessors)
@@ -246,6 +250,7 @@ export class NaniteForest {
     this.sw.begin(this.renderer, camera, size.x, size.y);
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)
     this._cull(this.main, camera);
+    this.shadowActive = Boolean(shadowCamera);
     if (shadowCamera) {
       shadowCamera.updateMatrixWorld();
       u.sunDir.value.set(0, 0, 1).transformDirection(shadowCamera.matrixWorld); // (a camera looks down its -z)

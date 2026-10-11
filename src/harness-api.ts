@@ -135,6 +135,7 @@ Object.assign(demo, {
     auto.on = true;
     auto.budget = budget;
     auto.gpuMs = 0;
+    auto.trials = [];
     const out = [];
     for (const z of [1, controls.zoomMax, 1, controls.zoomMax]) {
       controls.zoomTarget = z;
@@ -164,6 +165,8 @@ Object.assign(demo, {
     auto.on = true;
     auto.budget = budget;
     auto.gpuMs = 0;
+    auto.trials = [];
+    auto.forget?.(); // (a new view: what the last one learned about the resolution doesn't hold)
     // (?autostart=low: from the lowest quality, as after the orbit: does it come back up?)
     const low = new URLSearchParams(location.search).get('autostart') === 'low';
     forest.u.tau.value = low ? auto.maxTau : 1;
@@ -180,7 +183,7 @@ Object.assign(demo, {
     await new Promise((r) => setTimeout(r, ms));
     renderer.setAnimationLoop(null);
     controls.keys.clear();
-    return { tau: +forest.u.tau.value.toFixed(2), scale: +auto.scale.toFixed(2), size: `${size.x}x${size.y}`, gpuMs: +auto.gpuMs.toFixed(2), fps: +((n * 1000) / (performance.now() - t0)).toFixed(1), budget };
+    return { tau: +forest.u.tau.value.toFixed(2), scale: +auto.scale.toFixed(2), size: `${size.x}x${size.y}`, gpuMs: +auto.gpuMs.toFixed(2), fps: +((n * 1000) / (performance.now() - t0)).toFixed(1), budget, trials: auto.trials ?? [] };
   },
   async bench(n = 120) {
     const device = gpuBackend(renderer).device;
@@ -213,7 +216,7 @@ Object.assign(demo, {
     const s = await forest.readStats();
     const sh = await forest.readStats(forest.shadow);
     return {
-      shadowTris: ctx.shadowsOn() ? sh.barkTris + sh.leafTris : 0,
+      shadowTris: ctx.shadowsOn() && forest.shadowActive ? sh.barkTris + sh.leafTris : 0,
       frameMs,
       gpuRenderMs: med(gpuR),
       gpuComputeMs: med(gpuC),

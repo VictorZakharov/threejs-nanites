@@ -62,7 +62,7 @@ export function createMenu(ctx: MenuContext) {
     { label: 'Grass', get: () => ctx.grass.visible, set: (v) => (ctx.grass.visible = v) },
     { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
-    { label: 'Occlusion culling', get: () => u.occlusion.value > 0, set: (v) => (u.occlusion.value = v ? 1 : 0) },
+    { label: 'Occlusion culling', get: () => forest.occlusionOn, set: (v) => (forest.occlusionOn = v) },
     ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),
   ];
   const overlays: Toggle[] = [

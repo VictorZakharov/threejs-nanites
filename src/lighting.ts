@@ -88,6 +88,20 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
     const fade = max(smoothstep(0.75, 0.97, edge), farEverywhere);
     return mix(shadow, mix(float(1), far, farShadowOn), fade);
   });
+  // Past this texel size (m) the map can't draw one tree's shadow (a crown is 5-8 m across): from high up the average
+  // shadow takes over everywhere and the shadow pass is skipped (`?fartexel=`). A phone 8 km up spent ~30% of its GPU
+  // time drawing ~800k impostor shadow quads into 23 m texels. It blends in from half that texel size (by the
+  // altitude, not the map's stepped extent): the coarse map lets light through the crowns, the calibrated average is
+  // 6-8/255 darker, a jump as you climbed.
+  const FAR_TEXEL = Number(params.get('fartexel') ?? 5);
+  let agl = 0;
+  /** Per frame, after follow(): the average shadow's share everywhere; true when it's all of it (skip the pass). */
+  function shadowFarOnly(): boolean {
+    const texel = (2 * Math.min(SHADOW_MAX, 110 * (1 + agl / 40))) / sun.shadow.mapSize.x;
+    const t = Math.min(1, Math.max(0, (texel - FAR_TEXEL / 2) / (FAR_TEXEL / 2)));
+    farEverywhere.value = params.get('farall') === '1' ? 1 : t * t * (3 - 2 * t);
+    return farEverywhere.value >= 1;
+  }
   sun.shadow.bias = -0.0004;
   sun.shadow.normalBias = 0.6;
   sun.shadow.camera.layers.set(1); // the forest has dedicated (coarser, light-culled) shadow-caster meshes on layer 1
@@ -98,7 +112,7 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
   /** Per frame: the shadow map centred on the ground the camera looks at (`gy`: ground height under the camera). */
   function follow(camera: THREE.Camera, gy: number, shift: THREE.Vector3): void {
     // shadow map: centred on the ground the camera looks at, extent from altitude
-    const agl = Math.max(0, camera.position.y - gy);
+    agl = Math.max(0, camera.position.y - gy);
     // (no lower cap than the view needs: at 1.8 km a 640 m map was a rectangle of real shadows in an evenly shaded
     // forest; the texels stay ~2 px at the nearest ground as the map grows with altitude)
     setShadowExtent(Math.min(SHADOW_MAX, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
@@ -120,5 +134,5 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
     sun.shadow.updateMatrices(sun);
   }
 
-  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap };
+  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly };
 }

@@ -21,6 +21,8 @@ export interface AutoQuality {
   busy: boolean;
   busySince?: number; // (when the pending timestamp readback started)
   onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)
+  trials?: string[]; // resolution steps tried and what they saved (src/auto-quality.ts; the harness's autoTest)
+  forget?: () => void; // drops the controller's resolution trial state (the harness, between views)
 }
 
 export interface HudContext {
@@ -67,7 +69,7 @@ export function createHud(ctx: HudContext) {
   async function update(): Promise<void> {
     gs = await forest.readStats();
     // (the shadow map's casters: on a phone they cost more than the view itself)
-    const sh = ctx.shadowsOn() ? await forest.readStats(forest.shadow) : null;
+    const sh = ctx.shadowsOn() && forest.shadowActive ? await forest.readStats(forest.shadow) : null;
     shadowTris = sh ? sh.barkTris + sh.leafTris + sh.impostors * 2 : 0;
     const tris = gs.barkTris + gs.leafTris;
     const rows = [

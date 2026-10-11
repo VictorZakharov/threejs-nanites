@@ -28,8 +28,23 @@ export function createAutoQuality(
   let saved: [number, number] | null = null;
   let zoomState = false, wasOn = auto.on;
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
+  // A resolution step down is a trial: if it saved under a third of its share of the pixels, the cost isn't the
+  // pixels (a phone 8 km up: 317k impostors and their shadows, half the pixels saved 9%), so it goes back and the
+  // resolution holds (see `futile`): it only blurred the image ("makes it look lame", the user).
+  // (compared by the median of the raw samples since the last change: the eased time lags every tau step)
+  let trial: { from: number; before: number; at: number } | null = null;
+  let futile: { gpu: number; at: number } | null = null;
+  const recent: [number, number][] = []; // (time, GPU ms) of each raw sample, the last 3 s
+  const median = (from: number, to: number): number => {
+    const v = recent.filter(([t]) => t > from && t <= to).map(([, m]) => m).sort((a, b) => a - b);
+    return v.length >= 3 ? v[v.length >> 1] : NaN;
+  };
+  auto.forget = (): void => {
+    trial = futile = null;
+    recent.length = 0;
+  };
 
-  const step = (over: number): void => {
+  const step = (over: number, timed: boolean): void => {
     const now = performance.now();
     // far from the budget (after a jump in cost: the zoom, a turn): bigger, quicker steps; x1.3 a half second was
     // seconds of slow frames, and /1.1 seconds of lost detail after
@@ -37,7 +52,13 @@ export function createAutoQuality(
     // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
     if (now - lastAdjust < (far ? 250 : auto.scale < 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
     if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
-    else if (over > 1.1 && auto.scale > 0.5) setScale(Math.max(0.5, auto.scale * (far ? 0.75 : 0.85)));
+    else if (over > 1.1 && auto.scale > 0.5 && !futile) {
+      const before = median(lastAdjust + 200, now);
+      if (timed && !(before > 0)) return; // (not measured since the last change yet)
+      if (timed) trial = { from: auto.scale, before, at: now };
+      setScale(Math.max(0.5, auto.scale * (far ? 0.75 : 0.85)));
+      if (timed) restart(); // (measure the new resolution afresh)
+    }
     // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
@@ -65,6 +86,7 @@ export function createAutoQuality(
     const z = zoom.zoomTarget > 1;
     if (z === zoomState) return;
     zoomState = z;
+    trial = futile = null;
     if (z) saved = [tau.value, auto.scale];
     else if (saved && auto.on) {
       tau.value = saved[0];
@@ -79,7 +101,7 @@ export function createAutoQuality(
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
     auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
     const timed = gpuBackend(renderer).trackTimestamp, now = performance.now();
-    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (timed ? 50 : 16.7));
+    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (timed ? 50 : 16.7), false);
     if (!timed) return;
     if (auto.busy && now - (auto.busySince ?? 0) < 1000) return; // (a readback that never settles is dropped)
     auto.busy = true;
@@ -93,7 +115,28 @@ export function createAutoQuality(
       auto.renderMs = ease(auto.renderMs, r);
       auto.computeMs = ease(auto.computeMs, c || 0);
       auto.onSample?.(r, c || 0);
-      if (auto.on) step(auto.gpuMs / auto.budget);
+      const t = performance.now();
+      recent.push([t, g]);
+      while (recent.length && recent[0][0] < t - 3000) recent.shift();
+      if (trial && t - trial.at > 900) {
+        const after = median(trial.at + 300, t);
+        if (!(after > 0) && t - trial.at < 2000) return; // (a few more samples)
+        const pixels = 1 - (auto.scale / trial.from) ** 2, saved = 1 - after / trial.before;
+        (auto.trials ??= []).push(`${trial.from.toFixed(2)}->${auto.scale.toFixed(2)} ${trial.before.toFixed(2)}->${after.toFixed(2)} ms: saved ${(saved * 100).toFixed(0)}% of ${(pixels * 100).toFixed(0)}% pixels`);
+        if (saved < pixels / 3 && auto.on) {
+          setScale(trial.from);
+          futile = { gpu: trial.before, at: t };
+          restart();
+        }
+        trial = null;
+        return;
+      }
+      if (trial) return; // (no other step while one is on trial)
+      const m = median(Math.max(lastAdjust + 200, t - 1000), t);
+      // (held until the cost changes by half, not before 10 s, or for a minute: each retry is a second of blur, and
+      // GPU timings drift by 30% on their own)
+      if (futile && ((m > 0 && Math.abs(m / futile.gpu - 1) > 0.5 && t - futile.at > 10000) || t - futile.at > 60000)) futile = null;
+      if (auto.on) step(auto.gpuMs / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);

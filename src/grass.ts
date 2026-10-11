@@ -219,10 +219,12 @@ export function createGrass(ctx: GrassContext) {
         for (const m of r.tiles) {
           const off = m.userData.tileOff as THREE.Vector2;
           const x0 = (ox + off.x) * r.cell, z0 = (oz + off.y) * r.cell;
-          // every blade is dropped past the radius and inside 80% of the inner ring's (by 3D distance, see `keep`)
-          const near = Math.hypot(Math.max(x0 - c.x, 0, c.x - x0 - w), Math.max(z0 - c.z, 0, c.z - z0 - w));
-          if (near >= r.radius) { m.visible = false; continue; }
+          // every blade is dropped past the radius and inside 80% of the inner ring's (by 3D distance, see `keep`;
+          // by the distance along the ground alone, from high up every tile under the camera was drawn, all of it
+          // dropped: 20% of a phone's GPU time 8 km up)
           const [lo, hi] = heightRange(x0, z0, w);
+          const near = Math.hypot(Math.max(x0 - c.x, 0, c.x - x0 - w), Math.max(z0 - c.z, 0, c.z - z0 - w), Math.max(0, c.y - hi - 1, lo - c.y));
+          if (near >= r.radius) { m.visible = false; continue; }
           const far = Math.hypot(Math.max(c.x - x0, x0 + w - c.x), Math.max(c.z - z0, z0 + w - c.z), Math.max(c.y - lo, hi + 1 - c.y));
           if (far <= r.inner * 0.8) { m.visible = false; continue; }
           box.min.set(x0 - 0.5, lo - 0.3, z0 - 0.5); // (a blade leans and bends up to ~0.3 m off its cell)

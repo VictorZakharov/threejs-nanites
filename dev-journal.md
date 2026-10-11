@@ -55,6 +55,12 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   `canopyzoom`: per-triangle ~0.28 ms/M hardware (wind costs
   nothing), fill ~9 ms (the leaf levels keep the card area: half the cards, twice the size). Coarser leaves
   (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
+- Phone (S25, 2026-10-11, latest): 60 fps low down, but high up "washes everything, blur" at 45 fps: GPU 23 ms at
+  288x521 (tau 8, 50%), 317k impostors + 1.6M shadow-caster triangles; half the pixels saved 9%. Done: the shadow map
+  gives way to the average from high up (blended), grass tiles culled by 3D distance, occlusion off above 150 m (also
+  the user's "trees disappear going up"), auto quality keeps the resolution when lowering it doesn't pay. At phone
+  size on the dev GPU 9 km up: 2.0 -> 0.94 ms. Next: its report after this; impostor keep share by area
+  (`(w/MIN_PX)^2`, ~4x fewer from high up, changes the look: calibrate); temporal upscaling.
 - NEXT (user, 2026-10-11, 4070 Ti): zoom from 478 m still "washed" (auto at tau 8 and 66%; view `zoommid`
   `--zoom=5 --size=1906x1045`). Mostly tau, not resolution: each coarser leaf level covered more (cards grown x2
   area, the fine ones overlap), tree share 0.18 at tau 1 -> 0.05 at 8. Done: leaf levels grown to the coverage

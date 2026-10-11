@@ -41,6 +41,8 @@ import { GodRays } from './godrays.ts';
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
 const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
+// occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
+const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
 const TREE_COUNT = Number(params.get('trees') ?? 1000000);
 if (HARNESS) document.body.classList.add('harness');
 if (params.get('help') === '1') document.body.classList.add('show-help'); // (the key help under the harness)
@@ -88,7 +90,7 @@ async function start() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
-  const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap } =
+  const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly } =
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
@@ -267,7 +269,7 @@ async function start() {
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
   const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
   forest.setDepthSource(sceneRT.depthTexture, samples);
-  forest.u.occlusion.value = params.get('occ') === '0' ? 0 : 1;
+  forest.occlusionOn = params.get('occ') !== '0';
 
   const viewSize = new THREE.Vector2(), size = new THREE.Vector2();
   function fitToWindow() {
@@ -315,15 +317,20 @@ async function start() {
     const altitude = Math.max(0, camera.position.y - gy);
     // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
     if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
+    // occlusion culling only up to OCC_ALTITUDE (to 130% of it): from above little hides anything and its passes cost
+    forest.u.occlusion.value = forest.occlusionOn && altitude < OCC_ALTITUDE * (forest.u.occlusion.value ? 1.3 : 1) ? 1 : 0;
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     forest.u.maxDist.value = fogFar.value;
 
     fitShadowMap(size.x * size.y); // (before follow: it snaps the map to its texels)
     follow(camera, gy, demo.shadowShift);
+    // (from high up the average shadow everywhere, no shadow pass: lighting.ts FAR_TEXEL)
+    const castShadows = shadowFarOnly() ? false : shadowsOn;
+    sun.shadow.autoUpdate = castShadows;
 
     renderer.getDrawingBufferSize(size);
-    forest.update(camera, size, time, shadowsOn ? sun.shadow.camera : null);
+    forest.update(camera, size, time, castShadows ? sun.shadow.camera : null);
     // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);
     renderer.setMRT(sceneMRT);

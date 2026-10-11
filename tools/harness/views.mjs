@@ -54,6 +54,8 @@ export const VIEWS = {
   inclouds: { x: 0, z: 3000, y: 2260, yaw: 10, pitch: -5 },
   aboveclouds: { x: 0, z: 4000, y: 3200, yaw: 0, pitch: -12 },
   orbit: { x: 0, z: 9000, y: 8800, yaw: 0, pitch: -28 },
+  // the user's README screenshot (8965 m up, the plaza 5.5 km ahead: 605 plants drawn as geometry, 46k software triangles)
+  orbitsteep: { x: 0, z: 5500, agl: 8965, yaw: 0, pitch: -48 },
   // the user's 4070 Ti report: right-mouse zoom over the canopy into the distance, frames to 20 ms (p95 21.8, 278k
   // impostors, 7.3M software triangles, compute 3.6 ms); use with --zoom=5
   canopyzoom: { x: -1336, z: 756, agl: 193, yaw: -164.5, pitch: -7 },
