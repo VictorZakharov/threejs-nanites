@@ -173,14 +173,27 @@ export async function buildDag(req: DagRequest): Promise<DagResult> {
     const leafLevels = leaves.pos.length ? buildLeaves(lv, leaves.vpl, leafClusters, leafErr) : 0;
 
     // ---- pack: vertex = [x y z u nx ny nz v]
-    const nb = bark.pos.length / 3, nl = lv.pos.length / 3;
+    // Leaf vertices in cluster order, each cluster's own (a vertex two clusters shared would be copied: none are), so a
+    // cluster's cards are contiguous quads (0 1 2, 0 2 3 from its first vertex) and the hardware draw shares one index
+    // buffer between all leaf clusters (draw.ts): the GPU then reuses the two corners a card's triangles share.
+    const leafSrc: number[] = []; // the source vertex of each packed leaf vertex
+    const leafIdx = leafClusters.map((c) => {
+      const local = new Map<number, number>();
+      return Uint32Array.from(c.idx, (v) => {
+        let o = local.get(v);
+        if (o === undefined) local.set(v, (o = leafSrc.push(v) - 1));
+        return o;
+      });
+    });
+    const nb = bark.pos.length / 3, nl = leafSrc.length;
     const vtx = new Float32Array((nb + nl) * 8);
     const put = (i: number, p: ArrayLike<number>, pi: number, n: ArrayLike<number>, ni: number, uv: ArrayLike<number>, ui: number): void => {
       vtx[i * 8] = p[pi * 3]; vtx[i * 8 + 1] = p[pi * 3 + 1]; vtx[i * 8 + 2] = p[pi * 3 + 2]; vtx[i * 8 + 3] = uv[ui * 2];
       vtx[i * 8 + 4] = n[ni * 3]; vtx[i * 8 + 5] = n[ni * 3 + 1]; vtx[i * 8 + 6] = n[ni * 3 + 2]; vtx[i * 8 + 7] = uv[ui * 2 + 1];
     };
     for (let i = 0; i < nb; i++) put(i, bark.pos, i, bark.nrm, i, bark.uv, i);
-    for (let i = 0; i < nl; i++) put(nb + i, lv.pos, i, lv.nrm, i, lv.uv, i);
+    for (let i = 0; i < nl; i++) put(nb + i, lv.pos, leafSrc[i], lv.nrm, leafSrc[i], lv.uv, leafSrc[i]);
+    leafClusters.forEach((c, i) => (c.idx = leafIdx[i]));
 
     const all: [Cluster, number][] = [...barkClusters.map((c): [Cluster, number] => [c, 0]), ...leafClusters.map((c): [Cluster, number] => [c, 1])];
     let totalIdx = 0;

@@ -14,6 +14,16 @@ import { setEmissive } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
 import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
 
+/**
+ * The leaf draws' index buffer, shared by every leaf cluster: a cluster's cards are quads from its first vertex
+ * (dag-build.ts packs them so), and indexed, the GPU shades the two corners a card's triangles share once: 4 vertex
+ * shader runs a card instead of 6.
+ */
+const LEAF_INDEX = new THREE.BufferAttribute(Uint16Array.from({ length: MAX_TRIS * 3 }, (_, i) => {
+  const t = Math.floor(i / 3), q = (t >> 1) * 4;
+  return q + (t & 1 ? [0, 2, 3] : [0, 1, 2])[i % 3];
+}), 1);
+
 export const drawMethods = {
   // ------------------------------------------------------------------ draw
   /**
@@ -21,10 +31,9 @@ export const drawMethods = {
    * wind), normal (tree rotation only) and uv. `leaf`: true / false, or a bool node when it's only known per cluster.
    * `prevWorld`: the same with last frame's wind (for the wind motion vectors of temporal anti-aliasing).
    */
-  _vertex(this: NaniteForest, inst: Uint, c: Uint, k: Uint, leaf: boolean | Bool): ClusterVertex {
+  _vertex(this: NaniteForest, inst: Uint, c: Uint, k: Uint, leaf: boolean | Bool, vertex?: Uint): ClusterVertex {
     const u = this.u;
-    const m = this._meta(c);
-    const vi = this.idx.element(m.x.add(k));
+    const vi = vertex ?? this.idx.element(this._meta(c).x.add(k)); // (`vertex`: the vertex itself, not slot k)
     const va = this._vtx(vi, 0), vb = this._vtx(vi, 1);
     const a = this._a(inst), b = this._b(inst);
     const type = uint(b.z);
@@ -88,6 +97,7 @@ export const drawMethods = {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(MAX_TRIS * 3 * 3), 3));
+    if (kind === 1) geo.setIndex(LEAF_INDEX);
     geo.setIndirect(set.ctr.attr, (set.base + (kind === 0 ? ARGS.bark : ARGS.leaf)) * 4); // (byte offset)
 
     const vUv = varying(vec2(0), 'vUv');
@@ -103,8 +113,11 @@ export const drawMethods = {
       const entry = list.element(kind === 0 ? instanceIndex : instanceIndex.add(LIST_CAP));
       const inst = entry.x, c = entry.y;
       const m = this._meta(c);
-      const valid = vertexIndex.div(3).lessThan(m.y);
-      const vx = this._vertex(inst, c, minU(vertexIndex, m.y.mul(3).sub(1)), kind === 1);
+      // (leaves, indexed: vertexIndex is the vertex of the cluster's quads, 2 triangles to 4 vertices)
+      const valid = kind === 0 ? vertexIndex.div(3).lessThan(m.y) : vertexIndex.div(2).lessThan(m.y);
+      const vx = kind === 0
+        ? this._vertex(inst, c, minU(vertexIndex, m.y.mul(3).sub(1)), false)
+        : this._vertex(inst, c, uint(0), true, this.idx.element(m.x).add(minU(vertexIndex, m.y.mul(2).sub(1))));
       const type = vx.type;
       normalLocal.assign(vx.normal);
       vUv.assign(vx.uv);

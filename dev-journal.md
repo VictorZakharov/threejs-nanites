@@ -22,7 +22,10 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   a 0.5 cut-out just makes crowns solid). Profile there now (GPU 7.9 ms): tree draws 3.6, half the pixels 2.2,
   shadow map 1.6, grass 0.55 (-> 0.2: tiles in view only), sw raster 0.3, TAA 0.26. Tried: bark normal weights
   (fewer triangles, 3x the popping: kept), one-tap shadow filter (`?shadowfilter=basic`, -0.3 ms, hard texel
-  edges: kept PCF). The shadow pass is fill: 1024² -0.7 ms, 4096² +3 ms, half the caster triangles -0.26. Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
+  edges: kept PCF). The shadow pass is fill: 1024² -0.7 ms, 4096² +3 ms, half the caster triangles -0.26, no leaf alpha
+  test -0.1..0.5, nearest-the-sun-first order 0. Leaf vertices: indexed (4 shader runs a card, not 6): -0.3..0.65 ms.
+  Leaf fragments (main view, `plazane` / `canopy`): all lighting 0.6 / 1.5 ms, of it the shadow lookup 0.26 / 0.66,
+  fog 0.07 / 0.34; a depth prepass didn't pay (the vertex work twice). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
   the per-pixel cost (relief floor, leaf overdraw), frame time ~1 ms over the GPU sum (bubbles between passes?).
 - Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
   now the bulk of "First frame ready".

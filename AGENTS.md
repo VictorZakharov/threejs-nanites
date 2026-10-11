@@ -106,7 +106,11 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   side, along the road at a grazing angle, they went flat grey ~10 m ahead: "washed up", the user), in patches.
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
-  gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
+  gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. The leaf draws
+  are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): `dag-build.ts` packs each leaf cluster's
+  vertices contiguously as quads, so the GPU shades the two corners a card's triangles share once (4 vertex shader
+  runs a card instead of 6: `plazane` 8.33 -> 7.84 ms, `closeup` -0.65, same image). Their indirect args are 5 uints.
+  A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
