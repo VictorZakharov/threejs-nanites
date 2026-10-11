@@ -1,43 +1,10 @@
 import * as THREE from 'three/webgpu';
 import { attribute, mix, vec3, positionWorld, positionLocal, float, mx_noise_float, smoothstep } from 'three/tsl';
 import { curve } from './planet.ts';
+import { fbm, heightAt } from './noise.ts';
 
-// ---- deterministic value noise (shared by the terrain mesh and tree placement)
-function hash2(x: number, y: number): number {
-  let h = (x * 374761393 + y * 668265263) | 0;
-  h = Math.imul(h ^ (h >>> 13), 1274126177);
-  return ((h ^ (h >>> 16)) >>> 0) / 4294967295;
-}
-function smooth(t: number): number {
-  return t * t * (3 - 2 * t);
-}
-function valueNoise(x: number, y: number): number {
-  const xi = Math.floor(x), yi = Math.floor(y);
-  const xf = smooth(x - xi), yf = smooth(y - yi);
-  const a = hash2(xi, yi), b = hash2(xi + 1, yi), c = hash2(xi, yi + 1), d = hash2(xi + 1, yi + 1);
-  return a + (b - a) * xf + (c - a) * yf + (a - b - c + d) * xf * yf;
-}
-export function fbm(x: number, y: number, oct: number): number {
-  let s = 0, amp = 1, f = 1, n = 0;
-  for (let i = 0; i < oct; i++) {
-    s += valueNoise(x * f, y * f) * amp;
-    n += amp;
-    amp *= 0.5;
-    f *= 2.03;
-  }
-  return s / n;
-}
-
-
-/** Terrain height in metres at world (x, z). */
-export function heightAt(x: number, z: number): number {
-  const hills = fbm(x / 420 + 11.3, z / 420 - 7.1, 5) * 70 - 35;
-  const ridges = Math.pow(1 - Math.abs(fbm(x / 900 - 3.7, z / 900 + 1.9, 3) * 2 - 1), 3) * 60;
-  // keep the middle of the forest gently rolling
-  const r = Math.hypot(x, z);
-  const flatten = THREE.MathUtils.smoothstep(r, 150, 900);
-  return hills * (0.35 + 0.65 * flatten) + ridges * flatten;
-}
+// (the noise and the height live in noise.ts: plain TypeScript, shared with the planting workers)
+export { fbm, heightAt };
 
 /** Cells per side of the detailed terrain square (src/grass.ts reads its vertex heights). */
 export const TERRAIN_SEGMENTS = 1024;

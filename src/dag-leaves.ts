@@ -4,7 +4,13 @@
 import { MAX_TRIS, LEAF_GROUP_SIZE, sphereOfPoints, mergeSpheres, mortonOrder } from './dag-util.ts';
 import type { Leaf, LeafCluster, LeafVerts, Sphere } from './dag-util.ts';
 
-export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[]): number {
+// A coarser level's error: this share of its (grown) leaf size. At 0.35 the leaves were kept under ~3 px at tau 1,
+// crowns many leaves deep: several triangles per pixel (the user's 4070 Ti at 80 fps on High); at 0.175 under ~6 px,
+// a quarter of the leaf triangles far off, the same image (`d550`: a few crown edges thinner).
+export const LEAF_ERR = 0.175;
+
+/** `leafErr`: a coarser level's error as a share of its leaf size (see gErr). */
+export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leafErr = LEAF_ERR): number {
   const leafCount = lv.pos.length / 3 / vpl;
   const quadsPerLeaf = vpl / 4;
   const leavesPerCluster = Math.floor(MAX_TRIS / (quadsPerLeaf * 2));
@@ -83,7 +89,7 @@ export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[]): num
       }
       const avgSize = kept.reduce((s, l) => s + l.size, 0) / kept.length;
       const childMax = Math.max(...g.map((c) => c.err));
-      const gErr = Math.max(childMax * 1.05 + 1e-4, avgSize * 0.35);
+      const gErr = Math.max(childMax * 1.05 + 1e-4, avgSize * leafErr);
       const gSphere = mergeSpheres(g.map((c) => c.lod).concat(g.map((c) => c.cull)));
       for (const c of g) { c.parentErr = gErr; c.parentLod = gSphere; }
       for (const c of chunk(kept, level, gErr, gSphere)) {

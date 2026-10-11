@@ -20,6 +20,8 @@ export interface DagRequest {
   id: number;
   bark: BarkSource;
   leaves: LeafSource;
+  /** A coarser leaf level's error, as a share of its (grown) leaf size (dag-leaves.ts; ?leaferr=). */
+  leafErr?: number;
 }
 
 export interface DagStats {

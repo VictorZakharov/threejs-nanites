@@ -67,7 +67,17 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - `src/dag-build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools): bark via
   meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
   (`dag-leaves.ts`) by keeping half the cards and growing them √2 per level; shared pieces in `dag-util.ts`. Every
-  cluster stores its LOD sphere/error and its parent group's sphere/error.
+  cluster stores its LOD sphere/error and its parent group's sphere/error. A coarser leaf level's error is `LEAF_ERR`
+  (0.175, `?leaferr=`) x its leaf size: a *smaller* share switches to it sooner. At 0.35 leaves were kept under ~3 px
+  at tau 1 (crowns many deep: ~8 triangles per pixel on High, 7.7M software-rasterized at the user's spot); at
+  0.175 a third of that, ~10% less crown coverage past ~200 m (`tree share` on `fogline`/`slope`/`d550`).
+- Planting (`src/planting.ts`, plain TypeScript, in `plant-worker.ts` workers, started at the top of loading): the land
+  in 512 m tiles, each planted from its own seed with a fixed candidate density (`densityFor` samples the acceptance
+  share once so the totals land near 1M trees / 1.5M bushes), assembled in tile order: the same forest whichever
+  worker finishes first. It was one main-thread loop over ~7M candidates: 6.8 s of the user's load (half of it
+  `roadDistance` looping over the road's segments for every candidate: it has a bounding-box early-out now). Its
+  pure dependencies are split out for the workers: `noise.ts` (fbm, `heightAt`), `road-path.ts`, `autumn-cpu.ts`.
+  The loading log times each step (`lap` in `main.ts`).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.mjs` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
@@ -163,7 +173,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   amount (green 0.2, yellow 0.6, red 1, conifers `NEEDLES` 1.3 x crown) and level into the cover map's G / B (used
   past the litter map; grass thins where leaves lie thick). Views `autumnred` / `autumnyellow` / `autumngreen`, `--probe=autumn`.
   Calibrate impostor gains with `autumn=0`.
-- Clearings (`clearingAt` in `placement.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
+- Clearings (`clearingAt` in `planting.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
   land). They were a sum of sines: from the air a lattice of same-sized gaps (the user: "repetitive"; `aerial` view).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
   keeps the full-size image's fraction of texels above the 0.5 cut-off; the leaf shader applies it by the sampled

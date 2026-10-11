@@ -145,7 +145,8 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
           resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
         };
         w.onerror = (e) => reject(new Error(e.message));
-        w.postMessage({ id, bark: src.bark, leaves: src.leaves });
+        const leafErr = Number(new URLSearchParams(location.search).get('leaferr') ?? NaN);
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}) });
       }),
     );
   }

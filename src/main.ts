@@ -16,7 +16,7 @@ import { TouchControls, isTouchDevice } from './touch.ts';
 import { LoadingScreen } from './loading.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
 import { stoneTextureUrl } from './stone.ts';
-import { MAX_ALTITUDE, forestRadius, forestDensity, placeTrees } from './placement.ts';
+import { MAX_ALTITUDE, forestRadius, forestDensity, plantForest } from './placement.ts';
 import { createLighting } from './lighting.ts';
 import { runProfile } from './profile.ts';
 import { createMenu } from './menu.ts';
@@ -101,6 +101,9 @@ async function start() {
 
   // trees
   const t0 = performance.now();
+  // the forest is planted in workers while the trees grow (src/planting.ts)
+  let plantedMs = 0;
+  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
   const trees = await buildAllTrees(ui);
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
@@ -115,7 +118,13 @@ async function start() {
   leafTex.wrapS = leafTex.wrapT = THREE.ClampToEdgeWrapping;
 
   await ui.update(0.8, `Scattering ${TREE_COUNT.toLocaleString()} trees`);
-  const instances = placeTrees(TREE_COUNT);
+  let ts = performance.now();
+  const lap = (label: string): void => {
+    ui.note(`${label} (${Math.round(performance.now() - ts)} ms)`);
+    ts = performance.now();
+  };
+  const instances = await planting;
+  lap(`Planted ${(instances.a.length / 4).toLocaleString()} trees, bushes and statues in workers, done ${Math.round(plantedMs)} ms in; waited`);
   const forest = new NaniteForest(renderer, trees, instances, {
     bark: barkTex,
     leaf: leafTex,
@@ -123,6 +132,7 @@ async function start() {
     leafLayerOf: layerLookup(VARIANTS.map((v) => leafTypes.indexOf(v.leaf))),
     alphaToCoverage: params.get('a2c') !== '0',
   });
+  lap('Forest buffers and passes');
   forest.u.tau.value = Number(params.get('tau') ?? 1);
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
@@ -136,7 +146,9 @@ async function start() {
     fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
   }));
   // ground: darkened by how much canopy stands over it
+  lap('Software rasterizer');
   const density = forestDensity(instances);
+  lap('Canopy cover map');
   demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves, and each variant's kind of leaf)
   demo.leafOf = VARIANTS.map((v) => v.leaf);
   const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
@@ -148,7 +160,9 @@ async function start() {
   const nearGround = terrain.getObjectByName('terrain') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
   const litter = createLitterMap(instances); // (which tree's leaves lie where near the viewer)
   demo.litter = litter;
+  lap('Litter map');
   applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap, litter);
+  lap('Forest floor');
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
@@ -156,6 +170,7 @@ async function start() {
   });
   scene.add(grass.group);
   scene.add(forest.group);
+  lap('Grass');
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
   cubeCam.update(renderer, skyCapture);
@@ -268,7 +283,7 @@ async function start() {
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
   // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
   // then a fullscreen pass tone-maps it to the canvas.
-  const samples = params.get('aa') === '0' ? 1 : 4;
+  const samples = Number(params.get('msaa') ?? (params.get('aa') === '0' ? 1 : 4)); // (?msaa=1/2/4)
   // (two outputs: colour, and the wind's screen motion of the trees for the anti-aliasing, see src/taa.js)
   const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
   sceneRT.textures[0].name = 'output';

@@ -1,21 +1,14 @@
 // Where the trees stand: a jittered scatter over the hills with clearings and a ragged edge, and the canopy cover
 // map the far-field ground shading uses.
 import * as THREE from 'three/webgpu';
-import { heightAt, fbm } from './terrain.ts';
+import { heightAt, mulberry32 } from './noise.ts';
 import { VARIANTS, isBush, isModel } from './trees.ts';
 import { roadDistance, PLAZA } from './road.ts';
-import { autumnAt, withAutumn, autumnOfPhase, fallOf, NEEDLES } from './autumn.ts';
+import { autumnOfPhase, fallOf, NEEDLES, AUTUMN } from './autumn.ts';
+import { clearingAt, densityFor, forestTiles, tryBush, tryTree, type PlantConfig, type TilePlants } from './planting.ts';
+import type { PlantReply, PlantRequest } from './plant-worker.ts';
 
 const params = new URLSearchParams(location.search);
-
-function mulberry32(seed: number): () => number {
-  return () => {
-    seed = (seed + 0x6d2b79f5) | 0;
-    let t = Math.imul(seed ^ (seed >>> 15), 1 | seed);
-    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
-    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
-  };
-}
 
 /** Scatters trees over the hills: jittered grid, noisy clearings, pines higher up. */
 export const TREE_SPACING = 9;
@@ -85,92 +78,65 @@ export interface TreeInstances {
   statues: number;
 }
 
-export function placeTrees(count: number): TreeInstances {
-  const rnd = mulberry32(42);
-  const radius = forestRadius(count);
-  const a: number[] = [], b: number[] = [];
-  const pineTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') ? i : -1)).filter((i) => i >= 0);
-  const leafTypes = VARIANTS.map((v, i) => (v.preset.startsWith('Pine') || isBush(v) || isModel(v) ? -1 : i)).filter((i) => i >= 0);
-  let tries = 0;
-  while (a.length / 4 < count && tries++ < count * 20) {
-    const ang = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * radius * 1.35;
-    const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-    // ragged forest edge: the boundary radius wobbles with the angle, and density fades out past it
-    const edge = radius * (1 + 0.22 * Math.sin(ang * 3 + 0.7) + 0.12 * Math.sin(ang * 7 - 1.9) + 0.06 * Math.sin(ang * 13));
-    if (r > edge && rnd() > Math.exp(-(r - edge) / 35)) continue;
-    if (Math.hypot(x - 20, z - 40) < 14) continue; // keep the spawn point clear
-    if (roadDistance(x, z) < 3.5) continue; // (the road and the plaza: src/road.ts)
-    // clearings
-    const clearing = clearingAt(x, z);
-    if (clearing > 0.75 && rnd() < 0.9) continue;
-    const y = heightAt(x, z);
-    const pineBias = THREE.MathUtils.smoothstep(y, -10, 30) * 0.7 + (Math.sin(x * 0.004 - z * 0.006) * 0.5 + 0.5) * 0.4;
-    const pool = rnd() < pineBias ? pineTypes : leafTypes;
-    const type = pool[Math.floor(rnd() * pool.length)];
-    const scale = 0.75 + rnd() * 0.5;
-    const rot = rnd() * Math.PI * 2;
-    a.push(x, y - 0.3, z, scale);
-    const turn = pool === pineTypes ? 0 : autumnAt(x, z, rnd());
-    b.push(Math.cos(rot), Math.sin(rot), type, withAutumn(rnd() * 6.28, turn));
-  }
-  const trees = a.length / 4;
-  placeBushes(Math.round(count * BUSHES_PER_TREE), radius, a, b);
-  const statues = placeStatues(radius, a, b);
-  return { a: new Float32Array(a), b: new Float32Array(b), radius, trees, statues };
-}
-
 /** Undergrowth per tree (`?bushes=`; 0.5 on touch screens): instances of the bush variants in the same buffers. */
 const BUSHES_PER_TREE = Number(params.get('bushes') ?? (matchMedia('(pointer: coarse)').matches ? 0.5 : 1.5));
 
-/** Clearing field (the tree scatter skips where it's over 0.75): bushes gather along its edges. */
 /**
- * Clearing field: over 0.75 is a clearing (about CLEARING_SHARE of the land), the edges just under it. Domain-warped
- * fractal noise, so clearings come in all sizes and shapes; it was a sum of sines, and from the air the forest was a
- * lattice of same-sized gaps (the user: "pattern of trees looks repetitive").
+ * Plants about `count` trees and BUSHES_PER_TREE as many bushes (src/planting.ts, by tiles in workers: start it early,
+ * it runs while the trees grow), then the statues; trees first in the buffers, then bushes, then statues.
  */
-const CLEARING_SHARE = 0.1;
-const clearingNoise = (x: number, z: number): number => {
-  const wx = fbm(x / 900 + 3.1, z / 900 - 1.7, 2) - 0.5, wz = fbm(x / 900 - 5.3, z / 900 + 8.2, 2) - 0.5;
-  return fbm(x / 320 + wx * 1.6 + 19.7, z / 320 + wz * 1.6 - 4.4, 4);
-};
-let clearingCut = NaN; // the noise's (1 - CLEARING_SHARE) quantile, sampled once
-const clearingAt = (x: number, z: number): number => {
-  if (Number.isNaN(clearingCut)) {
-    const rnd = mulberry32(99), v: number[] = [];
-    for (let i = 0; i < 8192; i++) v.push(clearingNoise((rnd() - 0.5) * 16000, (rnd() - 0.5) * 16000));
-    v.sort((a, b) => a - b);
-    clearingCut = v[Math.floor(v.length * (1 - CLEARING_SHARE))];
-  }
-  return 0.75 + (clearingNoise(x, z) - clearingCut) * 2.5;
-};
+export async function plantForest(count: number): Promise<TreeInstances> {
+  const radius = forestRadius(count);
+  const of = (f: (i: number) => boolean) => VARIANTS.map((_, i) => (f(i) ? i : -1)).filter((i) => i >= 0);
+  const pine = (i: number) => VARIANTS[i].preset.startsWith('Pine');
+  const cfg: PlantConfig = {
+    radius, autumn: AUTUMN,
+    pine: of((i) => pine(i) && !isBush(VARIANTS[i])),
+    leaf: of((i) => !pine(i) && !isBush(VARIANTS[i]) && !isModel(VARIANTS[i])),
+    bushEvergreen: of((i) => isBush(VARIANTS[i]) && VARIANTS[i].leaf === 'pine'),
+    bushLeafy: of((i) => isBush(VARIANTS[i]) && VARIANTS[i].leaf !== 'pine'),
+    treeDensity: 0, bushDensity: 0,
+  };
+  cfg.treeDensity = densityFor(cfg, count, tryTree, 42);
+  cfg.bushDensity = cfg.bushEvergreen.length + cfg.bushLeafy.length ? densityFor(cfg, Math.round(count * BUSHES_PER_TREE), tryBush, 7) : 0;
 
-/**
- * Scatters bushes over the forest: thickest along the clearings' edges and the forest edge (where the light gets in),
- * thin under the canopy, few out in the open; the evergreen kind more on the higher ground.
- */
-function placeBushes(count: number, radius: number, a: number[], b: number[]): void {
-  const rnd = mulberry32(7);
-  const types = VARIANTS.map((v, i) => (isBush(v) ? i : -1)).filter((i) => i >= 0);
-  const evergreen = types.filter((i) => VARIANTS[i].leaf === 'pine'), leafy = types.filter((i) => VARIANTS[i].leaf !== 'pine');
-  let placed = 0, tries = 0;
-  while (placed < count && tries++ < count * 30) {
-    const ang = rnd() * Math.PI * 2, r = Math.sqrt(rnd()) * radius * 1.3;
-    const x = Math.cos(ang) * r, z = Math.sin(ang) * r;
-    if (Math.hypot(x - 20, z - 40) < 6 || roadDistance(x, z) < 1.2) continue; // (the spawn point, the road)
-    const c = clearingAt(x, z);
-    const rim = Math.exp(-(((c - 0.72) / 0.12) ** 2)); // the clearings' edges
-    const edge = radius * (1 + 0.22 * Math.sin(ang * 3 + 0.7) + 0.12 * Math.sin(ang * 7 - 1.9) + 0.06 * Math.sin(ang * 13));
-    const forestRim = Math.exp(-(((r - edge) / 60) ** 2));
-    const keep = c > 0.75 ? 0.08 + 0.9 * rim : 0.25 + 0.75 * Math.max(rim, forestRim);
-    if (rnd() > keep) continue;
-    const y = heightAt(x, z);
-    const pool = evergreen.length && rnd() < THREE.MathUtils.smoothstep(y, 0, 40) * 0.6 + 0.15 ? evergreen : leafy;
-    const rot = rnd() * Math.PI * 2;
-    a.push(x, y - 0.15, z, 0.8 + rnd() * 0.9);
-    const turn = pool === evergreen ? 0 : autumnAt(x, z, rnd());
-    b.push(Math.cos(rot), Math.sin(rot), pool[Math.floor(rnd() * pool.length)], withAutumn(rnd() * 6.28, turn));
-    placed++;
-  }
+  // the tiles dealt out in turn (the middle first), so each worker gets a share of the dense ones
+  const tiles = forestTiles(radius);
+  const nWorkers = Math.max(1, Math.min(8, (navigator.hardwareConcurrency || 4) - 1));
+  const planted = new Map<number, TilePlants>();
+  await Promise.all(Array.from({ length: nWorkers }, (_, w) => new Promise<void>((resolve, reject) => {
+    const worker = new Worker(new URL('./plant-worker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<PlantReply>) => {
+      if ('tile' in e.data) planted.set(e.data.tile, e.data);
+      else {
+        worker.terminate();
+        if ('error' in e.data) reject(new Error(e.data.error));
+        else resolve();
+      }
+    };
+    worker.onerror = (e) => reject(new Error(e.message));
+    worker.postMessage({ cfg, tiles: tiles.filter((_, k) => k % nWorkers === w) } satisfies PlantRequest);
+  })));
+
+  // in tile order, whichever worker finished first: the same forest every time
+  const order = [...planted.keys()].sort((p, q) => p - q).map((t) => planted.get(t)!);
+  const statueA: number[] = [], statueB: number[] = [];
+  const statues = placeStatues(radius, statueA, statueB);
+  const nTrees = order.reduce((n, p) => n + p.trees.length / 8, 0), nBushes = order.reduce((n, p) => n + p.bushes.length / 8, 0);
+  const total = nTrees + nBushes + statues;
+  const a = new Float32Array(total * 4), b = new Float32Array(total * 4);
+  let k = 0;
+  for (const kind of ['trees', 'bushes'] as const)
+    for (const p of order) {
+      const src = p[kind];
+      for (let i = 0; i < src.length; i += 8, k++) {
+        a.set(src.subarray(i, i + 4), k * 4);
+        b.set(src.subarray(i + 4, i + 8), k * 4);
+      }
+    }
+  a.set(statueA, k * 4);
+  b.set(statueB, k * 4);
+  return { a, b, radius, trees: nTrees, statues };
 }
 
 /** Extra statues scattered over the clearings (`?statues=N`, a stress test: a million triangles each); the plaza's ring is always there. */

@@ -5,36 +5,10 @@
 import * as THREE from 'three/webgpu';
 import { texture, float, vec2 } from 'three/tsl';
 import type { Float, Vec2 } from './types.ts';
+import { ROAD, PLAZA, roadDistance } from './road-path.ts';
 
-export const ROAD_WIDTH = 3.6; // m
-export const SPAWN = { x: 20, z: 40, yaw: 30 }; // (main.ts's start: looking down the road)
-const LENGTH = 80; // (240 at first: the user wanted it 3x shorter)
-const fwd = { x: -Math.sin((SPAWN.yaw * Math.PI) / 180), z: -Math.cos((SPAWN.yaw * Math.PI) / 180) };
-const side = { x: -fwd.z, z: fwd.x };
-
-/** The road's centre line, spawn to plaza (a gentle S, straight at both ends). */
-export const ROAD: { x: number; z: number }[] = Array.from({ length: 33 }, (_, i) => {
-  const t = i / 32, along = (t - 0.02) * LENGTH;
-  const wiggle = Math.sin(t * Math.PI) ** 2 * Math.sin(t * Math.PI * 2) * LENGTH * 0.11;
-  return { x: SPAWN.x + fwd.x * along + side.x * wiggle, z: SPAWN.z + fwd.z * along + side.z * wiggle };
-});
-/** The plaza at the road's end: paved radius, and the circle the statues stand on. */
-export const PLAZA = (() => {
-  const end = ROAD[ROAD.length - 1];
-  return { x: end.x + fwd.x * 22, z: end.z + fwd.z * 22, radius: 24, ring: 17, statues: 12 };
-})();
-
-/** Metres from (x, z) to the paving's edge (road or plaza), negative on it. */
-export function roadDistance(x: number, z: number): number {
-  let d = Math.hypot(x - PLAZA.x, z - PLAZA.z) - PLAZA.radius;
-  for (let i = 0; i + 1 < ROAD.length; i++) {
-    const a = ROAD[i], b = ROAD[i + 1];
-    const ex = b.x - a.x, ez = b.z - a.z, l2 = ex * ex + ez * ez;
-    const t = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / l2));
-    d = Math.min(d, Math.hypot(x - a.x - ex * t, z - a.z - ez * t) - ROAD_WIDTH / 2);
-  }
-  return d;
-}
+// (the shape and the distance: road-path.ts, shared with the planting workers)
+export { ROAD, PLAZA, ROAD_WIDTH, SPAWN, roadDistance } from './road-path.ts';
 
 // the distance map: 25 cm texels over the road's bounding square (+ a margin); far outside it reads "far away"
 const RES = 1024;

@@ -16,6 +16,13 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   floor/relief 6.18, autumn 7.11 (a different forest sample there: one more rnd() per tree), last 6.60. Fixed the
   fixed cost: impostor draws over every instance -> a compact list (6.60 -> 4.08); shadow casters at 5 x tau (half
   the shadow triangles); litter rebuild sliced (the 1% lows); desktop budget 5.5 ms.
+- High (tau 1, 1920x1080, the user wants 144 on a 4070 Ti): 12.1 -> ~10.2 ms frame at `plazane` (leaf LOD
+  `LEAF_ERR` 0.35 -> 0.175: software triangles 7.7M -> 2.7M). Next lever: MSAA (2x saves ~2.5 ms) but with fewer
+  than 4 samples the occlusion over-culls (`aa=0` / `?msaa=2`: distant trees behind crowns go missing, impostors
+  3171 -> 841 on `plazane`): fix the HZB for those first, then 2x MSAA (+ TAA) on High. Also: bark 3.2M hardware
+  triangles there (UV weights in the simplifier), shadow map ~2 ms.
+- Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
+  now the bulk of "First frame ready".
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms
   frame). If it's still far off: auto quality has no knob for the remaining fixed costs (instance passes over 2.5M,
   ~240k impostor retests, the shadow map, grass): a last tier (bushes nearer, shadows off) or a Mac start preset.

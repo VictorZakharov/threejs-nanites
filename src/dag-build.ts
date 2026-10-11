@@ -148,7 +148,7 @@ function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out:
 
 /** The DAG of one mesh (bark + leaves; `leaves.pos` empty for a plain model), packed for the renderer. */
 export async function buildDag(req: DagRequest): Promise<DagResult> {
-  const { id, bark, leaves } = req;
+  const { id, bark, leaves, leafErr } = req;
   {
     await MeshoptClusterizer.ready;
     await MeshoptSimplifier.ready;
@@ -166,7 +166,7 @@ export async function buildDag(req: DagRequest): Promise<DagResult> {
     // leaves (vertex arrays grow as reduced leaves are appended)
     const lv: LeafVerts = { pos: Array.from(leaves.pos), nrm: Array.from(leaves.nrm), uv: Array.from(leaves.uv) };
     const leafClusters: LeafCluster[] = [];
-    const leafLevels = leaves.pos.length ? buildLeaves(lv, leaves.vpl, leafClusters) : 0;
+    const leafLevels = leaves.pos.length ? buildLeaves(lv, leaves.vpl, leafClusters, leafErr) : 0;
 
     // ---- pack: vertex = [x y z u nx ny nz v]
     const nb = bark.pos.length / 3, nl = lv.pos.length / 3;
