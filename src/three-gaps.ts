@@ -19,3 +19,18 @@ export const floatBits = (f: Parameters<typeof floatBitsToUint>[0], impl: typeof
 /** The renderer's WebGPU backend: its device and whether timestamp queries are on (typed as the generic Backend). */
 export const gpuBackend = (r: THREE.WebGPURenderer) =>
   r.backend as unknown as { device: GPUDevice; trackTimestamp: boolean; isWebGPUBackend?: boolean };
+
+/**
+ * Several compute dispatches in one compute pass, in order (WebGPU makes each one's writes visible to the next).
+ * `[node, size]`: a count of threads, or an indirect dispatch buffer; none = the node's own count. The renderer reads a
+ * node's `dispatchSize` (typed as numbers only; an indirect buffer works too). Each `renderer.compute()` was a pass of its own
+ * with its own timestamp queries: ~36 a frame, most of them a few threads (counter resets, clamps).
+ */
+export function computeBatch(r: THREE.WebGPURenderer, list: (THREE.ComputeNode | [THREE.ComputeNode, number | THREE.IndirectStorageBufferAttribute])[]): void {
+  const nodes = list.map((e) => {
+    const [node, size] = Array.isArray(e) ? e : [e, null];
+    (node as unknown as { dispatchSize: unknown }).dispatchSize = size;
+    return node;
+  });
+  r.compute(nodes);
+}

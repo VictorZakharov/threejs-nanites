@@ -26,7 +26,7 @@ import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, minU, minI, maxI } from './consta
 import type { NaniteForest } from './forest.ts';
 import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
-import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
+import { setEmissive, asReceivedShadow, floatBits, computeBatch } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
 import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER } from './shading.ts';
 
@@ -250,10 +250,7 @@ export class SoftRaster {
     if (!this.ran || this.on.value === 0) return;
     const r = renderer;
     this.viewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    r.compute(this.args);
-    r.compute(this.clear, width * height);
-    r.compute(this.depthPass, this.dispatchAttr);
-    r.compute(this.idPass, this.dispatchAttr);
+    computeBatch(r, [this.args, [this.clear, width * height], [this.depthPass, this.dispatchAttr], [this.idPass, this.dispatchAttr]]);
   }
 
   /** Called before culling: screen size, camera near plane; resets the list. */

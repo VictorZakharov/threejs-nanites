@@ -9,6 +9,7 @@ import { WG, HZB_LEVELS, HZB_LEVEL0_MAX, HZB_FLOATS, minU } from './constants.ts
 import type { NaniteForest } from './forest.ts';
 import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { U } from './types.ts';
+import { computeBatch } from '../three-gaps.ts';
 
 /** The main view's HZB: all levels in one float buffer, their (offset, w, h) and the camera it was built with. */
 export interface Hzb {
@@ -153,15 +154,16 @@ export const hzbMethods = {
     const e = camera.projectionMatrix.elements;
     h.proj.value.set(e[0], e[5], e[10], e[14]);
     h.near.value = (camera as THREE.PerspectiveCamera).near;
-    const r = this.renderer;
-    for (let L = 0; L < n; L++) r.compute(h.passes[L], counts[L]);
     const setB = v.sets[1];
-    r.compute(retest.args);
-    r.compute(retest.treesPass, retest.treeDispatch);
-    r.compute(retest.clustersPass, retest.clusterDispatch);
-    r.compute(setB.clampDispatch);
-    r.compute(setB.clusters, setB.dispatchAttr);
-    r.compute(setB.clampDraw);
+    computeBatch(this.renderer, [
+      ...counts.map((c, L): [ComputeNode, number] => [h.passes[L], c]),
+      retest.args,
+      [retest.treesPass, retest.treeDispatch],
+      [retest.clustersPass, retest.clusterDispatch],
+      setB.clampDispatch,
+      [setB.clusters, setB.dispatchAttr],
+      setB.clampDraw,
+    ]);
     setB.ran = true;
   },
 };

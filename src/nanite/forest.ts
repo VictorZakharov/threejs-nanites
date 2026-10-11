@@ -21,6 +21,7 @@ import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
 import { billboardMethods } from './billboards.ts';
+import { computeBatch } from '../three-gaps.ts';
 import type { BuiltTree } from '../trees.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { Uint, UVec4 } from '../types.ts';
@@ -191,14 +192,16 @@ export class NaniteForest {
     f.planes.forEach((p, i) => view.planeValues[i].set(p.normal.x, p.normal.y, p.normal.z, p.constant));
     const r = this.renderer;
     view.ran = true; // (its buffers exist on the GPU from now on)
-    for (const set of view.sets) r.compute(set.reset); // (phase 2 draws nothing unless occlusion() runs)
-    if (view.retest) r.compute(view.retest.reset);
-    r.compute(view.impReset);
     const A = view.sets[0];
-    r.compute(view.instances);
-    r.compute(A.clampDispatch);
-    r.compute(A.clusters, A.dispatchAttr);
-    r.compute(A.clampDraw);
+    computeBatch(r, [
+      ...view.sets.map((set) => set.reset), // (phase 2 draws nothing unless occlusion() runs)
+      ...(view.retest ? [view.retest.reset] : []),
+      view.impReset,
+      view.instances,
+      A.clampDispatch,
+      [A.clusters, A.dispatchAttr],
+      A.clampDraw,
+    ]);
   }
 
   /** Runs the GPU culling for the camera and (if given) the shadow camera. `size`: drawing buffer pixels. */

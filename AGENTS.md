@@ -110,7 +110,10 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): `dag-build.ts` packs each leaf cluster's
   vertices contiguously as quads, so the GPU shades the two corners a card's triangles share once (4 vertex shader
   runs a card instead of 6: `plazane` 8.33 -> 7.84 ms, `closeup` -0.65, same image). Their indirect args are 5 uints.
-  A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy. Shadow-caster
+  A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy.
+  Each stage's compute dispatches run in one compute pass (`computeBatch` in `three-gaps.ts`: a node's own size or
+  indirect buffer): one `renderer.compute()` per dispatch was ~36 passes a frame, most a few threads, and their
+  overhead was frame time the GPU timers don't show (-0.4..0.8 ms; `orbit` with occlusion 8 -> 5.5 ms). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU

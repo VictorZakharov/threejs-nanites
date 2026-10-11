@@ -25,7 +25,8 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   edges: kept PCF). The shadow pass is fill: 1024² -0.7 ms, 4096² +3 ms, half the caster triangles -0.26, no leaf alpha
   test -0.1..0.5, nearest-the-sun-first order 0. Leaf vertices: indexed (4 shader runs a card, not 6): -0.3..0.65 ms.
   Leaf fragments (main view, `plazane` / `canopy`): all lighting 0.6 / 1.5 ms, of it the shadow lookup 0.26 / 0.66,
-  fog 0.07 / 0.34; a depth prepass didn't pay (the vertex work twice). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
+  fog 0.07 / 0.34; a depth prepass didn't pay (the vertex work twice). Compute dispatches batched into ~5 passes a
+  frame (were ~36): -0.4..0.8 ms of frame time the GPU timers never showed. `plazane` now ~7.2 ms frame (~138 fps). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
   the per-pixel cost (relief floor, leaf overdraw), frame time ~1 ms over the GPU sum (bubbles between passes?).
 - Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
   now the bulk of "First frame ready".
@@ -143,8 +144,9 @@ the forest towards an open area with statues circle")
 - HUD shows ~23 ms per frame while fps reads 60 (reported by a tester). Probably the `gpu` figure (sum of GPU
   timestamp spans over all passes, which may overlap or include idle gaps) read as frame time, or the HUD's
   ms/fps averaging. Check what each HUD number measures and label them clearly; fold into the perf panel work.
-- Occlusion costs ~4 ms of frame time that the GPU timers don't show (`orbit`: 8 ms vs 4 ms with `occ=0`, GPU
-  ~1 ms either way). Suspect: 13 separate HZB compute dispatches + the second render pass. Next perf item.
+- Occlusion at `orbit`: 5.5 ms vs 4.2 with `occ=0` (was 8 vs 4: each compute dispatch was its own pass, ~36 a frame;
+  now ~5, `computeBatch`, -0.4..0.8 ms frame everywhere). What's left there is retesting ~2M impostors (1.1 ms
+  compute) to hide 8%: off high up?
 
 - Equal-depth draw-order ties give ~20-100 px of frame-to-frame differences (`--flicker`).
 - Bundle is ~4.9 MB (ez-tree's inlined textures).
