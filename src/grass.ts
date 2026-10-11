@@ -4,6 +4,8 @@
 // ground stays even; the outer ring thins out into the ground's own colour. Everything is in the vertex shader:
 // position and size from a hash of the cell, height from the terrain's own vertex heights (same triangles as the
 // terrain mesh, so blades stand exactly on it), density from the canopy cover, the slope and patch noise, wind.
+// Each ring's grid is drawn as TILES x TILES tiles, and only the tiles in view and in the ring are drawn: the whole
+// square ran every blade's vertex shader, behind the camera and inside the inner ring too (0.6 ms on High).
 import * as THREE from 'three/webgpu';
 import {
   Fn, instanceIndex, attribute, uniform, float, vec2, vec3, vec4, int, ivec2, uint, hash, sin, cos, mix, clamp,
@@ -20,6 +22,7 @@ const SEGS = 4; // segments per blade: 2 * SEGS + 1 vertices, 2 * SEGS - 1 trian
 /** A blade grows in over this share of its keep chance (`?grassgrow=`, 0 = pops): popping in whole, walking forward
  * showed grass appearing ahead (the user). */
 const GROW = Number(params.get('grassgrow') ?? 0.3);
+const TILES = Number(params.get('grasstiles') ?? 8); // tiles a side per ring
 
 /** The rings: cell size (m) and outer radius (m); each fades in over the last 20% of the ring inside it. */
 const RINGS = [
@@ -87,11 +90,14 @@ export function createGrass(ctx: GrassContext) {
   const u = ctx.u;
   const windDir = vec3(0.83, 0, 0.55);
 
+  const rings: { origin: { value: THREE.Vector2 }; cell: number; N: number; S: number; inner: number; radius: number; tiles: THREE.Mesh[] }[] = [];
   RINGS.forEach((ring, k) => {
     const cell = ring.cell, radius = ring.radius * scale;
     const inner = k === 0 ? 0 : RINGS[k - 1].radius * scale;
-    const N = Math.ceil((radius * 2) / cell) + 1;
+    const S = Math.ceil((Math.ceil((radius * 2) / cell) + 1) / TILES); // cells a side per tile
+    const N = S * TILES;
     const origin = uniform(new THREE.Vector2()); // the grid's corner cell (whole cells)
+    const tileOff = uniform(new THREE.Vector2()).onObjectUpdate(({ object }) => object?.userData.tileOff as THREE.Vector2); // (cells)
 
     const vColour = varying(vec3(0), 'vGrassColour'); // the blade's tip colour
     const vBlade = varying(vec2(0), 'vGrassBlade'); // (along 0..1, across -1..1)
@@ -100,7 +106,7 @@ export function createGrass(ctx: GrassContext) {
     const position = Fn(() => {
       const bv = attribute<'vec2'>('bv', 'vec2');
       const t = bv.x, side = bv.y;
-      const ci = vec2(float(instanceIndex.mod(uint(N))), float(instanceIndex.div(uint(N)))).add(origin);
+      const ci = vec2(float(instanceIndex.mod(uint(S))), float(instanceIndex.div(uint(S)))).add(tileOff).add(origin);
       const seed = uint(int(ci.x).add(1 << 20)).mul(73856093).bitXor(uint(int(ci.y).add(1 << 20)).mul(19349663)).add(k * 7919);
       const r = (j: number): Float => hash(seed.add(j * 101));
       const xz = ci.add(vec2(r(0), r(1))).mul(cell);
@@ -171,21 +177,58 @@ export function createGrass(ctx: GrassContext) {
     mat.receivedShadowNode = ctx.receivedShadow as typeof mat.receivedShadowNode;
     const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
     mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
-    const mesh = new THREE.Mesh(bladeGeometry(N * N), mat);
-    mesh.frustumCulled = false;
-    mesh.receiveShadow = true;
-    mesh.name = `grass-${k}`;
-    mesh.userData.ring = { origin, cell, N };
-    group.add(mesh);
+    const geo = bladeGeometry(S * S), tiles: THREE.Mesh[] = [];
+    for (let ty = 0; ty < TILES; ty++)
+      for (let tx = 0; tx < TILES; tx++) {
+        const mesh = new THREE.Mesh(geo, mat);
+        mesh.frustumCulled = false; // (update() decides)
+        mesh.receiveShadow = true;
+        mesh.name = `grass-${k}-${tx}-${ty}`;
+        mesh.userData.tileOff = new THREE.Vector2(tx * S, ty * S);
+        tiles.push(mesh);
+        group.add(mesh);
+      }
+    rings.push({ origin, cell, N, S, inner, radius, tiles });
   });
+
+  /** Lowest and highest terrain vertex over the square [x0, x0 + w] x [z0, z0 + w]. */
+  const heightRange = (x0: number, z0: number, w: number): [number, number] => {
+    const at = (v: number): number => Math.min(n - 1, Math.max(0, (v + ctx.size / 2) / step));
+    let lo = Infinity, hi = -Infinity;
+    for (let iz = Math.floor(at(z0)); iz <= Math.ceil(at(z0 + w)); iz++)
+      for (let ix = Math.floor(at(x0)); ix <= Math.ceil(at(x0 + w)); ix++) {
+        const h = heights[iz * n + ix];
+        lo = Math.min(lo, h);
+        hi = Math.max(hi, h);
+      }
+    return [lo, hi];
+  };
+  const frustum = new THREE.Frustum(), box = new THREE.Box3(), viewProj = new THREE.Matrix4();
 
   return {
     group,
-    /** Moves each ring's grid to the viewer (whole cells). */
+    /** Moves each ring's grid to the viewer (whole cells) and picks the tiles to draw. */
     update(camera: THREE.Camera): void {
-      for (const m of group.children) {
-        const { origin, cell, N } = m.userData.ring as { origin: { value: THREE.Vector2 }; cell: number; N: number };
-        origin.value.set(Math.floor(camera.position.x / cell) - (N >> 1), Math.floor(camera.position.z / cell) - (N >> 1));
+      camera.updateMatrixWorld();
+      frustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
+      const c = camera.position;
+      for (const r of rings) {
+        const ox = Math.floor(c.x / r.cell) - (r.N >> 1), oz = Math.floor(c.z / r.cell) - (r.N >> 1);
+        r.origin.value.set(ox, oz);
+        const w = r.S * r.cell;
+        for (const m of r.tiles) {
+          const off = m.userData.tileOff as THREE.Vector2;
+          const x0 = (ox + off.x) * r.cell, z0 = (oz + off.y) * r.cell;
+          // every blade is dropped past the radius and inside 80% of the inner ring's (by 3D distance, see `keep`)
+          const near = Math.hypot(Math.max(x0 - c.x, 0, c.x - x0 - w), Math.max(z0 - c.z, 0, c.z - z0 - w));
+          if (near >= r.radius) { m.visible = false; continue; }
+          const [lo, hi] = heightRange(x0, z0, w);
+          const far = Math.hypot(Math.max(c.x - x0, x0 + w - c.x), Math.max(c.z - z0, z0 + w - c.z), Math.max(c.y - lo, hi + 1 - c.y));
+          if (far <= r.inner * 0.8) { m.visible = false; continue; }
+          box.min.set(x0 - 0.5, lo - 0.3, z0 - 0.5); // (a blade leans and bends up to ~0.3 m off its cell)
+          box.max.set(x0 + w + 0.5, hi + 1, z0 + w + 0.5);
+          m.visible = frustum.intersectsBox(box);
+        }
       }
     },
   };

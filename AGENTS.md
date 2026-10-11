@@ -137,9 +137,12 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   fraction stays even. Blades stand on the terrain mesh's own vertex heights (a float texture, same triangle split as
   PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. A dropped
   blade collapses onto its root (collapsing per vertex, or to the origin, drew streaks across the screen). Double-sided
-  Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades). ~0.3 ms on the dev GPU.
+  Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades).
   Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
-  that moved with the camera (the user). Blades: 4 segments, normals rounded across the width, colour per pixel
+  that moved with the camera (the user). Each ring's grid is drawn as 8 x 8 tiles (`?grasstiles=`; `tileOff` is a
+  per-object uniform) and `update()` draws only the tiles in the view frustum and the ring's annulus: one draw of the
+  whole square ran every blade's vertex shader behind the camera too (`plazane` 0.57 -> 0.21 ms, same image; ~0.6 ms
+  more CPU for the draws). Blades: 4 segments, normals rounded across the width, colour per pixel
   (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
   the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
   ahead (the user).

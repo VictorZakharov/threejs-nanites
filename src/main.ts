@@ -79,7 +79,7 @@ async function start() {
   // renderer.shadowMap.enabled instead recompiles every shader (a ~10 s freeze).
   renderer.shadowMap.enabled = true;
   let shadowsOn = params.get('shadows') !== '0';
-  renderer.shadowMap.type = THREE.PCFShadowMap;
+  renderer.shadowMap.type = params.get('shadowfilter') === 'basic' ? THREE.BasicShadowMap : THREE.PCFShadowMap; // (?shadowfilter=basic: one tap)
   document.body.appendChild(renderer.domElement);
 
   const scene = new THREE.Scene();
