@@ -224,6 +224,17 @@ export const cullingMethods = {
           const pl = planes.element(p);
           If(dot(pl.xyz, c).add(pl.w).lessThan(r.negate()), () => ok.assign(0));
         }
+        // the shadow view: and its shadow can land in the camera's view (the sphere swept castLen away from the sun
+        // touches the camera's frustum; see CastTest in chunks.ts), for trees and clusters alike
+        if (!main) {
+          const mp = this.main.planes;
+          for (let p = 0; p < 6; p++) {
+            const pl = mp.element(p);
+            const d = dot(pl.xyz, c).add(pl.w);
+            const d1 = d.sub(u.castLen.mul(dot(pl.xyz, u.sunDir)));
+            If(u.castLen.greaterThan(0).and(max(d, d1).lessThan(r.negate())), () => ok.assign(0));
+          }
+        }
         return ok.equal(1);
       },
       // phase 1 failures: trees and clusters to test again in phase 2

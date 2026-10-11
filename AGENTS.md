@@ -124,11 +124,11 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
-  after the orbit). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. The 5x zoom is
-  another scene for the GPU (`canopyzoom`: 24 ms at tau 1 against ~6 unzoomed), so the zoomed and unzoomed view keep
-  their own tau and resolution and the zoom button swaps them (a first zoom starts at 2x the tau); nothing is measured
-  while the zoom eases. With one setting it took ~3 s of slow frames to get there and the detail stayed at tau 8 for
-  seconds after zooming out (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). It's off
+  after the orbit). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Zooming in starts
+  from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
+  is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
+  last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
+  "optimize the algo before we downgrade"). It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
   `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
@@ -266,6 +266,13 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - Shadow casters' LOD: by the camera's pixels at `SHADOW_TAU_MUL` (5, `?shadowtau=`) x tau; at 2.5 they were 9M
   triangles at full detail (the trees all round, for ~11 cm texels), at 5 half, same image. A texel floor (no caster
   finer than a shadow texel) changed nothing: few casters are that close.
+- Shadow casters only where their shadow can land in the camera's view (`CastTest` in `chunks.ts`, the shadow view's
+  `sphereVisible`, `castLen` in `forest.ts`): each chunk box, tree and cluster, swept away from the sun far enough
+  for the tallest tree's shadow to reach ground 60 m lower, must touch the camera's frustum. The map covers a square
+  around where the camera looks, kilometres wide from high up, and every caster in it was drawn: zoomed in looking
+  down from 544 m (`zoomdown --zoom=5`) 38M shadow triangles, 13 ms of a 17.9 ms frame (now 258k, 4.75 ms); on the
+  ground a third to half of the casters, -0.3..0.65 ms; images match but for scattered specks (`img.mjs diff`).
+  `?castcull=0` for the old.
 - Software rasterizer (`src/nanite/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
   rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the

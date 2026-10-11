@@ -18,7 +18,7 @@ A probe file holds one JavaScript expression, an async function `(demo, view) =>
 | `atlas` | the impostor atlas (albedo) as a PNG, cut-out alpha shown blue |
 | `perf` | the performance panel (`--query=perf=1`): its report text and whether it's on screen |
 | `auto` | auto quality in the real loop for 8 s against `?autobudget=` (default 3 ms): settled tau, resolution scale, GPU ms (use `--timeout=120`) |
-| `autozoom` | auto quality across the 5x zoom: 4 s each unzoomed / zoomed / unzoomed / zoomed at the view (`canopyzoom --zoom=1`), per phase how long it was over the budget, frames over twice it, tau/scale every 250 ms (`--timeout=120`) |
+| `autozoom` | auto quality across the 5x zoom: 4 s each unzoomed / zoomed / unzoomed / zoomed at the view (`canopyzoom --zoom=1`), per phase how long it was over the budget, frames over twice it, the longest frame, resolution changes, tau/scale every 250 ms (`--timeout=120`) |
 | `profile` | the panel's GPU profile in the real loop: median render/compute ms with each feature switched off in turn (`--timeout=240`) |
 | `menu` | the settings menu: opens it with Esc, clicks each switch and the quality presets, reads the state back; leaves it open for the screenshot |
 | `autumn` | autumn levels: share of green / yellow / red trees, the nearest stand of each (spots of the `autumn*` views) and the cover map's fallen leaves there |

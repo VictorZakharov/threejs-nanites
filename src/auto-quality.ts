@@ -4,16 +4,12 @@
 // that twitches every frame makes the whole forest shimmer. Past the coarsest tau it lowers the resolution instead
 // (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of the cost doesn't depend
 // on detail (fill, the culling of 2.5M instances), and phones hit that.
-// The 5x zoom is another scene for the GPU (the far forest at full detail: the user's spot over the canopy, `canopyzoom`,
-// 24 ms at tau 1 against ~6 unzoomed), so the zoomed and the unzoomed view each keep their own tau and resolution and
-// the zoom button swaps them at once. One setting for both, stepping x1.3 per half second, took ~3 s of slow frames
-// after zooming in and ~8 s to bring the detail back after zooming out.
+// The 5x zoom is another scene for the GPU (the far forest at full detail), so zooming in starts from the unzoomed
+// setting (sharp: jumping to the last zoom's setting, learned at a costly spot, was the user's "washed" zoom) and
+// zooming out restores it at once: with one setting it stayed at the zoom's tau 8 for seconds after.
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
-
-/** The zoomed view's first tau, x the unzoomed one, until it has been measured. */
-const ZOOM_GUESS = 2;
 
 /**
  * The per-frame step of the controller. `tau`: the forest's error threshold; `setScale`: the resolution scale (of the
@@ -28,9 +24,9 @@ export function createAutoQuality(
   zoom: { zoom: number; zoomTarget: number } | null,
 ): (dt: number) => void {
   let lastAdjust = 0;
-  // the other zoom state's last (tau, scale), and which one is on
-  const saved: [number, number][] = [];
-  let zoomState = 0, wasOn = auto.on;
+  // the unzoomed (tau, scale) while zoomed
+  let saved: [number, number] | null = null;
+  let zoomState = false, wasOn = auto.on;
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
 
   const step = (over: number): void => {
@@ -58,22 +54,22 @@ export function createAutoQuality(
     lastAdjust = performance.now();
   };
 
-  /** Swaps to the other zoom state's settings (a first guess for the zoomed one); holds still while the zoom eases. */
+  /** Zooming out restores the unzoomed setting; holds still while the zoom eases. */
   const followZoom = (): void => {
-    if (auto.on && !wasOn) saved.length = 0; // (a preset was on in between: start over)
+    if (auto.on && !wasOn) saved = null; // (a preset was on in between: start over)
     wasOn = auto.on;
     if (!zoom) return;
     // (the frames while it eases in or out are neither view's: zooming out at the zoomed tau they're slow, and they
     // stepped the unzoomed tau up)
     if (Math.abs(zoom.zoom - zoom.zoomTarget) > 0.05 * zoom.zoomTarget) restart();
-    const z = zoom.zoomTarget > 1 ? 1 : 0;
+    const z = zoom.zoomTarget > 1;
     if (z === zoomState) return;
-    saved[zoomState] = [tau.value, auto.scale];
     zoomState = z;
-    if (!auto.on) return;
-    const [t, s] = saved[z] ?? [Math.min(auto.maxTau, z ? tau.value * ZOOM_GUESS : tau.value), auto.scale];
-    tau.value = t;
-    if (s !== auto.scale) setScale(s);
+    if (z) saved = [tau.value, auto.scale];
+    else if (saved && auto.on) {
+      tau.value = saved[0];
+      if (saved[1] !== auto.scale) setScale(saved[1]);
+    }
     restart();
   };
 

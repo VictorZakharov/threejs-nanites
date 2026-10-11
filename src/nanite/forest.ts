@@ -32,6 +32,9 @@ import type { Hzb } from './hzb.ts';
 
 type TypeStats = BuiltTree['stats'] & { name: string; radius: number };
 
+const CAST_CULL = new URLSearchParams(location.search).get('castcull') !== '0'; // (?castcull=0: every caster in the map)
+const CAST_SLACK = 60; // m: how much lower than a tree's base its shadow may land (a slope)
+
 // The stage modules' methods, attached to the prototype at the end of this file.
 export interface NaniteForest
   extends Omit<typeof cullingMethods, never>, Omit<typeof hzbMethods, never>, Omit<typeof drawMethods, never>, Omit<typeof billboardMethods, never> {}
@@ -59,6 +62,7 @@ export class NaniteForest {
   stats!: { clusters: number; verts: number; tris: number; types: TypeStats[] };
   hzb!: Hzb;
   hzbReady = false;
+  readonly mainFrustum = new THREE.Frustum(); // (this frame's camera frustum: the shadow view's casters must reach it)
   /** The impostors' colour gains per tree type (live uniforms: harness --typematch=calibrate adjusts them). */
   impGains: { side: UniformArrayNode<'vec3'>; top: UniformArrayNode<'vec3'> } | null = null;
   readonly mainCtr: Counters;
@@ -83,6 +87,7 @@ export class NaniteForest {
       debug: uniform(0, 'uint'),
       occlusion: uniform(1, 'uint'), // two-phase occlusion culling on/off
       sunDir: uniform(new THREE.Vector3(0, 1, 0)), // towards the sun (the shadow camera's view, reversed)
+      castLen: uniform(0), // how far a caster's shadow can reach from it (m; 0: no test, ?castcull=0; see CastTest)
     };
     this.textures = textures;
     this._buildBuffers(trees, instances);
@@ -204,7 +209,9 @@ export class NaniteForest {
     view.ran = true; // (its buffers exist on the GPU from now on)
     const A = view.sets[0];
     // the chunks of instances in view (the instance pass runs a thread per instance slot of each)
-    const seen = this.chunks.visible(f, viewerPos.value, view.lodPos.value, this.u.maxDist.value, view.chunkValues);
+    if (view === this.main) this.mainFrustum.copy(f);
+    const cast = view === this.shadow && this.u.castLen.value > 0 ? { frustum: this.mainFrustum, dir: this.u.sunDir.value, len: this.u.castLen.value } : null;
+    const seen = this.chunks.visible(f, viewerPos.value, view.lodPos.value, this.u.maxDist.value, view.chunkValues, cast);
     computeBatch(r, [
       ...view.sets.map((set) => set.reset), // (phase 2 draws nothing unless occlusion() runs)
       ...(view.retest ? [view.retest.reset] : []),
@@ -238,6 +245,10 @@ export class NaniteForest {
     if (shadowCamera) {
       shadowCamera.updateMatrixWorld();
       u.sunDir.value.set(0, 0, 1).transformDirection(shadowCamera.matrixWorld); // (a camera looks down its -z)
+      // Casters only where their shadow can land in the camera's view: swept from the tallest tree's top down to
+      // ground up to CAST_SLACK lower (a slope) along the sun. The map covers a square kilometres wide from high up,
+      // and all of it was drawn: zoomed in looking down from 544 m, 38M shadow triangles, 13 ms (`zoomdown`).
+      u.castLen.value = CAST_CULL ? (this.chunks.maxHeight + CAST_SLACK) / Math.max(u.sunDir.value.y, 0.15) : 0;
       this._cull(this.shadow, shadowCamera);
     }
   }

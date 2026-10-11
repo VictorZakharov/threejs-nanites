@@ -57,6 +57,9 @@ export const VIEWS = {
   // the user's 4070 Ti report: right-mouse zoom over the canopy into the distance, frames to 20 ms (p95 21.8, 278k
   // impostors, 7.3M software triangles, compute 3.6 ms); use with --zoom=5
   canopyzoom: { x: -1336, z: 756, agl: 193, yaw: -164.5, pitch: -7 },
+  // the user's desktop zoom looking down from 544 m (washed out: auto at tau 8 and 50%, GPU 7.4 = 2.7 draw + 4.6
+  // cull, 14.2M shadow triangles); use with --zoom=5
+  zoomdown: { x: -1336, z: 756, agl: 544, yaw: -164.5, pitch: -70 },
   // the user's Samsung S25 report (20 fps "all the way up": 898k impostors listed for a 288x521 screen), straight down
   phonetop: { x: 20, z: 40, agl: 9004, yaw: -0.7, pitch: -85.7 },
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },

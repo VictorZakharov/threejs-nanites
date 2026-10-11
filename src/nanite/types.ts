@@ -22,6 +22,7 @@ export interface ForestUniforms {
   debug: U<'uint', number>;
   occlusion: U<'uint', number>;
   sunDir: U<'vec3', THREE.Vector3>;
+  castLen: U<'float', number>;
   sw?: U<'uint', number>;
   swArea?: U<'float', number>;
 }

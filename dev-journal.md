@@ -48,11 +48,18 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   group errors by max, not sum (`--probe=lodcut`: far trees' bark was levels too fine): 31M + 9M, ~24 ms, -0.3..1 ms
   on every view. Rejected: a bigger impostor switch while zoomed (imppx 100: 12 ms, but far pines become fat fuzzy
   cones without trunks); lighter bark normal weights (20x the popping close up). Occlusion removes ~5% there (the
-  foliage's holes). Auto quality keeps a tau and resolution per zoom state (`--probe=autozoom`): zooming back out
-  restores the detail at once (it sat at tau 8 for seconds), later zooms 0 slow frames, the first ~1.7 s (needs tau 8
-  at 56% there). High (manual tau 1) still costs 24 ms there: per-triangle ~0.28 ms/M hardware (wind costs
+  foliage's holes). Auto quality: zooming out restores the unzoomed setting at once (it sat at tau 8 for seconds);
+  zooming in starts sharp (a remembered zoom setting made every zoom "washed", the user: "optimize the algo before
+  we downgrade"). Shadow casters culled to those whose shadow can land in view: `zoomdown` (the user's washed zoom,
+  looking down from 544 m) 17.9 -> 4.75 ms (38M shadow triangles -> 258k). High (manual tau 1) still costs 22 ms at
+  `canopyzoom`: per-triangle ~0.28 ms/M hardware (wind costs
   nothing), fill ~9 ms (the leaf levels keep the card area: half the cards, twice the size). Coarser leaves
   (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
+- NEXT (user, 2026-10-11): "deep inside the forest it renders 3000 trees, I'm seeing at most 50": occlusion culling
+  on the ground (the HZB from the foliage's depth has holes). Check what's drawn vs visible, cull what isn't.
+- Phone (S25, 2026-10-11, zooming at 2.7 km): 48.8 fps avg but 1% low 6.9, 16 frames over 50 ms (longest 190): hitches
+  not reproduced on the dev GPU (phone-size `autozoom` with a tight budget: longest 9 ms). At 9 km "washed": it sits
+  at tau 8 and 50% (288x521 on a 1440 px wide screen), GPU 23.7 ms for a 14 ms budget: needs its Profile GPU.
 - HUD / panel triangle counts now include the impostors (2 each) and small counts read as numbers (the user: "0 + 0
   tris, obviously a lie" from 4.9 km: all impostors, 1,440 software triangles shown as 0.00 M).
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms

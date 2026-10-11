@@ -13,11 +13,22 @@ const EXTENT = 560; // m: a run is cut where its box would grow wider (into the 
 export const MAX_CHUNKS = 7000;
 const ALL = new URLSearchParams(location.search).get('chunks') === '0'; // (debug: every chunk, as if none were culled)
 
+/**
+ * The shadow view's second test: a caster matters only if its shadow can land in the camera's view. Its box, swept
+ * `len` metres away from the sun (`dir`: towards the sun), must touch the camera's frustum.
+ */
+export interface CastTest {
+  frustum: THREE.Frustum;
+  dir: THREE.Vector3;
+  len: number;
+}
+
 export class InstanceChunks {
   readonly count: number;
   readonly start: Uint32Array;
   readonly size: Uint32Array;
   readonly box: Float32Array; // per chunk: min x y z, max x y z (the spheres, uncurved)
+  readonly maxHeight: number; // the tallest plant's height (m)
 
   /** `a`, `b`: the instances (a: x y z scale, b: .., .., type, ..); `types`: (.., .., radius, height) per type. */
   constructor(a: Float32Array, b: Float32Array, types: THREE.Vector4[]) {
@@ -28,6 +39,9 @@ export class InstanceChunks {
     this.start = Uint32Array.from(r.start);
     this.size = Uint32Array.from(r.size);
     this.box = Float32Array.from(r.box);
+    let h = 0;
+    for (let i = 0; i < a.length / 4; i++) h = Math.max(h, types[b[i * 4 + 2]].w * a[i * 4 + 3]);
+    this.maxHeight = h;
   }
 
   private static runs(a: Float32Array, b: Float32Array, types: THREE.Vector4[], extent: number) {
@@ -61,7 +75,7 @@ export class InstanceChunks {
    * instance pass tests each tree: its curved centre's sphere in the frustum, its uncurved distance from `lodPos`
    * minus its radius under `maxDist`. `viewer`: whom the curvature drops points from (the main camera).
    */
-  visible(frustum: THREE.Frustum, viewer: THREE.Vector3, lodPos: THREE.Vector3, maxDist: number, out: THREE.Vector4[]): number {
+  visible(frustum: THREE.Frustum, viewer: THREE.Vector3, lodPos: THREE.Vector3, maxDist: number, out: THREE.Vector4[], cast: CastTest | null = null): number {
     let m = 0;
     const b = this.box, inv2R = 1 / (2 * PLANET_RADIUS), max2 = maxDist * maxDist;
     const { x: lx, y: ly, z: lz } = lodPos, { x: vx, z: vz } = viewer;
@@ -84,6 +98,17 @@ export class InstanceChunks {
           inside = nrm.x * px + nrm.y * py + nrm.z * pz + constant >= 0;
         }
         if (!inside) continue;
+        // (the shadow view) the box swept away from the sun: the extent along a plane's normal grows by the sweep's
+        if (cast) {
+          const { x: sx, y: sy, z: sz } = cast.dir, cp = cast.frustum.planes;
+          for (let p = 0; p < 6 && inside; p++) {
+            const { normal: nrm, constant } = cp[p];
+            const px = nrm.x > 0 ? x1 : x0, py = nrm.y > 0 ? yhi : ylo, pz = nrm.z > 0 ? z1 : z0;
+            const d = nrm.x * px + nrm.y * py + nrm.z * pz + constant;
+            inside = Math.max(d, d - cast.len * (nrm.x * sx + nrm.y * sy + nrm.z * sz)) >= 0;
+          }
+          if (!inside) continue;
+        }
       }
       // (floats: whole numbers to 2^24, exact)
       const pair = out[m >> 1];

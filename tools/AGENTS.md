@@ -32,7 +32,7 @@ is about using it well.
 | `harness/status.mjs` | the current step, for the watchdog |
 | `harness/motion.mjs` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/images.mjs` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
-| `img.mjs` | command line for those: `node tools/img.mjs mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4` |
+| `img.mjs` | command line for those: `node tools/img.mjs mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match) |
 | `probes/` | page-side measures (`--probe=<name>`), see `probes/README.md` |
 
 Output in `tools/out/`: `<view>.png` (A/B: `<view>@<k>.png`), `report.json`, `console.log` (the page console),

@@ -138,20 +138,22 @@ Object.assign(demo, {
     for (const z of [1, controls.zoomMax, 1, controls.zoomMax]) {
       controls.zoomTarget = z;
       const t0 = performance.now(), track: string[] = [];
-      let overUntil = 0, slow = 0, n = 0, prev = t0, next = t0;
+      let overUntil = 0, slow = 0, n = 0, prev = t0, next = t0, longest = 0, scales = 0, lastScale = auto.scale;
       await new Promise<void>((done) => {
         renderer.setAnimationLoop(() => {
           loop();
           const now = performance.now();
           n++;
           if (now - prev > 2 * budget) slow++;
+          longest = Math.max(longest, now - prev);
+          if (auto.scale !== lastScale) (scales++, (lastScale = auto.scale));
           prev = now;
           if (auto.gpuMs > budget * 1.1) overUntil = Math.round(now - t0);
           if (now >= next) (track.push(`${forest.u.tau.value.toFixed(1)}/${auto.scale.toFixed(2)}`), (next += 250));
           if (now - t0 >= ms) (renderer.setAnimationLoop(null), done());
         });
       });
-      out.push({ zoom: z, overUntilMs: overUntil, framesOver2x: slow, frames: n, gpuMs: +auto.gpuMs.toFixed(2), tauScale: track.join(' ') });
+      out.push({ zoom: z, overUntilMs: overUntil, framesOver2x: slow, frames: n, longestMs: Math.round(longest), scaleChanges: scales, gpuMs: +auto.gpuMs.toFixed(2), tauScale: track.join(' ') });
     }
     controls.zoomTarget = controls.zoom = 1;
     return out;
