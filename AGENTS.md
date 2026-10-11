@@ -349,5 +349,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Impostors are
   drawn there too, tested once against this frame's HZB (they're listed in the retest list with `IMP_BIT`; hidden
   ones get their flag cleared). Clouds are on that layer too, so they're drawn after every tree. Check with the
-  `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. The HZB lookup reads up to 4x4 texels of a finer level than
+  `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. Foliage's gaps let far depth
+  into every block of a max pyramid: on the ground 86% of the drawn triangles were hidden (`--probe=visible
+  --query=ids=1`). Gaps up to 2 px are closed before it's built (`HZB_CLOSE`, `?hzbclose=`: not conservative, 1% of
+  the seen triangles lost, no added flicker; -0.6..0.9 ms on the ground). The HZB lookup reads up to 4x4 texels of a finer level than
   usual: at 2x2 the texels near the horizon take in sky and nothing is ever occluded.

@@ -17,6 +17,7 @@ export interface DemoState {
 
 export interface HarnessContext {
   renderer: THREE.WebGPURenderer;
+  sceneRT: THREE.RenderTarget; // (the scene before TAA: colour, and the trees' wind motion / debug 6 ids)
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   forest: NaniteForest;
@@ -49,9 +50,9 @@ interface HarnessView {
 }
 
 export function installHarnessApi(demo: DemoState, ctx: HarnessContext): void {
-  const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud } = ctx;
+  const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT } = ctx;
 Object.assign(demo, {
-  renderer, scene, camera, forest, controls, instances,
+  renderer, scene, camera, forest, controls, instances, sceneRT,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
     size: `${size.x}x${size.y}`,

@@ -55,8 +55,11 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   `canopyzoom`: per-triangle ~0.28 ms/M hardware (wind costs
   nothing), fill ~9 ms (the leaf levels keep the card area: half the cards, twice the size). Coarser leaves
   (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
-- NEXT (user, 2026-10-11): "deep inside the forest it renders 3000 trees, I'm seeing at most 50": occlusion culling
-  on the ground (the HZB from the foliage's depth has holes). Check what's drawn vs visible, cull what isn't.
+- NEXT (user, 2026-10-11): "deep inside the forest it renders 3000 trees, I'm seeing at most 50". Measured
+  (`--probe=visible --query=ids=1`, `ground` 1080p): 4803 trees drawn, 672 seen (162 over 100 px); 7.8M triangles
+  drawn, 1.1M in clusters that reach a pixel. Done: foliage gaps up to 2 px closed before the HZB (5.5M drawn,
+  -0.6..0.9 ms). Still 5x the seen: next, tighter tests (cluster boxes instead of spheres, finer HZB taps), and why
+  4.5k trees pass phase 1 (whole-tree spheres take in the sky above the crowns).
 - Phone (S25, 2026-10-11, zooming at 2.7 km): 48.8 fps avg but 1% low 6.9, 16 frames over 50 ms (longest 190): hitches
   not reproduced on the dev GPU (phone-size `autozoom` with a tight budget: longest 9 ms). At 9 km "washed": it sits
   at tau 8 and 50% (288x521 on a 1440 px wide screen), GPU 23.7 ms for a 14 ms budget: needs its Profile GPU.

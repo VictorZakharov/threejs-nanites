@@ -377,7 +377,7 @@ async function start() {
 
   // ---------------------------------------------------------------- harness API
   installHarnessApi(demo, {
-    renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, setScale, updateHud,
+    renderer, sceneRT, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, setScale, updateHud,
     shadowsOn: () => shadowsOn,
     setBenchMs: (m) => hud.setBenchMs(m),
   });

@@ -2,7 +2,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniform, uniformArray, instanceIndex, uint, float, vec4, max, min, clamp, log2, exp2,
-  ivec2, int, textureLoad,
+  ivec2, int, textureLoad, select,
 } from 'three/tsl';
 import type { ComputeNode, StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { WG, HZB_LEVELS, HZB_LEVEL0_MAX, HZB_FLOATS, minU } from './constants.ts';
@@ -24,6 +24,15 @@ export interface Hzb {
   passes: ComputeNode[];
   attr: THREE.StorageBufferAttribute;
 }
+
+/**
+ * Holes in the foliage filled before the max-depth pyramid (?hzbclose=N: each pixel the nearest depth within N
+ * pixels). The pyramid keeps each block's farthest depth, and the gaps between leaves let it through almost
+ * everywhere: on the ground 86% of the drawn triangles were hidden (`--probe=visible`, 7.8M drawn, 1.1M seen). With 1
+ * px gaps closed: 5.5M drawn, 1% of the seen triangles lost (things seen only through a 1-2 px gap), no added
+ * flicker; ground/plazane/closeup -0.6..0.9 ms. 2: 4.3M drawn but 4% of the seen lost, 4: 14%.
+ */
+const HZB_CLOSE = Number(new URLSearchParams(location.search).get('hzbclose') ?? 1);
 
 export const hzbMethods = {
   // ------------------------------------------------------------------ HZB (max-depth pyramid of the main view)
@@ -102,10 +111,21 @@ export const hzbMethods = {
           const m = float(0).toVar();
           if (L === 0) {
             const W = uint(h.size.x), H = uint(h.size.y);
+            // (unsigned offsets: int(p).add(-1) read zeros everywhere)
+            const shift = (p: Uint, o: number): Uint => (o < 0 ? select(p.greaterThanEqual(uint(-o)), p.sub(-o), uint(0)) : p.add(o));
+            const at = (px: Uint, py: Uint, k: number): Float =>
+              textureLoad(depthTexture, ivec2(int(minU(px, W.sub(1))), int(minU(py, H.sub(1)))), int(k)).x;
             for (let dy = 0; dy < 2; dy++)
               for (let dx = 0; dx < 2; dx++) {
-                const p = ivec2(int(minU(x.mul(2).add(dx), W.sub(1))), int(minU(y.mul(2).add(dy), H.sub(1))));
-                for (let k = 0; k < samples; k++) m.assign(max(m, textureLoad(depthTexture, p, int(k)).x));
+                const px = x.mul(2).add(dx), py = y.mul(2).add(dy);
+                for (let k = 0; k < samples; k++) {
+                  // (the nearest depth within HZB_CLOSE pixels: gaps up to 2 x HZB_CLOSE wide filled)
+                  const d = float(at(px, py, k)).toVar();
+                  for (let j = -HZB_CLOSE; j <= HZB_CLOSE; j++)
+                    for (let i = -HZB_CLOSE; i <= HZB_CLOSE; i++)
+                      if (i || j) d.assign(min(d, at(shift(px, i), shift(py, j), k)));
+                  m.assign(max(m, d));
+                }
               }
           } else {
             const pl = h.levels.element(L - 1);

@@ -19,6 +19,10 @@ import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typ
  * (dag-build.ts packs them so), and indexed, the GPU shades the two corners a card's triangles share once: 4 vertex
  * shader runs a card instead of 6.
  */
+// (?ids=1: debug 6 writes each pixel's tree and cluster into the wind target, for --probe=visible; compiled in only
+// then: a varying more on every tree vertex otherwise)
+const IDS = new URLSearchParams(location.search).get('ids') === '1';
+
 const LEAF_INDEX = new THREE.BufferAttribute(Uint16Array.from({ length: MAX_TRIS * 3 }, (_, i) => {
   const t = Math.floor(i / 3), q = (t >> 1) * 4;
   return q + (t & 1 ? [0, 2, 3] : [0, 1, 2])[i % 3];
@@ -108,6 +112,8 @@ export const drawMethods = {
     const vFade = varying(float(1), 'vFade'); // share of this tree drawn as geometry (impostor cross-fade)
     // clip positions with this and last frame's wind (same camera): the wind's motion on screen, for TAA
     const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
+    // (tree and cluster in 11-bit pieces: exact in a half float; the cluster's high piece + 1, so 0 is "no tree")
+    const vId = IDS && !shadowOnly ? varying(vec4(0), 'vId') : null;
 
     const position = Fn(() => {
       const entry = list.element(kind === 0 ? instanceIndex : instanceIndex.add(LIST_CAP));
@@ -131,6 +137,7 @@ export const drawMethods = {
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         vClip.assign(viewProj.mul(vec4(vx.world, 1)));
         vPrevClip.assign(viewProj.mul(vec4(vx.prevWorld, 1)));
+        vId?.assign(vec4(float(inst.bitAnd(2047)), float(inst.shiftRight(11)), float(c.bitAnd(2047)), float(c.shiftRight(11).add(1))));
       }
       return select(valid, vx.world, vec3(0));
     })();
@@ -167,7 +174,7 @@ export const drawMethods = {
     if (!shadowOnly) {
       // (uv units, y down: what the TAA resolve subtracts from its camera reprojection; see src/taa.js)
       const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
-      mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
+      mat.mrtNode = mrt({ wind: vId ? select(u.debug.equal(6), vId.round(), vec4(motion, 0, 1)) : vec4(motion, 0, 1) });
     }
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false;
