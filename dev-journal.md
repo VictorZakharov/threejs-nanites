@@ -48,8 +48,11 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   group errors by max, not sum (`--probe=lodcut`: far trees' bark was levels too fine): 31M + 9M, ~24 ms, -0.3..1 ms
   on every view. Rejected: a bigger impostor switch while zoomed (imppx 100: 12 ms, but far pines become fat fuzzy
   cones without trunks); lighter bark normal weights (20x the popping close up). Occlusion removes ~5% there (the
-  foliage's holes). Next: the leaves (22M hardware triangles: a 100 px oak draws its full 5k cards), auto quality's
-  reaction to the zoom (x1.3 per 0.5 s: seconds of slow frames; remember a tau per zoom level?).
+  foliage's holes). Auto quality keeps a tau and resolution per zoom state (`--probe=autozoom`): zooming back out
+  restores the detail at once (it sat at tau 8 for seconds), later zooms 0 slow frames, the first ~1.7 s (needs tau 8
+  at 56% there). High (manual tau 1) still costs 24 ms there: per-triangle ~0.28 ms/M hardware (wind costs
+  nothing), fill ~9 ms (the leaf levels keep the card area: half the cards, twice the size). Coarser leaves
+  (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
 - HUD / panel triangle counts now include the impostors (2 each) and small counts read as numbers (the user: "0 + 0
   tris, obviously a lie" from 4.9 km: all impostors, 1,440 software triangles shown as 0.00 M).
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms

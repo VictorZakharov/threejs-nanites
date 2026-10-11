@@ -12,6 +12,7 @@ import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
 import { viewerPos } from './planet.ts';
 import { createClouds, CLOUD_BASE } from './clouds.ts';
 import { FlyControls } from './controls.ts';
+import { createAutoQuality } from './auto-quality.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { LoadingScreen } from './loading.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
@@ -233,62 +234,20 @@ async function start() {
   }
   setShadows(shadowsOn);
 
-  // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
+  // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
   const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 5.5));
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
-  // Changes are slow and have a dead band: every change of tau re-cuts the LOD of every tree on screen, so a
-  // controller that twitches every frame makes the whole forest shimmer. Past the coarsest tau it lowers the
-  // resolution instead (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of
-  // the cost doesn't depend on detail (MSAA + TAA fill, the culling of 1M trees), and phones hit that.
-  let lastAdjust = 0;
   const setScale = (s: number): void => {
     auto.scale = s;
     renderer.setPixelRatio(pixelRatio * s);
     fitToWindow();
   };
-  function autoQuality(dt: number): void {
-    const tau = forest.u.tau;
-    const step = (over: number): void => {
-      const now = performance.now();
-      // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
-      if (now - lastAdjust < (auto.scale < 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
-      if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(1.3, over));
-      else if (over > 1.1 && auto.scale > 0.5) setScale(Math.max(0.5, auto.scale * 0.85));
-      // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
-      // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
-      // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
-      else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
-      else if (over < 0.75 && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / 1.1); // (not before the resolution is back: it ate the room)
-      else return;
-      lastAdjust = now;
-    };
-    // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
-    // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
-    auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
-    const timed = gpuBackend(renderer).trackTimestamp, now = performance.now();
-    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (timed ? 50 : 16.7));
-    if (!timed) return;
-    if (auto.busy && now - (auto.busySince ?? 0) < 1000) return; // (a readback that never settles is dropped)
-    auto.busy = true;
-    auto.busySince = now;
-    Promise.all([renderer.resolveTimestampsAsync('render'), renderer.resolveTimestampsAsync('compute')]).then(([r, c]) => {
-      auto.busy = false;
-      if (r === undefined || !(r >= 0)) return;
-      const g = r + (c || 0), ease = (a: number | undefined, b: number): number => (a ? a * 0.9 + b * 0.1 : b);
-      auto.gpuMs = ease(auto.gpuMs, g);
-      auto.renderMs = ease(auto.renderMs, r);
-      auto.computeMs = ease(auto.computeMs, c || 0);
-      auto.onSample?.(r, c || 0);
-      if (auto.on) step(auto.gpuMs / auto.budget);
-    }, (err) => {
-      auto.busy = false;
-      console.warn('GPU timestamp readback failed', err);
-    });
-  }
+  // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, params.get('autozoom') === '0' ? null : controls);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.

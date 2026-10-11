@@ -116,7 +116,6 @@ Object.assign(demo, {
     }
     return out;
   },
-  /** Runs the real loop (auto quality on, flying forward) for `ms`, reports where the controller settled. */
   /** Runs the real frame loop (timestamps, auto quality) while `run` is pending (the profile probe). */
   async withLoop<T>(run: () => Promise<T>): Promise<T> {
     renderer.setAnimationLoop(loop);
@@ -126,6 +125,38 @@ Object.assign(demo, {
       renderer.setAnimationLoop(null);
     }
   },
+  /**
+   * Auto quality across the zoom: the real loop at the current view, unzoomed / zoomed / unzoomed / zoomed for `ms`
+   * each (the second zoom: does it come back to its own setting?). Per phase: tau and resolution scale each 250 ms,
+   * until when the eased GPU time was over the budget by 10% (`ms`: to the end), and the frames over twice the budget.
+   */
+  async autoZoomTest(ms = 4000, budget = auto.budget) {
+    auto.on = true;
+    auto.budget = budget;
+    auto.gpuMs = 0;
+    const out = [];
+    for (const z of [1, controls.zoomMax, 1, controls.zoomMax]) {
+      controls.zoomTarget = z;
+      const t0 = performance.now(), track: string[] = [];
+      let overUntil = 0, slow = 0, n = 0, prev = t0, next = t0;
+      await new Promise<void>((done) => {
+        renderer.setAnimationLoop(() => {
+          loop();
+          const now = performance.now();
+          n++;
+          if (now - prev > 2 * budget) slow++;
+          prev = now;
+          if (auto.gpuMs > budget * 1.1) overUntil = Math.round(now - t0);
+          if (now >= next) (track.push(`${forest.u.tau.value.toFixed(1)}/${auto.scale.toFixed(2)}`), (next += 250));
+          if (now - t0 >= ms) (renderer.setAnimationLoop(null), done());
+        });
+      });
+      out.push({ zoom: z, overUntilMs: overUntil, framesOver2x: slow, frames: n, gpuMs: +auto.gpuMs.toFixed(2), tauScale: track.join(' ') });
+    }
+    controls.zoomTarget = controls.zoom = 1;
+    return out;
+  },
+  /** Runs the real loop (auto quality on, flying forward) for `ms`, reports where the controller settled. */
   async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
     auto.on = true;
     auto.budget = budget;

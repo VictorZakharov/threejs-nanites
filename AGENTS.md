@@ -60,7 +60,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
   plus `softraster.ts`, `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
-  loop; `lighting.ts` (sky, fog, sun, shadow map), `textures.ts`, `placement.ts` and `harness-api.ts`
+  loop; `lighting.ts` (sky, fog, sun, shadow map), `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
   (`window.__demo`) are split out of it.
 
 - `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
@@ -120,11 +120,15 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   already binds 8 storage buffers; ~1.1k chunks). It was a thread per instance, 2.5M, twice: the shadow map covers a
   few hundred metres (-0.4 ms compute on the ground, -0.2..0.4 from above; `?chunks=0` tests every chunk: same image). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
+- Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
-  after the orbit). It's off
+  after the orbit). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. The 5x zoom is
+  another scene for the GPU (`canopyzoom`: 24 ms at tau 1 against ~6 unzoomed), so the zoomed and unzoomed view keep
+  their own tau and resolution and the zoom button swaps them (a first zoom starts at 2x the tau); nothing is measured
+  while the zoom eases. With one setting it took ~3 s of slow frames to get there and the detail stayed at tau 8 for
+  seconds after zooming out (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
   `main.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
