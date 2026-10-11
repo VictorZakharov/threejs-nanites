@@ -134,7 +134,7 @@ export const cullingMethods = {
           const keep = v.sphereVisible(cw, cs.w.mul(s)).toVar();
           if (occ) {
             If(keep.and(u.occlusion.equal(1)), () => {
-              If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))), () => {
+              If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w, cs.y.add(cs.w), s, this._sway(b.z)))), () => {
                 keep.assign(false);
                 if (occ === 'retest') v.retest?.cluster(inst, c);
               });
@@ -293,7 +293,7 @@ export const cullingMethods = {
         }
         If(visible.and(far.not()), () => {
           if (retest) {
-            If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
+            If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w, ti.w, s, this._sway(this._b(i).z))))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
           } else {
             setA.emit(i, ti, s, dCam, r);
           }
@@ -311,7 +311,7 @@ export const cullingMethods = {
           const e = retest.treesRO.element(k);
           const i = e.bitAnd(IMP_BIT - 1);
           const { ti, s, centerC, r, dCam } = treeInfo(i);
-          const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))));
+          const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w, ti.w, s, this._sway(this._b(i).z))));
           If(e.greaterThanEqual(IMP_BIT), () => {
             // an impostor: listed if it's not hidden
             If(hidden, () => {
@@ -335,7 +335,7 @@ export const cullingMethods = {
           const s = a.w;
           const cs = this._cd(c, 2);
           const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
-          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w.mul(s)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
+          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w, cs.y.add(cs.w), s, this._sway(b.z)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });
       })().compute(LIST_CAP, [WG]);
     }

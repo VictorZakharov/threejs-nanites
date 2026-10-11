@@ -1,6 +1,6 @@
 // Sizes and limits shared by the forest renderer's modules (src/nanite/).
 import * as THREE from 'three/webgpu';
-import { vec3, storage, select, uint } from 'three/tsl';
+import { vec3, storage, select, uint, clamp } from 'three/tsl';
 import type { Float, Int, Uint, Vec3 } from '../types.ts';
 
 export const MIN_PX = 2; // impostors are never drawn narrower than this (pixels)
@@ -31,8 +31,17 @@ export const minI = (a: Int, b: Int): Int => select(a.lessThan(b), a, b);
 export const maxI = (a: Int, b: Int): Int => select(a.greaterThan(b), a, b);
 
 export const rotY = (p: Vec3, cs: Float, sn: Float): Vec3 => vec3(p.x.mul(cs).sub(p.z.mul(sn)), p.y, p.x.mul(sn).add(p.z.mul(cs)));
-/** How far wind can push a tree's parts (m), for a tree this tall: added to spheres in the occlusion tests. */
-export const windMargin = (height: Float): Float => height.mul(0.1).add(0.5);
+/**
+ * How far the wind can push a tree's part (m), added to its sphere in the occlusion tests: `top` is the part's highest
+ * point and `height` the tree's (local units), `s` its scale, `sway` the wind (u.wind x windOf: 0 for none). The bend of
+ * _vertex (draw.ts) is at most 0.06 x 1.2 (the strongest gust) x |(0.8, -0.15, 0.6)| x height x (top / height)^2, the
+ * leaves' flutter 0.04 x |(1, 0.5, -0.7)|. It was 10% of the whole tree's height + 0.5 m for every part, trunk bases
+ * too: on the ground 1.5M drawn triangles were hidden but for it (`--probe=cullcheck`).
+ */
+export const windMargin = (height: Float, top: Float, s: Float, sway: Float): Float => {
+  const h = clamp(top.div(height), 0, 1);
+  return h.mul(h).mul(height).mul(0.0728).add(0.0528).mul(s).mul(sway);
+};
 
 /** Layer of the main view's phase 2 meshes (see occlusion()). */
 export const PHASE2_LAYER = 2;

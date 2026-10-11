@@ -13,20 +13,20 @@
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
-import { storage, uniform, uniformArray, bitcast } from 'three/tsl';
+import { storage, uniform, uniformArray, bitcast, uint } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
-import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS } from './constants.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, LIST_CAP } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
 import { billboardMethods } from './billboards.ts';
 import { computeBatch } from '../three-gaps.ts';
 import { InstanceChunks, CHUNK } from './chunks.ts';
-import { viewerPos } from '../planet.ts';
+import { viewerPos, PLANET_RADIUS } from '../planet.ts';
 import type { BuiltTree } from '../trees.ts';
 import type { TreeInstances } from '../placement.ts';
-import type { Uint, UVec4 } from '../types.ts';
+import type { Float, Uint, UVec4 } from '../types.ts';
 import type { Counters, ForestStats, ForestTextures, ForestUniforms, View } from './types.ts';
 import type { Hzb } from './hzb.ts';
 
@@ -66,7 +66,7 @@ export class NaniteForest {
   /** The impostors' colour gains per tree type (live uniforms: harness --typematch=calibrate adjusts them). */
   impGains: { side: UniformArrayNode<'vec3'>; top: UniformArrayNode<'vec3'> } | null = null;
   readonly mainCtr: Counters;
-  readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number };
+  readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number; LIST_CAP: number; PLANET_RADIUS: number };
   readonly sw: SoftRaster;
   readonly main: View;
   readonly shadow: View;
@@ -94,7 +94,7 @@ export class NaniteForest {
     this._buildHzb();
     // (the main view's counters: its draw args, stats, retest and software-raster counts in one buffer, see CTR_SIZE)
     this.mainCtr = makeCounters();
-    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW }; // (for the harness probes)
+    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS }; // (for the harness probes)
     this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/nanite/softraster.js)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
@@ -189,6 +189,10 @@ export class NaniteForest {
   /** Cluster c's k-th vec4: 0 LOD sphere, 1 parent LOD sphere, 2 culling sphere, 3 (err, parent err, level, kind). */
   _cd(c: Uint, k: number) {
     return this.cData.element(c.mul(CD_STRIDE).add(k));
+  }
+  /** The wind on a tree of this type (its b.z): 0 when off, and for models (statues don't sway). */
+  _sway(type: Float): Float {
+    return this.u.wind.mul(this.windOf.element(uint(type)));
   }
   /** Cluster c's (first index, triangles, level, kind). */
   _meta(c: Uint) {

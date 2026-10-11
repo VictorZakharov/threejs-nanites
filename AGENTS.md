@@ -352,5 +352,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   `bark` view (one trunk fills the screen): occlusion off draws 67M tris, on ~0.6M. Foliage's gaps let far depth
   into every block of a max pyramid: on the ground 86% of the drawn triangles were hidden (`--probe=visible
   --query=ids=1`). Gaps up to 2 px are closed before it's built (`HZB_CLOSE`, `?hzbclose=`: not conservative, 1% of
-  the seen triangles lost, no added flicker; -0.6..0.9 ms on the ground). The HZB lookup reads up to 4x4 texels of a finer level than
+  the seen triangles lost, no added flicker; -0.6..0.9 ms on the ground). A test reads 8x8 texels (`HZB_TAPS`) at a
+  level where the rect spans at most 8; spheres grow by the wind's reach at the part's height (`windMargin`: it was
+  10% of the tree + 0.5 m for every part). `--probe=cullcheck` sorts what's still drawn but unseen. The HZB lookup reads up to 4x4 texels of a finer level than
   usual: at 2x2 the texels near the horizon take in sky and nothing is ever occluded.

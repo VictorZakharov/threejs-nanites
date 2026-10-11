@@ -57,9 +57,10 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
 - NEXT (user, 2026-10-11): "deep inside the forest it renders 3000 trees, I'm seeing at most 50". Measured
   (`--probe=visible --query=ids=1`, `ground` 1080p): 4803 trees drawn, 672 seen (162 over 100 px); 7.8M triangles
-  drawn, 1.1M in clusters that reach a pixel. Done: foliage gaps up to 2 px closed before the HZB (5.5M drawn,
-  -0.6..0.9 ms). Still 5x the seen: next, tighter tests (cluster boxes instead of spheres, finer HZB taps), and why
-  4.5k trees pass phase 1 (whole-tree spheres take in the sky above the crowns).
+  drawn, 1.1M in clusters that reach a pixel. Done: foliage gaps up to 2 px closed before the HZB (5.5M drawn),
+  the wind margin per part (4.4M), 8x8 HZB taps (3.5M): ground 5.72 -> 4.24 ms with ids on. `--probe=cullcheck` on
+  `ground` now: seen 1.07M, exact-rect cullable 0.74M (16 taps: 0.35M), wind margin 0.47M, "inside" 1.27M (the
+  sphere's rect shows something farther: tighter bounds than spheres next, cluster boxes / cones).
 - Phone (S25, 2026-10-11, zooming at 2.7 km): 48.8 fps avg but 1% low 6.9, 16 frames over 50 ms (longest 190): hitches
   not reproduced on the dev GPU (phone-size `autozoom` with a tight budget: longest 9 ms). At 9 km "washed": it sits
   at tau 8 and 50% (288x521 on a 1440 px wide screen), GPU 23.7 ms for a 14 ms budget: needs its Profile GPU.

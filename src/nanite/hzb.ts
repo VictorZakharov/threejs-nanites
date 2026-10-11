@@ -32,6 +32,12 @@ export interface Hzb {
  * px gaps closed: 5.5M drawn, 1% of the seen triangles lost (things seen only through a 1-2 px gap), no added
  * flicker; ground/plazane/closeup -0.6..0.9 ms. 2: 4.3M drawn but 4% of the seen lost, 4: 14%.
  */
+/**
+ * Texels read a side per occlusion test (?hzbtaps=): at a level where the rect spans at most that many, so the max
+ * takes in less around the rect. With 4 (16 reads) on the ground 1.6M drawn triangles were hidden by their exact
+ * rect (`--probe=cullcheck`); 8: 0.74M, -0.25 ms; 16: 0.35M, another -0.1 ms for 4x the reads.
+ */
+const HZB_TAPS = Number(new URLSearchParams(location.search).get('hzbtaps') ?? 8);
 const HZB_CLOSE = Number(new URLSearchParams(location.search).get('hzbclose') ?? 1);
 
 export const hzbMethods = {
@@ -76,17 +82,17 @@ export const hzbMethods = {
       const px0 = nx0.mul(0.5).add(0.5).mul(h.size.x), px1 = nx1.mul(0.5).add(0.5).mul(h.size.x);
       const py0 = ny1.mul(-0.5).add(0.5).mul(h.size.y), py1 = ny0.mul(-0.5).add(0.5).mul(h.size.y);
       const size = max(px1.sub(px0), py1.sub(py0));
-      // a level where the rect spans at most 4 texels a side (a level L texel is 2^(L+1) pixels), max of those
+      // a level where the rect spans at most HZB_TAPS texels a side (a level L texel is 2^(L+1) pixels), max of those
       // (finer than the usual 2x2: near the horizon a coarse texel takes in sky above the treeline)
-      const L = uint(clamp(log2(max(size.div(3), 1)).ceil().sub(1), 0, float(h.count).sub(1))).toVar();
+      const L = uint(clamp(log2(max(size.div(HZB_TAPS - 1), 1)).ceil().sub(1), 0, float(h.count).sub(1))).toVar();
       const lv = h.levels.element(L);
       const scale = exp2(float(L).add(1));
       const off = uint(lv.x), w = uint(lv.y), hh = uint(lv.z);
       const tx = (p: Float, n: Uint): Uint => minU(uint(max(p.div(scale).floor(), 0)), n.sub(1));
       const tx0 = tx(px0, w), tx1 = tx(px1, w), ty0 = tx(py0, hh), ty1 = tx(py1, hh);
       const farthest = float(0).toVar();
-      for (let j = 0; j < 4; j++)
-        for (let i = 0; i < 4; i++) {
+      for (let j = 0; j < HZB_TAPS; j++)
+        for (let i = 0; i < HZB_TAPS; i++) {
           const x = minU(tx0.add(i), tx1), y = minU(ty0.add(j), ty1);
           farthest.assign(max(farthest, h.buf.element(off.add(y.mul(w)).add(x))));
         }
