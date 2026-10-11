@@ -1,16 +1,23 @@
 // The leaf cards' cluster DAG (see dag-build.ts): disconnected alpha-tested cards cannot be simplified by edge
-// collapse, so a group of leaf clusters is reduced by keeping half the leaves and growing each kept leaf by sqrt(2)
-// (area preserving) - same DAG, same runtime selection.
+// collapse, so a group of leaf clusters is reduced by keeping half the leaves and growing each kept leaf until they
+// cover what the whole group did (dag-coverage.ts; without the leaf texture's mask by sqrt(2), keeping the area) -
+// same DAG, same runtime selection.
 import { MAX_TRIS, LEAF_GROUP_SIZE, sphereOfPoints, mergeSpheres, mortonOrder } from './dag-util.ts';
 import type { Leaf, LeafCluster, LeafVerts, Sphere } from './dag-util.ts';
+import { Coverage } from './dag-coverage.ts';
+import type { Card } from './dag-coverage.ts';
+import type { LeafMask } from './dag-types.ts';
 
 // A coarser level's error: this share of its (grown) leaf size. At 0.35 the leaves were kept under ~3 px at tau 1,
 // crowns many leaves deep: several triangles per pixel (the user's 4070 Ti at 80 fps on High); at 0.175 under ~6 px,
 // a quarter of the leaf triangles far off, the same image (`d550`: a few crown edges thinner).
 export const LEAF_ERR = 0.175;
 
-/** `leafErr`: a coarser level's error as a share of its leaf size (see gErr). */
-export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leafErr = LEAF_ERR): number {
+/**
+ * `leafErr`: a coarser level's error as a share of its leaf size (see gErr); `mask`: the leaf texture's alpha (null:
+ * grow by sqrt(2)); `growth`: filled with each level's mean growth.
+ */
+export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leafErr = LEAF_ERR, mask: LeafMask | null = null, growth: number[] = []): number {
   const leafCount = lv.pos.length / 3 / vpl;
   const quadsPerLeaf = vpl / 4;
   const leavesPerCluster = Math.floor(MAX_TRIS / (quadsPerLeaf * 2));
@@ -32,6 +39,13 @@ export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leaf
     return r;
   };
   const posArr = () => P; // live array (grows)
+  const centre = (first: number): number[] => {
+    const c = [0, 0, 0];
+    for (let v = 0; v < vpl; v++) for (let a = 0; a < 3; a++) c[a] += P[(first + v) * 3 + a] / vpl;
+    return c;
+  };
+  const cover = mask ? new Coverage(P, lv.uv, vpl, mask) : null;
+  const scales: number[][] = [];
   const clusterFrom = (ls: Leaf[], level: number, err: number, lod: Sphere | null): LeafCluster => {
     const idx = new Uint32Array(ls.flatMap(leafIdx));
     const verts = new Set(idx);
@@ -68,17 +82,29 @@ export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leaf
       // keep every other leaf (in Morton order, so the survivors stay spread out)
       const lorder = mortonOrder(ls.map((l) => l.base));
       const keepN = Math.max(1, Math.ceil(ls.length / 2));
-      const scale = Math.sqrt(ls.length / keepN);
+      const srcs = Array.from({ length: keepN }, (_, k) => ls[lorder[Math.floor((k * ls.length) / keepN)]]);
+      // grown round each card's centre (growing from the stem base pushed coarse crowns outward: bigger, brighter)
+      // until the kept cards cover what all of them did
+      let scale = Math.sqrt(ls.length / keepN);
+      if (cover) {
+        const all: Card[] = ls.map((l) => ({ first: l.first, ctr: centre(l.first) }));
+        const kept = srcs.map((l): Card => ({ first: l.first, ctr: centre(l.first) }));
+        let lo = 1, hi = scale * 1.3;
+        cover.fit(all, hi, ls.reduce((a, l) => a + l.size, 0) / ls.length);
+        const target = cover.count(all, 1);
+        if (cover.count(kept, hi) <= target) lo = hi;
+        else for (let it = 0; it < 5; it++) {
+          const mid = (lo + hi) / 2;
+          if (cover.count(kept, mid) < target) lo = mid;
+          else hi = mid;
+        }
+        scale = lo;
+      }
+      (scales[level] ??= []).push(scale);
       const kept: Leaf[] = [];
-      for (let k = 0; k < keepN; k++) {
-        const src = ls[lorder[Math.floor((k * ls.length) / keepN)]];
+      for (const src of srcs) {
         const first = P.length / 3;
-        // grow around the card's centre: growing from the stem base pushed coarse crowns outward (bigger, brighter)
-        const ctr = [0, 1, 2].map((a) => {
-          let c = 0;
-          for (let v = 0; v < vpl; v++) c += P[(src.first + v) * 3 + a];
-          return c / vpl;
-        });
+        const ctr = centre(src.first);
         for (let v = 0; v < vpl; v++) {
           const s = src.first + v;
           for (let a = 0; a < 3; a++) P.push(ctr[a] + (P[s * 3 + a] - ctr[a]) * scale);
@@ -99,6 +125,7 @@ export function buildLeaves(lv: LeafVerts, vpl: number, out: LeafCluster[], leaf
     }
     current = next;
   }
+  scales.forEach((a, l) => (growth[l] = a.reduce((x, y) => x + y, 0) / a.length));
   return level;
 }
 

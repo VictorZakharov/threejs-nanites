@@ -2,6 +2,7 @@
 import * as THREE from 'three/webgpu';
 import { float, select, uint } from 'three/tsl';
 import type { Float, Uint } from './types.ts';
+import type { LeafMask } from './dag-types.ts';
 
 async function loadImage(url: string): Promise<HTMLImageElement> {
   const img = new Image();
@@ -38,6 +39,30 @@ function coverageScales(px: Uint8ClampedArray, size: number, levels: number): nu
     scales.push(Math.min(8, 0.5 / Math.max(q, 1e-3)));
   }
   return scales;
+}
+
+/**
+ * An image's alpha as a `size` x `size` mask (each cell the mean alpha of its block, over half: 1), rows from the top
+ * as the leaf shader samples them (flipY off): the leaf DAG's coverage counts (dag-coverage.ts).
+ */
+export async function alphaMask(url: string, size = 64): Promise<LeafMask> {
+  const img = await loadImage(url);
+  const w = img.naturalWidth, h = img.naturalHeight;
+  const canvas = document.createElement('canvas');
+  canvas.width = w;
+  canvas.height = h;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true });
+  if (!ctx) throw new Error('No 2D canvas context.');
+  ctx.drawImage(img, 0, 0);
+  const px = ctx.getImageData(0, 0, w, h).data;
+  const sum = new Float64Array(size * size), n = new Float64Array(size * size);
+  for (let y = 0; y < h; y++)
+    for (let x = 0; x < w; x++) {
+      const c = Math.floor((y * size) / h) * size + Math.floor((x * size) / w);
+      sum[c] += px[(y * w + x) * 4 + 3];
+      n[c]++;
+    }
+  return { size, bits: Uint8Array.from(sum, (v, c) => (v / n[c] > 127.5 ? 1 : 0)) };
 }
 
 /** Stacks images into one mipmapped DataArrayTexture (so one draw can sample any tree's texture). */

@@ -55,6 +55,13 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   `canopyzoom`: per-triangle ~0.28 ms/M hardware (wind costs
   nothing), fill ~9 ms (the leaf levels keep the card area: half the cards, twice the size). Coarser leaves
   (`leaferr=0.12`: 19.4 ms) would change the look: the user's call.
+- NEXT (user, 2026-10-11, 4070 Ti): zoom from 478 m still "washed" (auto at tau 8 and 66%; view `zoommid`
+  `--zoom=5 --size=1906x1045`). Mostly tau, not resolution: each coarser leaf level covered more (cards grown x2
+  area, the fine ones overlap), tree share 0.18 at tau 1 -> 0.05 at 8. Done: leaf levels grown to the coverage
+  (`dag-coverage.ts`): tau 1..8 alike, and cheaper (tau 8 there 4.2 -> 2.8 ms GPU). The forest from the air reads
+  a little thinner (its true coverage). Next: temporal upscaling (render under the canvas's resolution, rebuild it
+  over frames; now the browser stretches a smaller canvas: blurry; a friend's iPhone (DPR 3) runs at 1.5 x 0.6 of
+  CSS px: "9x fewer pixels, pixelated"), then auto quality lowering resolution before tau gets coarse.
 - NEXT (user, 2026-10-11): "deep inside the forest it renders 3000 trees, I'm seeing at most 50". Measured
   (`--probe=visible --query=ids=1`, `ground` 1080p): 4803 trees drawn, 672 seen (162 over 100 px); 7.8M triangles
   drawn, 1.1M in clusters that reach a pixel. Done: foliage gaps up to 2 px closed before the HZB (5.5M drawn),

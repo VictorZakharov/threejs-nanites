@@ -22,10 +22,18 @@ export interface DagRequest {
   leaves: LeafSource;
   /** A coarser leaf level's error, as a share of its (grown) leaf size (dag-leaves.ts; ?leaferr=). */
   leafErr?: number;
+  /** The leaf texture's alpha (dag-coverage.ts): coarser levels cover what the finer did (none: area kept; ?leafcover=0). */
+  leafMask?: LeafMask;
   /** Scales of the bark simplifier's normal and uv weights (dag-build.ts BARK_WEIGHTS; ?barkattr=n,uv). */
   barkAttr?: [number, number];
   /** How a bark group's error adds to its children's: the max (default: each switch moves <= tau) or the sum (?barkerr=sum). */
   barkErr?: 'sum' | 'max';
+}
+
+/** A leaf texture's alpha as a coarse mask: `size` x `size`, 1 = opaque, rows from the image's top. */
+export interface LeafMask {
+  size: number;
+  bits: Uint8Array;
 }
 
 export interface DagStats {
@@ -37,6 +45,8 @@ export interface DagStats {
   leafLevels: number;
   barkRoots: number;
   leafRoots: number;
+  /** Each leaf level's mean growth of the kept cards (sqrt(2): area kept). */
+  leafGrowth: number[];
   ms: number;
 }
 

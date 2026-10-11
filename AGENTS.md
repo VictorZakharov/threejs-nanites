@@ -66,7 +66,14 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
 - `src/dag-build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools): bark via
   meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
-  (`dag-leaves.ts`) by keeping half the cards and growing them √2 per level; shared pieces in `dag-util.ts`. Every
+  (`dag-leaves.ts`) by keeping half the cards and growing them until they cover what the group did
+  (`dag-coverage.ts`: the cards through their texture's alpha mask, `alphaMask` in `textures.ts`, counted on a grid
+  from 4 directions; ~1.3 per level); shared pieces in `dag-util.ts`. Growing by √2 (keeping the area) covered far
+  more than the tree (its leaves overlap, the fewer bigger cards much less): each coarser level closed the gaps, and
+  at tau 8 the forest was a bright even carpet (the user's zoom: "washed"). Now tau 1..8 look alike (`zoommid`:
+  mean colour within 2/255) and match the full-detail leaves (`leaferr=100&shadowtau=1000`); -0.2..1.4 ms on every
+  view; the far-field shading matches the real map within 1/255 (was 5). `?leafcover=0` for the old growth. Full
+  detail casts less shadow than it should: its leaves are smaller than a shadow texel. Every
   cluster stores its LOD sphere/error and its parent group's sphere/error. A coarser leaf level's error is `LEAF_ERR`
   (0.175, `?leaferr=`) x its leaf size: a *smaller* share switches to it sooner. At 0.35 leaves were kept under ~3 px
   at tau 1 (crowns many deep: ~8 triangles per pixel on High, 7.7M software-rasterized at the user's spot); at

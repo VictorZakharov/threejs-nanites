@@ -1,5 +1,6 @@
 import { Tree, Billboard } from '@dgreenheck/ez-tree';
-import type { BarkSource, DagReply, DagResult, LeafSource } from './dag-types.ts';
+import type { BarkSource, DagReply, DagResult, LeafMask, LeafSource } from './dag-types.ts';
+import { alphaMask } from './textures.ts';
 import type { LoadingScreen } from './loading.ts';
 import { loadModel } from './models.ts';
 
@@ -114,6 +115,11 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
   const n = VARIANTS.length;
   let done = 0;
   const jobs: Promise<BuiltTree>[] = [];
+  const q = new URLSearchParams(location.search);
+  // the leaf textures' alpha, for the leaf levels' coverage (dag-coverage.ts; ?leafcover=0: they keep the area instead)
+  const masks = new Map<string, Promise<LeafMask>>();
+  if (q.get('leafcover') !== '0')
+    for (const v of VARIANTS) if (!v.model && !masks.has(v.leaf)) masks.set(v.leaf, alphaMask(`./textures/${v.leaf}_color.png`));
   for (let id = 0; id < n; id++) {
     const v = VARIANTS[id];
     await ui.update(0.06 + (0.24 * id) / n, v.model ? `Loading ${v.preset}` : `Growing ${v.preset}`, false);
@@ -129,6 +135,7 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
     const src = generateTree(v);
     const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
     ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+    const leafMask = await masks.get(v.leaf);
     jobs.push(
       new Promise<BuiltTree>((resolve, reject) => {
         const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });
@@ -140,16 +147,15 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
           ui.update(0.3 + (0.45 * done) / n, `Cluster DAGs ${done}/${n}`, false);
           ui.note(
             `DAG ${v.preset}: ${(st.barkClusters + st.leafClusters).toLocaleString()} clusters, ` +
-              `${Math.max(st.barkLevels, st.leafLevels) + 1} levels (${st.ms} ms)`,
+              `${Math.max(st.barkLevels, st.leafLevels) + 1} levels, leaf growth ${st.leafGrowth.slice(1).map((g) => g.toFixed(2)).join(' ')} (${st.ms} ms)`,
           );
           resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
         };
         w.onerror = (e) => reject(new Error(e.message));
-        const q = new URLSearchParams(location.search);
         const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);
         const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
         const barkErr = q.get('barkerr') === 'sum' ? { barkErr: 'sum' } : {};
-        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...attr, ...barkErr });
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...(leafMask ? { leafMask } : {}), ...attr, ...barkErr });
       }),
     );
   }
