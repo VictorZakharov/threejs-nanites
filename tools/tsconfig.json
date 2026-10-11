@@ -1,0 +1,12 @@
+{
+  // The dev tools (harness, probes, model importer): strict TypeScript that Node runs directly (type stripping, so
+  // only erasable syntax). Probes run in the page: session.ts strips their types before evaluating them there.
+  "extends": "../tsconfig.json",
+  "compilerOptions": {
+    "types": ["node", "vite/client", "@webgpu/types"],
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true
+  },
+  "include": ["**/*.ts", "../vite.config.ts"],
+  "exclude": ["tmp", "out"]
+}

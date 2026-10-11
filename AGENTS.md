@@ -51,8 +51,10 @@ argument, the WebGPU backend's `device`, untyped bitcasts), the cast lives in `s
 scatter `as any`. The typings' `min`/`max` take floats only: use `minU`/`minI`/`maxI` (`src/nanite/constants.ts`)
 for integers. `uniformArray` needs its type explicitly (`uniformArray<'vec4'>(values, 'vec4')`). Objects with
 shader closures are built as typed locals and returned whole (see `_buildSet`, `_buildView`). The stage modules of
-`NaniteForest` declare `this: NaniteForest`; the class merges their types through an interface. The harness and
-its probes stay JavaScript (Node scripts and page-side expressions).
+`NaniteForest` declare `this: NaniteForest`; the class merges their types through an interface. The tools (`tools/`: harness, probes, model importer) are strict
+TypeScript too, checked by `tsc -p tools` (part of `typecheck` and `build`); Node runs them directly (type stripping:
+only erasable syntax, `.ts` in imports). A probe is one expression typed against `Demo` (`src/harness-api.ts`, what
+`window.__demo` holds); `session.ts` strips its types before the page evaluates it.
 
 ## Architecture notes
 
@@ -85,7 +87,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   `roadDistance` looping over the road's segments for every candidate: it has a bounding-box early-out now). Its
   pure dependencies are split out for the workers: `noise.ts` (fbm, `heightAt`), `road-path.ts`, `autumn-cpu.ts`.
   The loading log times each step (`lap` in `main.ts`).
-- Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.mjs` (`npm run model`)
+- Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
   are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2),
@@ -287,7 +289,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   for the tallest tree's shadow to reach ground 60 m lower, must touch the camera's frustum. The map covers a square
   around where the camera looks, kilometres wide from high up, and every caster in it was drawn: zoomed in looking
   down from 544 m (`zoomdown --zoom=5`) 38M shadow triangles, 13 ms of a 17.9 ms frame (now 258k, 4.75 ms); on the
-  ground a third to half of the casters, -0.3..0.65 ms; images match but for scattered specks (`img.mjs diff`).
+  ground a third to half of the casters, -0.3..0.65 ms; images match but for scattered specks (`img.ts diff`).
   `?castcull=0` for the old.
 - Software rasterizer (`src/nanite/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes

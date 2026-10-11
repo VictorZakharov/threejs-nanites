@@ -234,7 +234,7 @@ export class PerfPanel {
       label.textContent = 'COPY FAILED';
     }
     clearTimeout(this.copyTimer);
-    this.copyTimer = setTimeout(() => {
+    this.copyTimer = window.setTimeout(() => {
       delete this.el.dataset.copy;
       label.textContent = 'CLICK TO COPY 15S REPORT';
     }, 2000);

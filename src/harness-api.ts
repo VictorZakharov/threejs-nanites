@@ -1,4 +1,4 @@
-// window.__demo: what the headless harness (tools/harness.mjs) drives the demo with: views, frames, timings.
+// window.__demo: what the headless harness (tools/harness.ts) drives the demo with: views, frames, timings.
 import * as THREE from 'three/webgpu';
 import { heightAt } from './terrain.ts';
 import type { FlyControls } from './controls.ts';
@@ -6,6 +6,10 @@ import type { AutoQuality } from './hud.ts';
 import type { NaniteForest } from './nanite/forest.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
+import type { forestDensity } from './placement.ts';
+import type { createLitterMap } from './ground/litter-map.ts';
+import type { ImpostorAtlas } from './impostors.ts';
+import type { createHud } from './hud.ts';
 
 /** window.__demo before the API is installed (main.ts): readiness, the boot error, the shadow map's debug shift. */
 export interface DemoState {
@@ -36,8 +40,8 @@ export interface HarnessContext {
   setBenchMs(ms: number): void;
 }
 
-/** A harness viewpoint (tools/harness/views.mjs): world x/z, height above ground or absolute, degrees, zoom. */
-interface HarnessView {
+/** A harness viewpoint (tools/harness/views.ts): world x/z, height above ground or absolute, degrees, zoom. */
+export interface HarnessView {
   x: number;
   z: number;
   y?: number;
@@ -50,8 +54,26 @@ interface HarnessView {
 }
 
 export function installHarnessApi(demo: DemoState, ctx: HarnessContext): void {
+  Object.assign(demo, harnessApi(demo, ctx));
+}
+
+/** window.__demo once the demo is up, as the harness and its probes see it (tools/, typed by this). */
+export type Demo = DemoState & ReturnType<typeof harnessApi> & DemoExtras;
+
+/** What main.ts adds to window.__demo besides the API (for probes). */
+export interface DemoExtras {
+  coverMap: ReturnType<typeof forestDensity>; // (the canopy cover / fallen leaves map, --probe=autumn)
+  leafOf: string[]; // (each variant's kind of leaf)
+  litter: ReturnType<typeof createLitterMap>;
+  atlas: ImpostorAtlas;
+  hud: ReturnType<typeof createHud>;
+  perfReport(): string | undefined;
+  profile(): Promise<string>;
+}
+
+function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT } = ctx;
-Object.assign(demo, {
+  return {
   renderer, scene, camera, forest, controls, instances, sceneRT,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
@@ -97,13 +119,12 @@ Object.assign(demo, {
     await gpuBackend(renderer).device.queue.onSubmittedWorkDone();
   },
   stats: () => forest.readStats(),
-  /** Harness sweeps: move one thing that normally follows the camera, keep the view fixed. */
-  setShift(what: 'lod' | 'shadowlod' | 'shadow', x: number, z: number) {
+  /** Harness sweeps: move one thing that normally follows the camera, keep the view fixed ('none': reset). */
+  setShift(what: 'lod' | 'shadowlod' | 'shadow' | 'none', x: number, z: number) {
     forest.main.lodShift.set(0, 0, 0);
     forest.shadow.lodShift.set(0, 0, 0);
     demo.shadowShift.set(0, 0, 0);
-    const t = { lod: forest.main.lodShift, shadowlod: forest.shadow.lodShift, shadow: demo.shadowShift }[what];
-    t?.set(x, 0, z);
+    if (what !== 'none') ({ lod: forest.main.lodShift, shadowlod: forest.shadow.lodShift, shadow: demo.shadowShift })[what].set(x, 0, z);
   },
   /** Times a shadow toggle off and on (each followed by a rendered frame). */
   async shadowToggleMs() {
@@ -227,6 +248,5 @@ Object.assign(demo, {
       ...s,
     };
   },
-});
-
+  };
 }

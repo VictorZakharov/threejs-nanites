@@ -3,25 +3,28 @@
 // triangles and clusters of the cut (lod error <= tau < parent error, as in the cluster pass of
 // src/nanite/culling.ts) and the triangles per pixel of its height. Answers "why does a 30 px tree cost 1000
 // triangles": which part, at which level.
-async (demo) => {
+import type { Demo } from '../../src/harness-api.ts';
+import type { Vector4 } from 'three';
+
+async (demo: Demo) => {
   const f = demo.forest, tau = f.u.tau.value;
   const cd = f.cData.value.array, meta = new Uint32Array(cd.buffer, cd.byteOffset, cd.length);
   const S = 20; // floats per cluster (CD_STRIDE vec4s)
   const heights = [10, 20, 30, 50, 100, 200, 400];
-  const out = {}, errs = {};
-  f.typeInfo.array.forEach((ti, t) => {
+  const out: Record<string, string[]> = {}, errs: Record<string, string> = {};
+  (f.typeInfo.array as Vector4[]).forEach((ti, t) => {
     const name = f.stats.types[t].name, h = ti.w, proj = 1000;
     // the median error (m, the tree's own scale) of each level's bark and leaf clusters: what keeps a level on screen
-    const lv = {};
+    const lv: Record<string, number[]> = {};
     for (let c = ti.x; c < ti.x + ti.y; c++) {
       const o = c * S, k = `${cd[o + 15] < 0.5 ? 'b' : 'l'}${cd[o + 14]}`;
       (lv[k] ??= []).push(cd[o + 12]);
     }
-    const med = (a) => a.sort((x, y) => x - y)[a.length >> 1];
+    const med = (a: number[]): number => a.sort((x, y) => x - y)[a.length >> 1];
     errs[name] = Object.keys(lv).sort().map((k) => `${k} ${med(lv[k]).toFixed(3)}`).join(', ');
     out[name] = heights.map((H) => {
       const d = (h * proj) / H, cam = [d, h / 2, 0];
-      const err = (o, e) => {
+      const err = (o: number, e: number): number => {
         const dist = Math.max(Math.hypot(cd[o] - cam[0], cd[o + 1] - cam[1], cd[o + 2] - cam[2]) - cd[o + 3], 0.05);
         return (e * proj) / dist;
       };

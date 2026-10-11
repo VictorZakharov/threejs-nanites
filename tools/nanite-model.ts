@@ -4,7 +4,7 @@
 // 16 bits, and its cluster DAG (src/dag-build.ts) built here at --height (metres, the variant's: the LOD errors are
 // in metres), all meshopt-compressed. The site only decodes it (src/models.ts); the file is read back to check.
 //
-//   node tools/nanite-model.mjs <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z]
+//   node tools/nanite-model.ts <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z]
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
@@ -14,34 +14,46 @@ import { fileURLToPath } from 'node:url';
 import { MeshoptSimplifier, MeshoptEncoder } from 'meshoptimizer';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
-const args = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? true]; }));
+const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const input = process.argv[2];
 if (!input || !args.name) {
-  console.log('usage: node tools/nanite-model.mjs <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z]');
+  console.log('usage: node tools/nanite-model.ts <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z]');
   process.exit(1);
 }
 const target = Number(args.tris ?? 1e6);
 const t0 = performance.now();
-const log = (s) => console.log(`${((performance.now() - t0) / 1000).toFixed(1).padStart(6)} s  ${s}`);
+const log = (s: string): void => console.log(`${((performance.now() - t0) / 1000).toFixed(1).padStart(6)} s  ${s}`);
 
 // ---------------------------------------------------------------- PLY
-function readPly(buf) {
+interface PlyProp {
+  name: string;
+  type: string;
+  list?: boolean;
+  count?: string; // (a list's length type)
+}
+interface PlyElement {
+  name: string;
+  count: number;
+  props: PlyProp[];
+}
+
+function readPly(buf: Buffer): { pos: Float32Array; idx: Uint32Array } {
   const headEnd = buf.indexOf('end_header');
   const header = buf.subarray(0, headEnd).toString('latin1').split(/\r?\n/);
   let body = headEnd + 'end_header'.length;
   while (buf[body] !== 0x0a) body++;
   body++;
-  const format = header.find((l) => l.startsWith('format')).split(' ')[1];
-  const elements = [];
+  const format = header.find((l) => l.startsWith('format'))?.split(' ')[1];
+  const elements: PlyElement[] = [];
   for (const l of header) {
     const w = l.trim().split(/\s+/);
     if (w[0] === 'element') elements.push({ name: w[1], count: Number(w[2]), props: [] });
-    else if (w[0] === 'property') elements.at(-1).props.push(w[1] === 'list' ? { list: true, count: w[2], type: w[3], name: w[4] } : { type: w[1], name: w[2] });
+    else if (w[0] === 'property') elements.at(-1)?.props.push(w[1] === 'list' ? { list: true, count: w[2], type: w[3], name: w[4] } : { type: w[1], name: w[2] });
   }
-  const size = { char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4, int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
+  const size: Record<string, number> = { char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4, int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
   const le = format === 'binary_little_endian';
   const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const read = (t, o) => {
+  const read = (t: string, o: number): number => {
     switch (t) {
       case 'char': case 'int8': return dv.getInt8(o);
       case 'uchar': case 'uint8': return dv.getUint8(o);
@@ -53,8 +65,9 @@ function readPly(buf) {
       default: return dv.getFloat64(o, le);
     }
   };
-  let pos = null, idx = [];
+  let pos: Float32Array | null = null;
   if (format === 'ascii') {
+    const idx: number[] = [];
     const lines = buf.subarray(body).toString('latin1').split(/\r?\n/);
     let li = 0;
     for (const el of elements) {
@@ -66,13 +79,14 @@ function readPly(buf) {
         for (let i = 0; i < el.count; i++) { const w = lines[li++].trim().split(/\s+/).map(Number); for (let k = 2; k < w[0]; k++) idx.push(w[1], w[k], w[k + 1]); }
       } else li += el.count;
     }
+    if (!pos) throw new Error('no vertices');
     return { pos, idx: Uint32Array.from(idx) };
   }
-  let o = body;
+  let o = body, idx = new Uint32Array(0);
   for (const el of elements) {
     if (el.name === 'vertex') {
       pos = new Float32Array(el.count * 3);
-      const offs = {}; let stride = 0;
+      const offs: Record<string, { o: number; t: string }> = {}; let stride = 0;
       for (const p of el.props) { offs[p.name] = { o: stride, t: p.type }; stride += size[p.type]; }
       for (let i = 0; i < el.count; i++, o += stride) {
         pos[i * 3] = read(offs.x.t, o + offs.x.o); pos[i * 3 + 1] = read(offs.y.t, o + offs.y.o); pos[i * 3 + 2] = read(offs.z.t, o + offs.z.o);
@@ -83,8 +97,9 @@ function readPly(buf) {
       for (let i = 0; i < el.count; i++) {
         for (const p of el.props) {
           if (!p.list) { o += size[p.type]; continue; }
-          const c = read(p.count, o); o += size[p.count];
-          const first = read(p.type, o), vs = [];
+          const ct = p.count ?? 'uchar';
+          const c = read(ct, o); o += size[ct];
+          const first = read(p.type, o), vs: number[] = [];
           for (let k = 0; k < c; k++) { vs.push(read(p.type, o)); o += size[p.type]; }
           if (p.name !== 'vertex_indices' && p.name !== 'vertex_index') continue;
           for (let k = 1; k + 1 < c; k++) {
@@ -98,15 +113,16 @@ function readPly(buf) {
       throw new Error(`binary PLY element "${el.name}" before the faces isn't supported`);
     }
   }
+  if (!pos) throw new Error('no vertices');
   return { pos, idx };
 }
 
 // ---------------------------------------------------------------- vertex-grid merge (for huge scans)
-function gridMerge(pos, idx, cells) {
+function gridMerge(pos: Float32Array, idx: Uint32Array, cells: number): { pos: Float32Array; idx: Uint32Array } {
   let mn = [Infinity, Infinity, Infinity], mx = [-Infinity, -Infinity, -Infinity];
   for (let i = 0; i < pos.length; i += 3) for (let k = 0; k < 3; k++) { mn[k] = Math.min(mn[k], pos[i + k]); mx[k] = Math.max(mx[k], pos[i + k]); }
   const ext = Math.max(mx[0] - mn[0], mx[1] - mn[1], mx[2] - mn[2]), step = ext / cells;
-  const map = new Map(), remap = new Uint32Array(pos.length / 3), sum = [];
+  const map = new Map<number, number>(), remap = new Uint32Array(pos.length / 3), sum: number[] = [];
   for (let i = 0; i < pos.length / 3; i++) {
     const key = Math.floor((pos[i * 3] - mn[0]) / step) + Math.floor((pos[i * 3 + 1] - mn[1]) / step) * 65536 + Math.floor((pos[i * 3 + 2] - mn[2]) / step) * 4294967296;
     let v = map.get(key);
@@ -116,7 +132,7 @@ function gridMerge(pos, idx, cells) {
   }
   const np = new Float32Array(sum.length / 4 * 3);
   for (let v = 0; v < sum.length / 4; v++) for (let k = 0; k < 3; k++) np[v * 3 + k] = sum[v * 4 + k] / sum[v * 4 + 3];
-  const out = [];
+  const out: number[] = [];
   for (let t = 0; t < idx.length; t += 3) {
     const a = remap[idx[t]], b = remap[idx[t + 1]], c = remap[idx[t + 2]];
     if (a === b || b === c || a === c) continue;
@@ -133,8 +149,9 @@ log(`read ${input}: ${(pos.length / 3).toLocaleString()} vertices, ${(idx.length
 
 // stand it up: the up axis to +y (the longest extent unless --up), base at y = 0, centred in x and z, height 1
 const ext = [0, 1, 2].map((k) => { let a = Infinity, b = -Infinity; for (let i = k; i < pos.length; i += 3) { a = Math.min(a, pos[i]); b = Math.max(b, pos[i]); } return [a, b]; });
-const up = args.up ?? ['x', 'y', 'z'][[0, 1, 2].sort((a, b) => (ext[b][1] - ext[b][0]) - (ext[a][1] - ext[a][0]))[0]];
-const ax = { x: 0, y: 1, z: 2 }[up.replace('-', '')], sign = up.startsWith('-') ? -1 : 1;
+const up: string = args.up ?? ['x', 'y', 'z'][[0, 1, 2].sort((a, b) => (ext[b][1] - ext[b][0]) - (ext[a][1] - ext[a][0]))[0]];
+const ax = ({ x: 0, y: 1, z: 2 } as Record<string, number>)[up.replace('-', '')], sign = up.startsWith('-') ? -1 : 1;
+if (ax === undefined) throw new Error(`--up=${up}: x, y, z, -x, -y or -z`);
 const others = [0, 1, 2].filter((k) => k !== ax);
 {
   const h = ext[ax][1] - ext[ax][0], base = sign > 0 ? ext[ax][0] : ext[ax][1];
@@ -152,7 +169,7 @@ const others = [0, 1, 2].filter((k) => k !== ax);
 
 if (idx.length / 3 > target * 4) {
   // merge on a grid fine enough to keep ~4x the target
-  let cells = Math.round(Math.sqrt(target * 4 / 2) * 1.8);
+  const cells = Math.round(Math.sqrt(target * 4 / 2) * 1.8);
   ({ pos, idx } = gridMerge(pos, idx, cells));
   log(`grid merge (${cells} cells): ${(pos.length / 3).toLocaleString()} vertices, ${(idx.length / 3).toLocaleString()} triangles`);
 }
@@ -184,7 +201,7 @@ const src = modelSource(dequantize(q, unique, lo, hi), idx, height);
 const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves });
 const clusters = dag.meta.length / 4;
 log(`DAG at ${height} m: ${clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);
-const bytes = (a) => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
+const bytes = (a: ArrayBufferView): Uint8Array => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
 const ib = MeshoptEncoder.encodeIndexBuffer(bytes(dag.idx), dag.idx.length, 4);
 const rb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.rec), clusters, 64);
 const mb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.meta), clusters, 16);
@@ -202,7 +219,11 @@ log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(vb.length 
 
 // read it back as the site does
 const back = await decodeModel(new Uint8Array(file), height);
-const same = (a, b) => a.length === b.length && a.every((x, i) => x === b[i]);
+const same = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => {
+  if (a.length !== b.length) return false;
+  for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;
+  return true;
+};
 // positions and uvs exact; normals summed in another order (a vertex whose faces nearly cancel can turn round)
 let dv = 0, turned = 0;
 for (let i = 0; i < dag.vtx.length; i++) {
@@ -212,7 +233,7 @@ for (let i = 0; i < dag.vtx.length; i++) {
 }
 console.log(`  ${turned} of ${unique.toLocaleString()} normals differ (summed in another order)`);
 // (the index codec may rotate a triangle's corners, keeping its winding: compare each from its smallest corner)
-const canon = (a) => {
+const canon = (a: Uint32Array): Uint32Array => {
   const o = new Uint32Array(a.length);
   for (let t = 0; t < a.length; t += 3) {
     const r = a[t] <= a[t + 1] && a[t] <= a[t + 2] ? 0 : a[t + 1] <= a[t + 2] ? 1 : 2;

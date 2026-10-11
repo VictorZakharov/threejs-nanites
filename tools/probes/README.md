@@ -4,7 +4,8 @@ Page-side measurements, run by the harness after each view (`npm run harness -- 
 Write a measurement here once and reuse it; don't paste one-off probes into `--eval` or `tools/tmp/`. Retyped probe
 code drifts from the demo, and a probe that silently measures nothing looks the same as a clean result.
 
-A probe file holds one JavaScript expression, an async function `(demo, view) => result`:
+A probe file holds one TypeScript expression, an async function `(demo: Demo, view) => result` (`import type { Demo }
+from '../../src/harness-api.ts'` above it; the harness strips the types before the page evaluates it):
 
 - `demo` is `window.__demo` (renderer, scene, camera, forest, controls, `renderOnce()`, `setView()`, `stats()`...)
 - `view` is the harness view it runs after (already set and benchmarked)

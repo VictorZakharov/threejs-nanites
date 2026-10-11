@@ -1,18 +1,18 @@
 // Screenshot tools (for harness output in tools/out/):
 //
-//   node tools/img.mjs mean  <png...> [--rect=x,y,w,h]   mean colour of all pixels and of the tree-like ones
-//   node tools/img.mjs crop  <in.png> <out.png> x,y,w,h [scale=4]   an enlarged crop (nearest neighbour)
-//   node tools/img.mjs diff  <a.png> <b.png> [out.png]   pixels that differ (any channel), by more than 8/255, the
+//   node tools/img.ts mean  <png...> [--rect=x,y,w,h]   mean colour of all pixels and of the tree-like ones
+//   node tools/img.ts crop  <in.png> <out.png> x,y,w,h [scale=4]   an enlarged crop (nearest neighbour)
+//   node tools/img.ts diff  <a.png> <b.png> [out.png]   pixels that differ (any channel), by more than 8/255, the
 //                                                         largest difference; out.png: where (red, the HUD left out)
 import { readFileSync, writeFileSync } from 'node:fs';
 import { basename } from 'node:path';
 import { PNG } from 'pngjs';
-import { meanColour, crop, HUD } from './harness/images.mjs';
+import { meanColour, crop, HUD } from './harness/images.ts';
 
 const [cmd, ...rest] = process.argv.slice(2);
 const flags = Object.fromEntries(rest.filter((a) => a.startsWith('--')).map((a) => a.slice(2).split('=')));
 const files = rest.filter((a) => !a.startsWith('--'));
-const rectOf = (s) => {
+const rectOf = (s: string): { x: number; y: number; w: number; h: number } => {
   const [x, y, w, h] = s.split(',').map(Number);
   return { x, y, w, h };
 };

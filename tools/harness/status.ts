@@ -1,8 +1,8 @@
-// What the harness is doing right now, for the watchdog in harness.mjs: a run that overruns --timeout reports the
+// What the harness is doing right now, for the watchdog in harness.ts: a run that overruns --timeout reports the
 // step it was stuck in instead of hanging silently.
 export const status = { step: 'starting' };
 
 /** Records the current step (e.g. "view ground: benchmark"). */
-export const at = (step) => {
+export const at = (step: string): void => {
   status.step = step;
 };

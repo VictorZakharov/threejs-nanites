@@ -4,18 +4,18 @@
 //
 //   npm run harness -- --help        every option
 //
-// The parts: harness/options.mjs (command line), harness/views.mjs (viewpoints), harness/browser.mjs (temp folder,
-// server, browser, page), harness/session.mjs (boot, per-view run), harness/motion.mjs (sweeps, dolly),
-// harness/typematch.mjs (impostor vs geometry colour per tree type), harness/images.mjs (screenshot measures), probes/ (page-side measures, run with --probe).
+// The parts: harness/options.ts (command line), harness/views.ts (viewpoints), harness/browser.ts (temp folder,
+// server, browser, page), harness/session.ts (boot, per-view run), harness/motion.ts (sweeps, dolly),
+// harness/typematch.ts (impostor vs geometry colour per tree type), harness/images.ts (screenshot measures), probes/ (page-side measures, run with --probe).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { HELP, parseOptions } from './harness/options.mjs';
-import { useProjectTemp, startServer, launchBrowser, openPage } from './harness/browser.mjs';
-import { boot, runViews } from './harness/session.mjs';
-import { sweeps, dolly } from './harness/motion.mjs';
-import { typeMatch } from './harness/typematch.mjs';
-import { status, at } from './harness/status.mjs';
+import { HELP, parseOptions } from './harness/options.ts';
+import { useProjectTemp, startServer, launchBrowser, openPage } from './harness/browser.ts';
+import { boot, runViews } from './harness/session.ts';
+import { sweeps, dolly } from './harness/motion.ts';
+import { typeMatch } from './harness/typematch.ts';
+import { status, at } from './harness/status.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const outDir = join(root, 'tools', 'out');
@@ -35,14 +35,14 @@ const watchdog = setTimeout(() => {
   process.exit(2);
 }, opts.timeout * 1000);
 const server = opts.url ? null : await startServer(root); // --url tests a deployed build instead of the source
-const url = opts.url ?? server.url;
+const url = opts.url ?? server?.url ?? '';
 const browser = await launchBrowser();
 let exitCode = 0;
 try {
   const { page, logs, failed } = await openPage(browser, opts);
   // --ab runs everything once per variant query; without it, once with --query alone
   const variants = opts.variants ?? [null];
-  const reports = [];
+  const reports: Record<string, unknown>[] = [];
   for (const [k, variant] of variants.entries()) {
     const query = [opts.query, variant].filter(Boolean).join('&');
     at(`booting ${query || '(no query)'}`);
@@ -53,12 +53,12 @@ try {
       console.log(JSON.stringify(info, null, 2));
       const expr = opts.evalFile ? readFileSync(opts.evalFile, 'utf8') : opts.eval;
       if (expr) {
-        const r = await page.evaluate(async (src) => await (0, eval)(src), expr);
+        const r: unknown = await page.evaluate(async (src: string) => await (0, eval)(src), expr);
         console.log('eval:', typeof r === 'string' ? r : JSON.stringify(r, null, 2));
       }
     }
     if (variant !== null) console.log(`\n=== variant ${k}: ${variant}`);
-    const report = { info, query, size: `${opts.width}x${opts.height}`, frames: opts.frames, zoom: opts.zoom };
+    const report: Record<string, unknown> = { info, query, size: `${opts.width}x${opts.height}`, frames: opts.frames, zoom: opts.zoom };
     const tag = variant === null ? '' : `@${k}`;
     report.views = await runViews(page, opts, { root, outDir, tag });
     if (opts.sweep) report.sweeps = await sweeps(page, opts, outDir, tag);
@@ -71,7 +71,7 @@ try {
   if (failed()) exitCode = 1;
   console.log(`\nscreenshots + report in ${outDir}  (${((Date.now() - t0) / 1000).toFixed(0)}s in all)`);
 } catch (e) {
-  console.error('HARNESS ERROR:', e.message);
+  console.error('HARNESS ERROR:', e instanceof Error ? e.message : e);
   exitCode = 1;
 } finally {
   // shutting down can hang (browser or Vite); the results are written by now, so give it 5 s and exit regardless

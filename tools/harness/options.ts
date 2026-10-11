@@ -1,5 +1,5 @@
-// Command line of tools/harness.mjs: `--name=value` or `--flag`, nothing positional.
-import { VIEWS, DEFAULT_VIEWS } from './views.mjs';
+// Command line of tools/harness.ts: `--name=value` or `--flag`, nothing positional.
+import { VIEWS, DEFAULT_VIEWS } from './views.ts';
 
 export const HELP = `Nanite Forest harness: headless benchmark, screenshots and probes (results in tools/out/)
 
@@ -8,13 +8,13 @@ export const HELP = `Nanite Forest harness: headless benchmark, screenshots and 
   npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/   the deployed site instead
 
 views and settings
-  --views=a,b        viewpoints from tools/harness/views.mjs (default: ${DEFAULT_VIEWS.join(',')})
+  --views=a,b        viewpoints from tools/harness/views.ts (default: ${DEFAULT_VIEWS.join(',')})
   --query=k=v&...    URL parameters of the demo (see README)
   --zoom=5           look through the right-mouse zoom (default: the view's own, else 1)
   --size=1600x900    viewport;  --frames=120 benchmark frames per view;  --no-shots  skip screenshots
 
 measuring
-  --probe=a,b        run tools/probes/<name>.js after each view and print what it returns (a \`png\` data URL in it
+  --probe=a,b        run tools/probes/<name>.ts after each view and print what it returns (a \`png\` data URL in it
                      is saved as tools/out/<probe>-<view>.png); see tools/probes/README.md
   --ab="q1|q2"       every view under each query (on top of --query): numbers, screenshots <view>@<k>.png and
                      mean colours (all pixels / tree pixels) per variant
@@ -28,7 +28,7 @@ measuring
   --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
                      (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
   --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
-                     that would match them (see harness/typematch.mjs)
+                     that would match them (see harness/typematch.ts)
   --typematch=calibrate   adjust the impostor gains in the page until they match (views looking down steeply
                      calibrate the top-down gains, others the side gains), print values for src/trees.ts
   --flicker          a still camera must render identical frames (use --query=wind=0)
@@ -38,12 +38,12 @@ loading
   --loading-shots    screenshots of the loading screen;  --resize-during-load=1280x1000  resize while loading
   --verbose          echo the whole page console
 
-image tools: node tools/img.mjs (colour stats and enlarged crops of screenshots)`;
+image tools: node tools/img.ts (colour stats and enlarged crops of screenshots)`;
 
 /** Parses process.argv into the harness's options. */
-export function parseOptions(argv) {
+export function parseOptions(argv: string[]) {
   const args = Object.fromEntries(
-    argv.map((a) => {
+    argv.map((a): [string, string | true] => {
       const m = a.match(/^--([^=]+)(?:=(.*))?$/s);
       return m ? [m[1], m[2] ?? true] : [a, true];
     }),
@@ -51,8 +51,8 @@ export function parseOptions(argv) {
   const [width, height] = String(args.size ?? '1600x900').split('x').map(Number);
   const views = args.views ? String(args.views).split(',') : DEFAULT_VIEWS;
   const unknown = views.filter((v) => !VIEWS[v]);
-  if (unknown.length) throw new Error(`unknown view(s): ${unknown.join(', ')} (see tools/harness/views.mjs)`);
-  const opts = {
+  if (unknown.length) throw new Error(`unknown view(s): ${unknown.join(', ')} (see tools/harness/views.ts)`);
+  const base = {
     help: Boolean(args.help || args.h),
     width,
     height,
@@ -80,12 +80,14 @@ export function parseOptions(argv) {
     resizeDuringLoad: args['resize-during-load'] ? String(args['resize-during-load']).split('x').map(Number) : null,
     verbose: Boolean(args.verbose),
   };
-  opts.timeout ??= expectedSeconds(opts);
-  return opts;
+  return { ...base, timeout: base.timeout ?? expectedSeconds(base) };
 }
 
+/** The harness's options (see HELP). */
+export type Options = ReturnType<typeof parseOptions>;
+
 /** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
-function expectedSeconds(o) {
+function expectedSeconds(o: { views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; steps: number | null; typematch: string | null }): number {
   const runs = o.views.length * (o.variants?.length ?? 1);
   const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0);
   return Math.round(30 + runs * (8 + steps));

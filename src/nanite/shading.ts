@@ -85,7 +85,7 @@ export const dither = (): Float => ditherAt(screenCoordinate.xy);
 export const ditherAlt = (xy: Vec2): Float => ditherAt(vec2(xy.y, xy.x).add(vec2(17, 59)));
 
 // debug 4: a flat, unlit colour per tree type, in geometry and impostors alike (harness --typematch masks with it;
-// keep in sync with TYPE_IDS in tools/harness/typematch.mjs): ten hues 36 degrees apart, told apart by hue after
+// keep in sync with TYPE_IDS in tools/harness/typematch.ts): ten hues 36 degrees apart, told apart by hue after
 // fog and tone mapping; the dull olive ground and pale sky aren't saturated enough to count.
 export const TYPE_IDS: number[][] = Array.from({ length: 10 }, (_, i) => { const h = i * 36, f = (n: number) => Math.max(0, Math.min(1, Math.abs(((h / 60 + n) % 6) - 3) - 1)); return [f(0), f(4), f(2)]; });
 export const typeId = (type: Index): Vec3 => {

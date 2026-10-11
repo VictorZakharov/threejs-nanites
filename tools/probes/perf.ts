@@ -1,6 +1,8 @@
 // Performance panel (src/perf-panel.ts; run with --query=perf=1): runs frames so the 15 s window fills a little,
 // then returns the report text the panel copies on a click, and whether the panel is on screen.
-async (demo) => {
+import type { Demo } from '../../src/harness-api.ts';
+
+async (demo: Demo) => {
   const panel = document.querySelector('.perf');
   if (!panel) return { error: 'no panel (use --query=perf=1)' };
   const t0 = performance.now();

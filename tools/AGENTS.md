@@ -8,8 +8,8 @@ is about using it well.
 - **Never develop blind.** Every visual or performance change is checked here (screenshots + numbers) before it's
   called done. Look at the screenshots, not only the numbers.
 - **Don't retype measurement code.** A measure you need twice goes into the harness: a view in
-  `harness/views.mjs`, a page-side probe in `probes/<name>.js`, an image measure in `harness/images.mjs` (+ a
-  command in `img.mjs`), an option in `harness/options.mjs`. One-off `--eval` snippets and scripts in `tools/tmp/`
+  `harness/views.ts`, a page-side probe in `probes/<name>.ts`, an image measure in `harness/images.ts` (+ a
+  command in `img.ts`), an option in `harness/options.ts`. One-off `--eval` snippets and scripts in `tools/tmp/`
   drift from the demo, and a probe that silently measures nothing reads like a clean result.
 - **Temp files stay on G:** (`tools/tmp/`, `tools/out/`, both gitignored); the C: drive is full. The harness points
   the browser's temp folder there itself.
@@ -23,16 +23,16 @@ is about using it well.
 
 | file | what |
 | --- | --- |
-| `harness.mjs` | entry: boots Vite + headless Chromium/Edge with WebGPU, runs the views, writes `tools/out/` |
-| `harness/options.mjs` | the command line (and `--help`) |
-| `harness/views.mjs` | named viewpoints; add one when a problem needs looking at again |
-| `harness/browser.mjs` | temp folder, Vite server, browser launch, page console capture |
-| `harness/session.mjs` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
-| `harness/typematch.mjs` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
-| `harness/status.mjs` | the current step, for the watchdog |
-| `harness/motion.mjs` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
-| `harness/images.mjs` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
-| `img.mjs` | command line for those: `node tools/img.mjs mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match) |
+| `harness.ts` | entry: boots Vite + headless Chromium/Edge with WebGPU, runs the views, writes `tools/out/` |
+| `harness/options.ts` | the command line (and `--help`) |
+| `harness/views.ts` | named viewpoints; add one when a problem needs looking at again |
+| `harness/browser.ts` | temp folder, Vite server, browser launch, page console capture |
+| `harness/session.ts` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
+| `harness/typematch.ts` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
+| `harness/status.ts` | the current step, for the watchdog |
+| `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
+| `harness/images.ts` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
+| `img.ts` | command line for those: `node tools/img.ts mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match) |
 | `probes/` | page-side measures (`--probe=<name>`), see `probes/README.md` |
 
 Output in `tools/out/`: `<view>.png` (A/B: `<view>@<k>.png`), `report.json`, `console.log` (the page console),
@@ -61,7 +61,7 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - Popping and flicker tests need `wind=0` (the harness freezes the clouds itself). With TAA on, every frame is
   jittered, so `--flicker` (identical still frames) and `--sweep` (one frame a step: the same setting gave 678 and
   1310 jumps in two runs) need `taa=0`; `--dolly` measures TAA as seen in motion. The measures leave out the HUD's
-  corner (`HUD` in `harness/images.mjs`, top right): masked in the top left, where it once was, its changing
+  corner (`HUD` in `harness/images.ts`, top right): masked in the top left, where it once was, its changing
   numbers were most of every sweep's jumps and its edge the "worst".
   `?taadebug=1` shows the trees' wind motion vectors. `--turn=0.2 --step=0` turns the camera instead of moving
   it (mouse look: the far field sweeps across the screen); `--rect=x,y,w,h` counts only part of the screen. The
@@ -73,7 +73,7 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
   `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
   and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
 - TAA vs a supersampled reference: `--size=800x450 --views=peaks --ab="taa=0&pr=2|taa=1"`, then
-  `img.mjs mean ... --rect=` on the far ridge. Don't judge TAA from a single frame (`taafeedback=1`): the output's
+  `img.ts mean ... --rect=` on the far ridge. Don't judge TAA from a single frame (`taafeedback=1`): the output's
   unsharp mask turns isolated dark specks black there (`sharpen=0`).
 - `?taadebug=2` shows where each pixel's history is fetched from (x0.1 px, red x, green y): black with a still camera.
 - `swTris` counts the triangles the software rasterizer took (`tris` is the hardware ones); `cull` includes its

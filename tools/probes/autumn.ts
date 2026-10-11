@@ -1,19 +1,21 @@
 // Autumn (src/autumn.ts): the share of trees per level (green / yellow / red broadleaf, and conifers) and, per level, the nearest
 // spot to the origin standing in a stand of it (most of the broadleaf trees within 20 m of that level), for views.
-async (demo) => {
+import type { Demo } from '../../src/harness-api.ts';
+
+async (demo: Demo) => {
   const { a, b, trees } = demo.instances;
-  const level = (i) => Math.floor(b[i * 4 + 3] / (Math.PI * 2)) / 7.5;
-  const cls0 = (v) => (v < 0.5 ? 'green' : v < 1.4 ? 'yellow' : 'red');
-  const isPine = (i) => demo.leafOf[b[i * 4 + 2]] === 'pine';
-  const cls = (v, i) => (isPine(i) ? 'pine' : cls0(v));
-  const share = { green: 0, yellow: 0, red: 0, pine: 0 }, spots = {};
-  const near = [];
+  const level = (i: number): number => Math.floor(b[i * 4 + 3] / (Math.PI * 2)) / 7.5;
+  const cls0 = (v: number): string => (v < 0.5 ? 'green' : v < 1.4 ? 'yellow' : 'red');
+  const isPine = (i: number): boolean => demo.leafOf[b[i * 4 + 2]] === 'pine';
+  const cls = (v: number, i: number): string => (isPine(i) ? 'pine' : cls0(v));
+  const share: Record<string, number> = { green: 0, yellow: 0, red: 0, pine: 0 }, spots: Record<string, unknown> = {};
+  const near: number[] = [];
   for (let i = 0; i < trees; i++) {
     share[cls(level(i), i)]++;
     if (Math.hypot(a[i * 4], a[i * 4 + 2]) < 1500) near.push(i);
   }
   for (const want of ['green', 'yellow', 'red', 'pine']) {
-    let best = null;
+    let best: { x: number; z: number; score: number; d: number; all: number; map?: number[] } | null = null;
     for (const i of near) {
       if (cls(level(i), i) !== want) continue;
       const x = a[i * 4], z = a[i * 4 + 2];
@@ -28,7 +30,8 @@ async (demo) => {
       if (!best || score > best.score + 0.05 || (Math.abs(score - best.score) <= 0.05 && d < best.d)) best = { x: Math.round(x), z: Math.round(z), score: +score.toFixed(2), d: Math.round(d), all };
     }
     // the cover map there (src/placement.ts forestDensity): cover, fallen leaves' amount, their level / 2
-    const m = demo.coverMap, N = m.texture.image.width, d = m.texture.image.data;
+    if (!best) continue;
+    const m = demo.coverMap, N = m.texture.image.width, d = m.texture.image.data as Uint8Array;
     const px = Math.floor((best.x / (m.extent * 2) + 0.5) * N), pz = Math.floor((best.z / (m.extent * 2) + 0.5) * N);
     best.map = [0, 1, 2].map((c) => +(d[(pz * N + px) * 4 + c] / 255).toFixed(2));
     spots[want] = best;

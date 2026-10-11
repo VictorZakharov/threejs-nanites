@@ -11,7 +11,7 @@ export interface TreeVariant {
   height: number;
   bark: string;
   leaf: string; // ('none': a model)
-  /** A model file (tools/nanite-model.mjs) instead of an ez-tree preset: any high-poly mesh, as a variant. */
+  /** A model file (tools/nanite-model.ts) instead of an ez-tree preset: any high-poly mesh, as a variant. */
   model?: string;
   /** Impostor colour gains for side and top-down views. */
   impGain: { side: RGB; top: RGB };
@@ -45,7 +45,7 @@ export const VARIANTS: TreeVariant[] = [
   { preset: 'Bush 2', seed: 23, height: 2.3, bark: 'oak', leaf: 'oak', impGain: { side: [1.25, 0.85, 1.57], top: [0.6, 0.47, 0.59] } },
   { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] } },
   // a model through the same pipeline (placeStatues): Stanford's Lucy scan, decimated to 1M triangles
-  // (tools/nanite-model.mjs; credit: Stanford Computer Graphics Laboratory, non-commercial use)
+  // (tools/nanite-model.ts; credit: Stanford Computer Graphics Laboratory, non-commercial use)
   { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', impGain: { side: [1, 1, 1], top: [1, 1, 1] } },
 ];
 
@@ -125,7 +125,7 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
     await ui.update(0.06 + (0.24 * id) / n, v.model ? `Loading ${v.preset}` : `Growing ${v.preset}`, false);
     const t = performance.now();
     if (v.model) {
-      // a model's DAG comes prebuilt in its file (tools/nanite-model.mjs): nothing to build
+      // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build
       const { dag, src } = await loadModel(`./${v.model}`, v.height);
       ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
       done++;

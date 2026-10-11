@@ -1,4 +1,4 @@
-// Loads a model file written by tools/nanite-model.mjs (public/models/*.nm): a JSON header, the positions quantized
+// Loads a model file written by tools/nanite-model.ts (public/models/*.nm): a JSON header, the positions quantized
 // to 16 bits, then the cluster DAG built offline (its triangles per cluster, the cluster records and meta), all
 // meshopt-compressed. The DAG's vertices are the model's own, so normals and uvs are rebuilt here (model-source.ts)
 // and nothing is built at load: one file for every device (the 3 s DAG build at load was why phones had a smaller copy).
@@ -32,7 +32,7 @@ export function dequantize(q: Uint16Array, n: number, lo: number[], hi: number[]
 export async function decodeModel(buf: Uint8Array, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
   const headLen = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
   const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLen))) as ModelHeader;
-  if (head.format !== 'nanite-model 2') throw new Error(`model format "${head.format}": re-import it with tools/nanite-model.mjs`);
+  if (head.format !== 'nanite-model 2') throw new Error(`model format "${head.format}": re-import it with tools/nanite-model.ts`);
   await MeshoptDecoder.ready;
   let o = 4 + headLen;
   const take = (n: number) => buf.subarray(o, (o += n));

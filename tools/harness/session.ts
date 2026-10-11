@@ -1,12 +1,24 @@
 // One booted demo page: loading it with a query, and benchmarking / picturing / probing each view.
 import { readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { VIEWS } from './views.mjs';
-import { meanColour, diffPixels } from './images.mjs';
-import { at } from './status.mjs';
+import { stripTypeScriptTypes } from 'node:module';
+import { VIEWS } from './views.ts';
+import { meanColour, diffPixels } from './images.ts';
+import { at } from './status.ts';
+import type { Page } from 'playwright-core';
+import type { Options } from './options.ts';
+import type { Demo, HarnessView } from '../../src/harness-api.ts';
+
+/** One view's numbers: the page's benchmark, plus what the harness adds. */
+export type ViewResult = Awaited<ReturnType<Demo['bench']>> & {
+  secs?: string;
+  probes?: Record<string, unknown>;
+  flickerPx?: number;
+  colour?: ReturnType<typeof meanColour>;
+};
 
 /** Loads the demo with this query (on top of ?harness=1) and waits until it's ready. */
-export async function boot(page, url, query, opts, outDir) {
+export async function boot(page: Page, url: string, query: string, opts: Options, outDir: string) {
   // (120 s: the dev server's first load after edits can take over the default 30 s)
   await page.goto(`${url}?harness=1${query ? '&' + query : ''}`, { timeout: 120000 });
   if (opts.resizeDuringLoad) {
@@ -27,12 +39,15 @@ export async function boot(page, url, query, opts, outDir) {
   return page.evaluate(() => window.__demo.info());
 }
 
-/** A probe's source: tools/probes/<name>.js holds one expression, `async (demo, view) => result`. */
-function probeSource(root, name) {
-  return readFileSync(join(root, 'tools', 'probes', `${name}.js`), 'utf8');
+/**
+ * A probe's source: tools/probes/<name>.ts holds one expression, `async (demo, view) => result`, typed (type-checked
+ * with the tools); its types are stripped here, so the page evaluates plain JavaScript.
+ */
+function probeSource(root: string, name: string): string {
+  return stripTypeScriptTypes(readFileSync(join(root, 'tools', 'probes', `${name}.ts`), 'utf8'));
 }
 
-const COLUMNS = [
+const COLUMNS: [string, number, (n: string, r: ViewResult) => string | number][] = [
   ['view', 12, (n) => n],
   ['frame', 7, (n, r) => r.frameMs.toFixed(2)],
   ['gpu', 7, (n, r) => r.gpuRenderMs.toFixed(2)],
@@ -48,28 +63,29 @@ const COLUMNS = [
   ['occImp', 7, (n, r) => r.occludedImpostors ?? ''], // impostors dropped the same way
   ['secs', 5, (n, r) => r.secs ?? ''], // wall time of the benchmark (the harness's own cost)
 ];
-const row = (cells) => cells.map((c, i) => (i === 0 ? String(c).padEnd(COLUMNS[i][1]) : String(c).padStart(COLUMNS[i][1]))).join(' ');
+const row = (cells: (string | number)[]): string => cells.map((c, i) => (i === 0 ? String(c).padEnd(COLUMNS[i][1]) : String(c).padStart(COLUMNS[i][1]))).join(' ');
 
 /**
  * Every view: benchmark (numbers printed as a table), probes, the still-frame check and a screenshot. `tag` is
  * added to the file names (A/B variants: "@0", "@1", ...). Returns { view: result }.
  */
-export async function runViews(page, opts, { root, outDir, tag = '' }) {
-  const results = {};
+export async function runViews(page: Page, opts: Options, { root, outDir, tag = '' }: { root: string; outDir: string; tag?: string }) {
+  const results: Record<string, ViewResult> = {};
   console.log('\n' + row(COLUMNS.map((c) => c[0])));
   for (const name of opts.views) {
     const view = { ...VIEWS[name], zoom: opts.zoom ?? VIEWS[name].zoom ?? 1 };
     await page.evaluate((v) => window.__demo.setView(v), view);
     at(`view ${name}: benchmark`);
     const t0 = Date.now();
-    const r = await page.evaluate((n) => window.__demo.bench(n), opts.frames);
+    const r: ViewResult = await page.evaluate((n) => window.__demo.bench(n), opts.frames);
     r.secs = ((Date.now() - t0) / 1000).toFixed(1);
     results[name] = r;
     console.log(row(COLUMNS.map(([, , f]) => f(name, r))));
 
     for (const probe of opts.probes) {
       at(`view ${name}: probe ${probe}`);
-      const res = await page.evaluate(async ([src, v]) => await (0, eval)(src)(window.__demo, v), [probeSource(root, probe), view]);
+      const args: [string, HarnessView] = [probeSource(root, probe), view];
+      const res = (await page.evaluate(async ([src, v]) => await (0, eval)(src)(window.__demo, v), args)) as Record<string, unknown> | null;
       if (res && typeof res.png === 'string') {
         writeFileSync(join(outDir, `${probe}-${name}${tag}.png`), Buffer.from(res.png.split(',')[1], 'base64'));
         delete res.png;
@@ -80,7 +96,7 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
 
     if (opts.flicker) {
       // a still camera (run with wind=0) must give identical frames; anything else is nondeterminism
-      const shots = [];
+      const shots: Buffer[] = [];
       for (let i = 0; i < 3; i++) {
         await page.evaluate(() => window.__demo.renderOnce());
         shots.push(await page.screenshot({ clip: { x: 0, y: 150, width: opts.width, height: opts.height - 150 } }));
@@ -97,8 +113,8 @@ export async function runViews(page, opts, { root, outDir, tag = '' }) {
       await page.evaluate((rr) => window.__demo.renderOnce(rr), r); // (the HUD then shows the benchmark's numbers)
       const shot = await page.screenshot();
       writeFileSync(join(outDir, `${name}${tag}.png`), shot);
-      r.colour = meanColour(shot);
-      if (tag) console.log(`${''.padEnd(12)} colour all ${r.colour.all.join(',')}  trees ${r.colour.trees.join(',')}  tree share ${r.colour.treeShare}`);
+      const colour = (r.colour = meanColour(shot));
+      if (tag) console.log(`${''.padEnd(12)} colour all ${colour.all.join(',')}  trees ${colour.trees.join(',')}  tree share ${colour.treeShare}`);
     }
   }
   return results;

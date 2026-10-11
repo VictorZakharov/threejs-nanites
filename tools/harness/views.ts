@@ -2,7 +2,9 @@
 // (absolute); yaw/pitch are degrees. `nearTree` frames the closest tree from that many metres away; `trunk` faces
 // the closest tree's trunk, level, from that many metres off its axis.
 // Add a view here (not in a probe) when a problem needs to be looked at again: every command can then use it.
-export const VIEWS = {
+import type { HarnessView } from '../../src/harness-api.ts';
+
+export const VIEWS: Record<string, HarnessView> = {
   // in and over the forest
   ground: { x: 20, z: 40, agl: 1.8, yaw: 30, pitch: 4 },
   // grass up close, half a metre up (user: "grass up close is not very detailed"; blades, the floor's relief)

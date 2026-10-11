@@ -1,6 +1,6 @@
 // A plain triangle mesh as a Nanite variant's source (the shape trees have, with no leaves): positions scaled to
 // metres, smooth vertex normals (area weighted), uvs from the position (planar, 1 per metre) so a stone texture
-// covers it. Used at load time (models.ts) and by tools/nanite-model.mjs.
+// covers it. Used at load time (models.ts) and by tools/nanite-model.ts.
 import type { BarkSource, LeafSource } from './dag-types.ts';
 
 export interface ModelSource {
@@ -10,7 +10,7 @@ export interface ModelSource {
   height: number;
 }
 
-/** `pos`: the model at height 1, base at y = 0 (tools/nanite-model.mjs); `height`: metres. */
+/** `pos`: the model at height 1, base at y = 0 (tools/nanite-model.ts); `height`: metres. */
 export function modelSource(pos: Float32Array, idx: Uint32Array, height: number): ModelSource {
   const n = pos.length / 3;
   const p = new Float32Array(pos.length);

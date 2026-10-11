@@ -160,7 +160,7 @@ function placeStatues(radius: number, a: number[], b: number[]): number {
     a.push(x, y - 0.05, z, scale);
     b.push(Math.cos(face), Math.sin(face), type, 0); // (no wind: phase 0)
   };
-  // the rotation that turns Lucy's front (-z after tools/nanite-model.mjs stood her up) towards (dx, dz)
+  // the rotation that turns Lucy's front (-z after tools/nanite-model.ts stood her up) towards (dx, dz)
   const faceTo = (dx: number, dz: number) => Math.atan2(-dx, dz) + Math.PI;
   const ring = params.get('plaza') === '0' ? 0 : PLAZA.statues; // (?plaza=0: no ring, for A/B)
   for (let k = 0; k < ring; k++) {

@@ -1,25 +1,41 @@
 {
   "name": "threejs-nanites",
   "version": "1.0.0",
-  "description": "",
+  "description": "A forest of 1M trees and 1.5M bushes drawn with a Nanite-style, GPU-driven cluster LOD system in three.js (WebGPU)",
+  "author": "Victor Zakharov",
+  "license": "MIT",
+  "homepage": "https://victorzakharov.github.io/threejs-nanites/",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/VictorZakharov/threejs-nanites.git"
+  },
+  "keywords": [
+    "three.js",
+    "webgpu",
+    "nanite",
+    "lod",
+    "virtualized geometry",
+    "forest",
+    "tsl"
+  ],
+  "private": true,
+  "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p . && vite build",
-    "typecheck": "tsc -p .",
+    "build": "tsc -p . && tsc -p tools && vite build",
+    "typecheck": "tsc -p . && tsc -p tools",
     "preview": "vite preview",
-    "harness": "node tools/harness.mjs",
-    "model": "node --max-old-space-size=8000 tools/nanite-model.mjs"
+    "harness": "node tools/harness.ts",
+    "model": "node --max-old-space-size=8000 tools/nanite-model.ts"
   },
-  "keywords": [],
-  "author": "",
-  "license": "ISC",
-  "type": "module",
   "dependencies": {
     "@dgreenheck/ez-tree": "^1.1.0",
     "meshoptimizer": "^1.3.0",
     "three": "^0.186.1"
   },
   "devDependencies": {
+    "@types/node": "^24.19.2",
+    "@types/pngjs": "^6.0.5",
     "@types/three": "^0.186.0",
     "@webgpu/types": "^0.1.74",
     "playwright-core": "^1.64.0",
@@ -27,5 +43,7 @@
     "typescript": "^7.0.2",
     "vite": "^8.3.4"
   },
-  "private": true
+  "engines": {
+    "node": ">=24"
+  }
 }

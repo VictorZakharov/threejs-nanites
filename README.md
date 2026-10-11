@@ -252,20 +252,33 @@ npm run harness -- --views=ground,plazane,canopy,overview,orbit --size=1920x1080
 npm run harness -- --views=ground,plazane,canopy,overview,orbit --size=1920x1080 --ab="occ=1|imppx=0|occ=0|sw=0"
 ```
 
-## Credits
+## License and credits
 
-- Lucy: [The Stanford 3D Scanning Repository](http://graphics.stanford.edu/data/3Dscanrep/), Stanford Computer
-  Graphics Laboratory (free for non-commercial use with credit).
-- Trees: [ez-tree](https://github.com/dgreenheck/ez-tree) by Daniel Greenheck. The forest floor follows the author's
-  last-stand.
+The code is [MIT](LICENSE).
+
+- **Lucy** (`public/models/lucy.nm`): derived from [The Stanford 3D Scanning Repository](http://graphics.stanford.edu/data/3Dscanrep/),
+  Stanford University Computer Graphics Laboratory. It is **not** under the MIT license. Stanford's terms apply:
+  - Free for research and non-commercial use and redistribution, with credit.
+  - No commercial use.
+  - Don't animate or morph it.
+
+  See [public/models/README.md](public/models/README.md).
+- **Trees:** generated with [ez-tree](https://github.com/dgreenheck/ez-tree) by Daniel Greenheck (MIT). The bark and
+  leaf textures in `public/textures` are ez-tree's.
+- **Libraries:** [three.js](https://threejs.org) and [meshoptimizer](https://github.com/zeux/meshoptimizer) (MIT).
+- **Forest floor:** follows the author's earlier project, last-stand.
 
 ## Develop
+
+Needs Node 24 or newer: the tools in `tools/` are TypeScript that Node runs directly.
 
 ```sh
 npm install
 npm run dev        # Vite dev server
-npm run build      # type-check (strict TypeScript) + production build
+npm run build      # type-check the app and the tools (strict TypeScript) + production build
 ```
+
+`AGENTS.md` is the guide to the codebase: how each part works, why it's built that way, and how to check a change.
 
 ### Headless harness
 

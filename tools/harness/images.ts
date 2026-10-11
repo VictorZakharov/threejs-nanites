@@ -1,5 +1,21 @@
-// Measuring screenshots (PNG buffers). Shared by the harness and tools/img.mjs.
+// Measuring screenshots (PNG buffers). Shared by the harness and tools/img.ts.
 import { PNG } from 'pngjs';
+
+/** A part of an image (pixels). */
+export interface Rect {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+}
+/** Tiles of a decoded screenshot (tileLuma). */
+export interface Tiles {
+  tw: number;
+  th: number;
+  luma: Float32Array;
+  png: PNG;
+}
+const decode = (png: Buffer | PNG): PNG => (Buffer.isBuffer(png) ? PNG.sync.read(png) : png);
 
 /**
  * The HUD panel in the top-right corner (#hud in index.html), left out of every measurement (pixels; a little wider
@@ -7,18 +23,18 @@ import { PNG } from 'pngjs';
  * then counted its changing numbers and edge as the worst popping.
  */
 export const HUD = { w: 520, h: 190 };
-const inHud = (x, y, width) => x >= width - HUD.w && y < HUD.h;
+const inHud = (x: number, y: number, width: number): boolean => x >= width - HUD.w && y < HUD.h;
 
 /** Tree-like pixel: clearly green, and not the yellow-green of grass. */
-export const isTreePixel = (r, g, b) => g > r * 1.25 && b > r * 0.6;
+export const isTreePixel = (r: number, g: number, b: number): boolean => g > r * 1.25 && b > r * 0.6;
 
 /**
  * Mean colour of a screenshot, of all pixels and of the tree-like ones, and the share of tree-like pixels.
  * `rect` ({ x, y, w, h }) limits it to part of the image.
  */
-export function meanColour(png, rect = null) {
-  const p = Buffer.isBuffer(png) ? PNG.sync.read(png) : png;
-  const { x: x0 = 0, y: y0 = 0, w = p.width, h = p.height } = rect ?? {};
+export function meanColour(png: Buffer | PNG, rect: Rect | null = null) {
+  const p = decode(png);
+  const { x: x0, y: y0, w, h } = rect ?? { x: 0, y: 0, w: p.width, h: p.height };
   const all = [0, 0, 0], tree = [0, 0, 0];
   let n = 0, nt = 0;
   for (let y = y0; y < y0 + h; y++)
@@ -30,12 +46,12 @@ export function meanColour(png, rect = null) {
         tree[0] += r; tree[1] += g; tree[2] += b; nt++;
       }
     }
-  const avg = (c, k) => c.map((v) => +(v / Math.max(k, 1)).toFixed(1));
+  const avg = (c: number[], k: number): number[] => c.map((v) => +(v / Math.max(k, 1)).toFixed(1));
   return { all: avg(all, n), trees: avg(tree, nt), treeShare: +(nt / Math.max(n, 1)).toFixed(3) };
 }
 
 /** Pixels that differ between two screenshots of the same size. */
-export function diffPixels(a, b) {
+export function diffPixels(a: Buffer, b: Buffer): number {
   const p = PNG.sync.read(a), q = PNG.sync.read(b);
   let n = 0;
   for (let i = 0; i < p.data.length; i += 4)
@@ -46,7 +62,7 @@ export function diffPixels(a, b) {
 export const TILE = 16;
 
 /** Mean luminance per TILE x TILE tile (NaN for tiles under the HUD), plus the decoded image. */
-export function tileLuma(buf) {
+export function tileLuma(buf: Buffer): Tiles {
   const png = PNG.sync.read(buf);
   const tw = Math.floor(png.width / TILE), th = Math.floor(png.height / TILE);
   const luma = new Float32Array(tw * th);
@@ -70,7 +86,7 @@ export function tileLuma(buf) {
 /**
  * Heatmap: the image dimmed, each tile tinted red by its score (score >= full gives pure red). Returns PNG bytes.
  */
-export function heatmap({ png, tw }, score, full) {
+export function heatmap({ png, tw }: Tiles, score: ArrayLike<number>, full: number): Buffer {
   const out = new PNG({ width: png.width, height: png.height });
   png.data.copy(out.data);
   for (let y = 0; y < png.height; y++)
@@ -84,7 +100,7 @@ export function heatmap({ png, tw }, score, full) {
 }
 
 /** Part of an image, enlarged `scale` times (nearest neighbour, so pixels stay visible). Returns PNG bytes. */
-export function crop(buf, { x, y, w, h }, scale = 4) {
+export function crop(buf: Buffer, { x, y, w, h }: Rect, scale = 4): Buffer {
   const p = PNG.sync.read(buf);
   const out = new PNG({ width: w * scale, height: h * scale });
   for (let oy = 0; oy < h * scale; oy++)
@@ -96,7 +112,7 @@ export function crop(buf, { x, y, w, h }, scale = 4) {
 }
 
 /** Hue of an RGB colour in degrees (0..360). */
-function hue(r, g, b) {
+function hue(r: number, g: number, b: number): number {
   const hi = Math.max(r, g, b), d = hi - Math.min(r, g, b);
   if (d === 0) return 0;
   const h = hi === r ? (g - b) / d : hi === g ? 2 + (b - r) / d : 4 + (r - g) / d;
@@ -108,8 +124,8 @@ function hue(r, g, b) {
  * index of the id with the closest hue (within 30 degrees), or -1 (ground, sky, an edge). Fog and tone mapping
  * shift and wash out the ids, so only the hue of saturated pixels counts.
  */
-export function typeMask(png, ids) {
-  const p = Buffer.isBuffer(png) ? PNG.sync.read(png) : png;
+export function typeMask(png: Buffer | PNG, ids: number[][]): Int8Array {
+  const p = decode(png);
   const idHues = ids.map(([r, g, b]) => hue(r, g, b));
   const mask = new Int8Array(p.width * p.height).fill(-1);
   for (let y = 0; y < p.height; y++)
@@ -131,8 +147,8 @@ export function typeMask(png, ids) {
 }
 
 /** Mean colour (sRGB 0..255) and pixel count of each type in `mask`, over the matching pixels of `png`. */
-export function typeColours(png, mask, n) {
-  const p = Buffer.isBuffer(png) ? PNG.sync.read(png) : png;
+export function typeColours(png: Buffer | PNG, mask: Int8Array, n: number): { rgb: number[] | null; pixels: number }[] {
+  const p = decode(png);
   const sum = Array.from({ length: n }, () => [0, 0, 0, 0]);
   for (let j = 0; j < mask.length; j++) {
     const k = mask[j];

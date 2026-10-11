@@ -1,17 +1,20 @@
 // The occlusion depth pyramid (HZB) of the current view: its levels (offset, width, height), and a sparse grid of
 // level 0 and level 5 values. Depth is WebGPU's 0 (near) .. 1 (far, sky): the sky should read 1, the ground
 // increase towards 1 with distance.
-async (demo) => {
+import type { Demo } from '../../src/harness-api.ts';
+import type { Vector4 } from 'three';
+
+async (demo: Demo) => {
   const h = demo.forest.hzb;
   await demo.renderOnce();
   const buf = new Float32Array(await demo.renderer.getArrayBufferAsync(h.buf.value));
-  const levels = h.levels.array.slice(0, h.count.value).map((l) => [l.x, l.y, l.z]);
+  const levels = (h.levels.array as Vector4[]).slice(0, h.count.value).map((l): [number, number, number] => [l.x, l.y, l.z]);
   /** rows x cols samples of a level, as strings of 4-decimal values */
-  const grid = ([off, w, hh], rows, cols) => {
-    const out = [];
+  const grid = ([off, w, hh]: [number, number, number], rows: number, cols: number): string[] => {
+    const out: string[] = [];
     for (let j = 0; j < rows; j++) {
       const y = Math.floor(((j + 0.5) * hh) / rows);
-      const line = [];
+      const line: string[] = [];
       for (let i = 0; i < cols; i++) line.push(buf[off + y * w + Math.floor(((i + 0.5) * w) / cols)].toFixed(4));
       out.push(line.join(' '));
     }

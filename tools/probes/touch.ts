@@ -1,12 +1,14 @@
 // Touch controls (src/touch.ts; run with --query=touch=1): synthetic finger events on the canvas and the buttons,
 // then how far the camera moved / turned / climbed. Left thumb pushed up = forward, right thumb dragged = look,
 // the up button = climb. Each should be clearly non-zero; `stuck` lists what didn't respond.
-async (demo) => {
+import type { Demo } from '../../src/harness-api.ts';
+
+async (demo: Demo) => {
   const canvas = demo.renderer.domElement;
   const cam = demo.camera, c = demo.controls;
-  const ev = (target, type, id, x, y) =>
-    target.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true, isPrimary: id === 1 }));
-  const frames = async (n) => { for (let i = 0; i < n; i++) await demo.renderOnce(); };
+  const ev = (target: EventTarget | null, type: string, id: number, x: number, y: number) =>
+    target?.dispatchEvent(new PointerEvent(type, { pointerId: id, pointerType: 'touch', clientX: x, clientY: y, bubbles: true, cancelable: true, isPrimary: id === 1 }));
+  const frames = async (n: number): Promise<void> => { for (let i = 0; i < n; i++) await demo.renderOnce(); };
   if (!document.body.classList.contains('touch')) return { error: 'touch controls are off (use --query=touch=1)' };
   const fwd = cam.position.clone();
   cam.getWorldDirection(fwd);
@@ -50,7 +52,7 @@ async (demo) => {
   ev(zoomBtn, 'pointerup', 4, 0, 0);
   await frames(30);
 
-  const r = { forward: +forward.toFixed(2), drift: +drift.toFixed(3), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3), climb: +climb.toFixed(2), zoom: +zoom.toFixed(2), zoomBack: +c.zoom.toFixed(2) };
+  const r: Record<string, unknown> = { forward: +forward.toFixed(2), drift: +drift.toFixed(3), yaw: +yaw.toFixed(3), pitch: +pitch.toFixed(3), climb: +climb.toFixed(2), zoom: +zoom.toFixed(2), zoomBack: +c.zoom.toFixed(2) };
   r.stuck = [forward > 0.5 || 'stick', drift < 0.05 || 'stick release', yaw < -0.1 || 'look yaw', pitch > 0.05 || 'look pitch', climb > 0.5 || 'up button', zoom > 3 || 'zoom', c.zoom < 1.5 || 'zoom release'].filter((x) => x !== true);
   return r;
 }
