@@ -53,7 +53,10 @@
       body:not(.touch) .perf > span, body:not(.touch) .perf small { font-size: 0.82rem; }
       body:not(.touch) .perf .perf__copy { font-size: 0.74rem; }
       body:not(.touch) .perf svg { height: 40px; }
-      #help { bottom: 10px; left: 10px; }
+      /* one key per action, two columns of key / action pairs (keys in a fixed-width column ran into their text) */
+      #help { bottom: 10px; left: 10px; display: grid; grid-template-columns: repeat(4, max-content); column-gap: 1em; white-space: nowrap; }
+      #help i { width: auto; }
+      #help i:nth-of-type(even) { margin-left: 1.6em; }
       #start { position: fixed; inset: 0; display: grid; place-items: center; pointer-events: none; }
       #start div { padding: 12px 18px; background: rgba(8, 14, 20, 0.7); border-radius: 8px; font-size: 15px; }
       body.captured #start { display: none; }
@@ -223,7 +226,7 @@
       .touch-btn.on { background: rgba(166, 220, 142, 0.55); }
       .touch-fs { position: fixed; right: max(14px, env(safe-area-inset-right)); top: max(10px, env(safe-area-inset-top)); width: 42px; height: 42px; font-size: 18px; }
       body:not(.is-ready) .touch-pad, body:not(.is-ready) .touch-fs, body:not(.is-ready) #help-touch { visibility: hidden; }
-      body.harness #help, body.harness #start { display: none; }
+      body.harness:not(.show-help) #help, body.harness #start { display: none; }
       body.harness .loading { transition: none; }
     </style>
   </head>
@@ -269,11 +272,7 @@
     </section>
     <div id="corner"></div>
     <div id="hud"></div>
-    <div id="help"><i>MOVE</i>WASD walk · Space jump, twice to fly · Ctrl down (land to walk) · Shift fast · mouse look · right mouse zoom 5×
-<i>L</i>debug colours (cluster / DAG level / tree / type / rasterizer)
-<i>F  [ ]  Q</i>freeze culling · error threshold (px) · auto quality
-<i>P  T  G  R</i>shadows · anti-aliasing · wind · god rays
-<i>H  F11  ESC</i>hide help · fullscreen · settings</div>
+    <div id="help"><i>WASD</i><span>move</span><i>P</i><span>shadows</span><i>Mouse</i><span>look</span><i>T</i><span>anti-aliasing</span><i>Right mouse</i><span>zoom 5×</span><i>G</i><span>wind</span><i>Space</i><span>jump · in the air: fly up</span><i>R</i><span>god rays</span><i>Ctrl</i><span>down · land to walk</span><i>L</i><span>debug colours</span><i>Shift</i><span>fast</span><i>F</i><span>freeze culling</span><i>H</i><span>hide this help</span><i>[  ]</i><span>error threshold (px)</span><i>F11</i><span>fullscreen</span><i>Q</i><span>auto quality</span><i>Esc</i><span>settings</span></div>
     <div id="start"><div>Click to fly · Esc for settings</div></div>
     <div id="help-touch">left thumb: move · right thumb: look · ▲ jump (twice: fly) ▼ down · 5× zoom</div>
     <script type="module" src="/src/main.ts"></script>

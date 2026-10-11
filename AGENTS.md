@@ -125,10 +125,13 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   (`?msaa=4`).
 - Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
   the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
-  the same switches): add a new switch there once and it gets both. Esc is in the Keyboard Lock keys, so in fullscreen a press
-  reaches the page (opens the menu, releases the mouse) instead of leaving fullscreen (hold Esc to leave). Outside
-  fullscreen Esc is the browser's (it releases the mouse), so losing the pointer lock opens the menu. Headless can't
-  test the fullscreen path: check it by hand. `--probe=menu` clicks every switch and reads it back, and checks that in a short window only the columns
+  the same switches): add a new switch there once and it gets both. Fullscreen as in last-stand (gd-clone, the user: "there it
+  all works perfectly"): F11 is the browser's, the menu's button toggles the page's (and says which), a click only
+  captures the mouse, Esc releases it (losing the pointer lock opens the menu) and leaves fullscreen. It used to go
+  fullscreen on every capture, take F11 over and Keyboard-Lock Esc: leaving fullscreen took two presses (Resume went
+  straight back in), and screenshots of the fullscreen window sometimes failed. Headless can't test the fullscreen
+  path: check it by hand. The help pane (`#help` in `index.html`) is one key per action, in a grid (keys sharing a
+  fixed-width cell ran into their text: the user). `--probe=menu` clicks every switch and reads it back, and checks that in a short window only the columns
   scroll (title and buttons stay in the box; on touch screens the page's touchmove block lets one finger through
   there).
 - Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): three instanced rings of

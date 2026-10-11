@@ -7,7 +7,7 @@ Needs a WebGPU browser (Chrome / Edge).
 
 ## Controls
 
-Click to fly (captures mouse + keyboard in fullscreen, so Ctrl+W doesn't close the tab).
+Click to fly (captures the mouse; Esc gives it back and opens the settings). F11 or the settings' button for fullscreen.
 
 | Key | |
 |---|---|

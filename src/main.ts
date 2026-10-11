@@ -41,6 +41,7 @@ const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
 const TREE_COUNT = Number(params.get('trees') ?? 1000000);
 if (HARNESS) document.body.classList.add('harness');
+if (params.get('help') === '1') document.body.classList.add('show-help'); // (the key help under the harness)
 
 // shadowShift: debug offset of the shadow-map centre (harness sweeps)
 const demo: DemoState = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });

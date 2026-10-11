@@ -151,6 +151,12 @@ export function createMenu(ctx: MenuContext) {
     refresh();
   });
 
+  // the button says what it will do (the browser's own F11 fullscreen isn't the page's: it says "Fullscreen" there)
+  const fsBtn = q<HTMLButtonElement>('[data-a="fullscreen"]')[0];
+  const syncFullscreen = () => (fsBtn.textContent = document.fullscreenElement ? 'Exit fullscreen' : 'Fullscreen');
+  document.addEventListener('fullscreenchange', syncFullscreen);
+  fsBtn.classList.toggle('hidden', !document.fullscreenEnabled);
+
   let open = false;
   function setOpen(v: boolean): void {
     open = v;
@@ -198,7 +204,7 @@ export function createMenu(ctx: MenuContext) {
       if (performance.now() - unlockedAt < 300) return;
       if (open) return resume();
       setOpen(true);
-      return controls.release(); // (fullscreen: Esc is locked, so the mouse is still captured)
+      return controls.release();
     }
     for (const t of [...scene, ...overlays]) if (t.key === code) t.set(!t.get());
     if (code === 'KeyL') u.debug.value = (u.debug.value + 1) % DEBUG.length;
