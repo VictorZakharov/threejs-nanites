@@ -220,6 +220,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   draws their billboards turned to the sun into the shadow map. So the real map is used wherever it reaches; an
   average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the
   map up on its sun side (`vShadowPos`: past its own caster quad) times the average self-shadow `?treeshade=`.
+- The shadow map's side follows the drawing buffer (`fitShadowMap` in `lighting.ts`): 2048 at 1080p, a power of two
+  from 512 to 2048 by sqrt(pixels), `?smap=` fixes it. A fixed 2048 at a laptop iGPU's half resolution filled 8x more
+  texels than screen pixels (at its settings on the dev GPU: 5.97 -> 4.51 ms frame with 1024).
 - The shadow map's extent grows with altitude (texels ~2 px at the nearest ground) up to `?shadowmax=` (6000 m
   half-extent); the light's depth range grows with it. Capped at 640 m, it was a rectangle of real shadows inside
   an evenly shaded forest seen from 1.8 km.

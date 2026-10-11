@@ -48,8 +48,18 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
   scene.add(hemi);
   const sun = new THREE.DirectionalLight(0xfff1dc, 3.2);
   sun.castShadow = true;
-  const smap = Number(params.get('smap') ?? 2048);
-  sun.shadow.mapSize.set(smap, smap);
+  const smapParam = params.get('smap');
+  sun.shadow.mapSize.set(2048, 2048);
+  /**
+   * The shadow map's side for a drawing buffer of `pixels` (`?smap=` fixes it): 2048 at 1080p (texels ~2 px on the
+   * nearest ground), fewer for fewer pixels, a power of two from 512 to 2048. It was 2048 everywhere: a laptop's
+   * integrated GPU at half resolution filled 8x more shadow texels than screen pixels (on the dev GPU at its settings
+   * 42% of the frame), a phone's 30x.
+   */
+  function fitShadowMap(pixels: number): void {
+    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * Math.sqrt(pixels / (1920 * 1080))))));
+    if (n !== sun.shadow.mapSize.x) sun.shadow.mapSize.set(n, n);
+  }
   // One shadow map that follows the view. Its half-extent grows with altitude (in steps, so texels don't crawl),
   // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
   let SH = 0;
@@ -110,5 +120,5 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
     sun.shadow.updateMatrices(sun);
   }
 
-  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow };
+  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap };
 }

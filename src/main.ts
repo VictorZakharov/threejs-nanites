@@ -87,7 +87,7 @@ async function start() {
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
 
-  const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow } =
+  const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap } =
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
@@ -360,6 +360,7 @@ async function start() {
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     forest.u.maxDist.value = fogFar.value;
 
+    fitShadowMap(size.x * size.y); // (before follow: it snaps the map to its texels)
     follow(camera, gy, demo.shadowShift);
 
     renderer.getDrawingBufferSize(size);

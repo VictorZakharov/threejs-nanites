@@ -3,7 +3,7 @@
 // frames itself and reads them from there in screenshots.
 import * as THREE from 'three/webgpu';
 import { heightAt } from './terrain.ts';
-import { PerfPanel } from './perf-panel.ts';
+import { PerfPanel, short } from './perf-panel.ts';
 import type { FlyControls } from './controls.ts';
 import type { NaniteForest } from './nanite/forest.ts';
 import type { TAA } from './taa.ts';
@@ -55,7 +55,7 @@ export function createHud(ctx: HudContext) {
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,
-      tris: gs.barkTris + gs.leafTris, swTris: gs.swTris ?? 0, shadowTris,
+      tris: gs.barkTris + gs.leafTris, swTris: gs.swTris ?? 0, impostorTris: gs.impostors * 2, shadowTris,
     },
     camera: {
       x: camera.position.x, z: camera.position.z, agl: agl(), zoom: controls.zoom,
@@ -68,7 +68,7 @@ export function createHud(ctx: HudContext) {
     gs = await forest.readStats();
     // (the shadow map's casters: on a phone they cost more than the view itself)
     const sh = ctx.shadowsOn() ? await forest.readStats(forest.shadow) : null;
-    shadowTris = sh ? sh.barkTris + sh.leafTris : 0;
+    shadowTris = sh ? sh.barkTris + sh.leafTris + sh.impostors * 2 : 0;
     const tris = gs.barkTris + gs.leafTris;
     const rows = [
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
@@ -76,8 +76,9 @@ export function createHud(ctx: HudContext) {
       ['plants', `${(gs.instances + gs.impostors).toLocaleString()} shown · ${gs.impostors.toLocaleString()} impostors`],
       ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount - forest.statueCount)} bushes + ${forest.statueCount} statues`],
       ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
-      ['clusters', `${(gs.barkClusters + gs.leafClusters).toLocaleString()} (${gs.barkClusters.toLocaleString()} bark)`],
-      ['triangles', `${(tris / 1e6).toFixed(2)} M + ${((gs.swTris ?? 0) / 1e6).toFixed(2)} M software`],
+      ['clusters', `${(gs.barkClusters + gs.leafClusters + (gs.swClusters ?? 0)).toLocaleString()} (${gs.barkClusters.toLocaleString()} bark · ${(gs.swClusters ?? 0).toLocaleString()} software)`],
+      // (every triangle drawn: the clusters' in hardware and software, and the impostors' quads, 2 each)
+      ['triangles', `${short(tris + (gs.swTris ?? 0) + gs.impostors * 2)} = ${short(tris)} hw + ${short(gs.swTris ?? 0)} sw + ${short(gs.impostors * 2)} impostors`],
       ['error', `${forest.u.tau.value.toFixed(2)} px ${auto.on ? `auto · ${auto.budget} ms` : 'manual'}${forest.frozen ? ' · FROZEN' : ''}`],
       ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]} · shadows ${ctx.shadowsOn() ? 'on' : 'off'} · taa ${taa.enabled ? 'on' : 'off'}`],
     ];

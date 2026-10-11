@@ -40,7 +40,13 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   wPx / MIN_PX while the quad grows (MIN_PX / wPx)^2, so coverage grows as trees shrink (squared would draw ~4x
   fewer from high up, but changes the look: calibrate against geometry first).
 - Low-end laptop (AMD RDNA-2 iGPU, 2026-10-11): 15 fps at the spawn, GPU 62 ms at tau 8, 52% resolution, 471k
-  triangles: fixed per-pixel/pass costs (shadow map, floor relief, render targets); waiting for its Profile GPU.
+  triangles: fixed per-pixel/pass costs. Done: the shadow map follows the resolution (1024 there; on the dev GPU at
+  its settings 5.97 -> 4.51 ms). Next: ask for its Profile GPU after this; then a last auto tier (grass, relief off).
+- NEXT (user, 4070 Ti, 2026-10-11): right-mouse zoom over the canopy into the distance drops frames to 20 ms (p95
+  21.8 ms, GPU 9.6 = 6.0 render + 3.6 compute, 7.3M software triangles, 278k impostors): view `canopyzoom`
+  `--zoom=5`. The zoom gives full detail as if 5x closer: the software rasterizer and the cull compute balloon.
+- HUD / panel triangle counts now include the impostors (2 each) and small counts read as numbers (the user: "0 + 0
+  tris, obviously a lie" from 4.9 km: all impostors, 1,440 software triangles shown as 0.00 M).
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms
   frame). If it's still far off: auto quality has no knob for the remaining fixed costs (instance passes over 2.5M,
   ~240k impostor retests, the shadow map, grass): a last tier (bushes nearer, shadows off) or a Mac start preset.
