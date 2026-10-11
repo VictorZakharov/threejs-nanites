@@ -12,7 +12,7 @@ import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { ClusterVertex, CullSet, View } from './types.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
-import { makeLeafAlpha, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
+import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
 
 export const drawMethods = {
   // ------------------------------------------------------------------ draw
@@ -141,7 +141,8 @@ export const drawMethods = {
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
       const tex = texture(textures.leaf, vUv).depth(layerI);
-      const alpha = leafAlpha(tex.a, layerI);
+      // (without MSAA, under TAA: alpha to coverage against a moving dither, see a2cDither)
+      const alpha = textures.leafDither ? a2cDither(leafAlpha(tex.a, layerI)) : leafAlpha(tex.a, layerI);
       const col = leafColour(tex.rgb, layerI, vTint, vAutumn);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)

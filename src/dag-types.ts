@@ -22,6 +22,8 @@ export interface DagRequest {
   leaves: LeafSource;
   /** A coarser leaf level's error, as a share of its (grown) leaf size (dag-leaves.ts; ?leaferr=). */
   leafErr?: number;
+  /** Scales of the bark simplifier's normal and uv weights (dag-build.ts BARK_WEIGHTS; ?barkattr=n,uv). */
+  barkAttr?: [number, number];
 }
 
 export interface DagStats {

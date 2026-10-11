@@ -122,7 +122,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
   time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
-  (`?aa=0`).
+  (`?msaa=4`).
 - Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
   the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
   the same switches): add a new switch there once and it gets both. Esc is in the Keyboard Lock keys, so in fullscreen a press
@@ -180,7 +180,9 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   mip. Without it, a tree's density and brightness jump when its LOD swaps to fewer, bigger cards.
 - Bark simplification weights normals/UVs (`simplifyWithAttributes`). meshopt folds attribute error into the error
   it returns, which drives LOD selection: heavier weights mean less texture popping but many more triangles
-  (UVs run to ~10 along a branch).
+  (UVs run to ~10 along a branch). It's the normals that cost: at a quarter of their weight (`?barkattr=n,uv`
+  scales) `closeup` drew 2.3M fewer triangles (of 7.6M, hardware + software) but popped ~3x more (`--sweep=lod`); the
+  UV weight changes nothing.
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
@@ -242,8 +244,15 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   three.js alpha to coverage (`smoothstep(0.5, 0.5 + fwidth(a), a)` against a fixed per-pixel threshold): a plain
   0.5 cut made distant crowns solid. Check with `?debug=5` (software pixels orange) and `--ab="sw=0|sw=1"` (mean
   colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
+- No MSAA under TAA (`samples` in `main.ts`; WebGPU has 1 or 4): the hardware leaves do alpha to coverage with one
+  sample, three.js's `smoothstep(0.5, 0.5 + fwidth(a), a)` against the moving `ditherAlt` (`a2cDither` in
+  `shading.ts`), so only each leaf's 1 px edge is dithered and TAA averages it. 4x MSAA cost ~2.5 ms on High at 1080p
+  on the user's 4070 Ti (`plazane` 10.3 -> 8.6 ms frame, `canopy` 15.8 -> 12.7; same mean colours and turning
+  flicker). Not the plain filtered alpha as a probability: every card stacked in a pixel passed the same threshold,
+  so crowns didn't add up (pale, see-through) and their holes left the HZB nothing to occlude with. A plain 0.5
+  cut-out with one sample makes crowns solid and dark. 4x with `?taa=0`, `?leafalpha=a2c` or `?msaa=4`.
 - Temporal anti-aliasing (`src/taa.ts`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
-  offset each frame (`?taajitter=`, default half a pixel: MSAA does the geometric edges) *before* culling, so the
+  offset each frame (`?taajitter=`: the whole pixel, half with MSAA, which does the geometric edges) *before* culling, so the
   culling, the software rasterizer and the draws see the same camera; the dither pattern (`ditherShift`) moves every
   frame too. The resolve rebuilds where each pixel was from the depth buffer and last frame's camera (undoing the
   planet curvature's shift with the viewer), minus the trees' own wind motion: the scene target has a second output
@@ -293,7 +302,7 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - Occlusion culling (`src/nanite/culling.ts`, `hzb.ts`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
-  pixel's MSAA samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2
+  pixel's samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2
   meshes (layer `PHASE2_LAYER`, a second `renderer.render` with autoClear and shadow updates off). Impostors are
   drawn there too, tested once against this frame's HZB (they're listed in the retest list with `IMP_BIT`; hidden
   ones get their flag cleared). Clouds are on that layer too, so they're drawn after every tree. Check with the

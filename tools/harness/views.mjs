@@ -32,8 +32,6 @@ export const VIEWS = {
   plazaair: { x: -5.2, z: -3.7, agl: 30, yaw: 30, pitch: -28 },
   // the user's 4070 Ti report (111 fps at tau 8, 85%): in the plaza walking, looking back along the road
   plazaback: { x: -34, z: -54, agl: 1.7, yaw: 152.8, pitch: -7.7 },
-  // the user's second 4070 Ti report (80 fps at tau 1, 1920x1080, manual): in the plaza looking north-east
-  plazane: { x: -36, z: -53, agl: 1.7, yaw: 59.8, pitch: 3.8 },
   // the user's second 4070 Ti report (80 fps on High: tau 1, 1920x1080): in the plaza looking north-east
   plazane: { x: -36, z: -53, agl: 1.7, yaw: 59.8, pitch: 3.8 },
   // straight down on the plaza from 60 / 150 m (user: some statues vanished from up high)

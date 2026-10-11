@@ -32,7 +32,8 @@ export interface ForestTextures {
   leaf: THREE.DataArrayTexture;
   barkLayerOf: (type: Uint) => Float;
   leafLayerOf: (type: Uint) => Float;
-  alphaToCoverage: boolean;
+  alphaToCoverage: boolean; // (the scene target has MSAA)
+  leafDither: boolean; // (it hasn't, under TAA: leaves by coverage against a moving dither, see draw.ts)
 }
 
 /** A view's counters buffer (see makeCounters). */

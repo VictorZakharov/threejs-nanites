@@ -1,7 +1,7 @@
 // Material pieces shared by the hardware draws, the software rasterizer's resolve and the impostors.
 import {
   uniformArray, uint, float, vec2, vec3, select, max, mix, hash, length, dot, clamp, dFdx, dFdy, log2, fract,
-  screenCoordinate, exp2, uniform,
+  screenCoordinate, exp2, uniform, fwidth, smoothstep,
 } from 'three/tsl';
 import * as THREE from 'three/webgpu';
 import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
@@ -29,6 +29,22 @@ export function makeLeafAlphaLod(leafTex: THREE.DataArrayTexture): (a: Float, la
     return a.mul(mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract()));
   };
 }
+
+const params = new URLSearchParams(location.search);
+/** Leaf alpha by coverage against a moving dither (`?leafalpha=dither`, the default under TAA) or a cut-out ('a2c'). */
+export const LEAF_DITHER = (params.get('leafalpha') ?? (params.get('taa') === '0' ? 'a2c' : 'dither')) === 'dither';
+/** Coverage scale of the software rasterizer's dithered leaf alpha (`?leafcov=`): matches the hardware leaves' colour. */
+export const LEAF_COV = Number(params.get('leafcov') ?? 0.9);
+
+/**
+ * Alpha to coverage with one sample per pixel (under TAA; the leaf material in draw.ts): three.js's antialiased
+ * cut-out, smoothstep(0.5, 0.5 + fwidth(a), a) of the coverage-preserving alpha, against a dither that moves every
+ * frame, so only the 1 px edge is dithered and TAA averages it. A leaf's inside stays solid: drawn by the plain
+ * filtered alpha instead, a pixel of every card in a crown passed the same per-pixel threshold, so stacked cards
+ * didn't add up (5 cards of 20% covered 30%, not 67%): crowns came out pale and see-through, and their holes left
+ * nothing for the occlusion culling to hide behind.
+ */
+export const a2cDither = (a: Float): Float => select(smoothstep(0.5, max(fwidth(a), 1e-4).add(0.5), a).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0));
 
 /** Leaf colour before lighting (shared by the hardware draw and the software rasterizer's resolve); `autumn`: the
  * tree's level (src/autumn.ts; pine needles, layer 3, stay green). */
@@ -83,7 +99,7 @@ export const typeId = (type: Index): Vec3 => {
 // (`?impspread=`, 1 = all at once). With one threshold the switch is a line across the forest at a fixed distance
 // that slides along with the camera; the real trees shimmer a little in motion and the impostors don't, so that
 // moving line was easy to see (the user, on the live site).
-const SPREAD = Number(new URLSearchParams(location.search).get('impspread') ?? 1.6);
+const SPREAD = Number(params.get('impspread') ?? 1.6);
 /**
  * The projected height (pixels) under which tree `inst` is drawn as an impostor (u: the forest's uniforms). Models
  * (the statues, last in the instances) never are: a handful, cheap as geometry at their coarsest LOD, and their

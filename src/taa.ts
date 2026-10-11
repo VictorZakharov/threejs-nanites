@@ -22,10 +22,13 @@ const halton = (i: number, b: number): number => {
   return r;
 };
 const params = new URLSearchParams(location.search);
-// the jitter's spread (pixels; 1 = the whole pixel): MSAA already smooths geometric edges, the jitter is for what's
-// smaller than its samples, and a narrower spread keeps the image sharper
-const SPREAD = Number(params.get('taajitter') ?? 0.5);
-const JITTER = Array.from({ length: 8 }, (_, i) => [(halton(i + 1, 2) - 0.5) * SPREAD, (halton(i + 1, 3) - 0.5) * SPREAD]);
+// the jitter's spread (pixels; 1 = the whole pixel): with MSAA, which already smooths geometric edges, half a pixel
+// (the jitter is for what's smaller than its samples, and a narrower spread keeps the image sharper); without, the
+// whole pixel: the jitter is the anti-aliasing
+const jitterOf = (samples: number): number[][] => {
+  const spread = Number(params.get('taajitter') ?? (samples > 1 ? 0.5 : 1));
+  return Array.from({ length: 8 }, (_, i) => [(halton(i + 1, 2) - 0.5) * spread, (halton(i + 1, 3) - 0.5) * spread]);
+};
 
 /** Colour <-> YCoCg (the neighbourhood box is tighter around foliage greens in it than in RGB). */
 const toYCoCg = (c: Vec3): Vec3 => vec3(dot(c, vec3(0.25, 0.5, 0.25)), dot(c, vec3(0.5, 0, -0.5)), dot(c, vec3(-0.25, 0.5, -0.25)));
@@ -46,6 +49,7 @@ export class TAA {
   readonly renderer: THREE.WebGPURenderer;
   readonly sceneRT: THREE.RenderTarget;
   readonly extra: ((uv: Vec2) => Vec3) | null;
+  readonly jitters: number[][]; // sub-pixel offsets (pixels), one per frame in turn
   enabled: boolean;
   frame = 0;
   reset = true;
@@ -67,6 +71,7 @@ export class TAA {
     { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1), extra = null }: { enabled?: boolean; feedback?: number; extra?: ((uv: Vec2) => Vec3) | null } = {},
   ) {
     this.extra = extra;
+    this.jitters = jitterOf(samples);
     this.renderer = renderer;
     this.sceneRT = sceneRT;
     this.enabled = enabled;
@@ -207,7 +212,7 @@ export class TAA {
       ditherShift.value.set(0, 0);
       return;
     }
-    const [jx, jy] = JITTER[this.frame % JITTER.length];
+    const [jx, jy] = this.jitters[this.frame % this.jitters.length];
     const e = camera.projectionMatrix.elements;
     e[8] += (jx * 2) / width;
     e[9] += (jy * 2) / height;

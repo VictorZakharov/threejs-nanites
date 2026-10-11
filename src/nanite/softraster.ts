@@ -28,15 +28,12 @@ import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
 import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
-import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt } from './shading.ts';
+import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
 const MAX_BOX = 48; // a triangle walks at most this many pixels a side (the classification keeps them far smaller)
 const EMPTY = 0xffffffff;
-// leaf alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'a2c' (`?leafalpha=`)
-const LEAF_DITHER = (new URLSearchParams(location.search).get('leafalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'a2c' : 'dither')) === 'dither';
-const LEAF_COV = Number(new URLSearchParams(location.search).get('leafcov') ?? 0.9); // (coverage scale: matches the a2c mean colour)
 /** Debug 5 colour of the software rasterizer's pixels. */
 const SW_DEBUG = vec3(1, 0.45, 0);
 

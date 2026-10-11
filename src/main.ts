@@ -7,7 +7,7 @@ import { createLitterMap } from './ground/litter-map.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
-import { makeLeafAlpha } from './nanite/shading.ts';
+import { makeLeafAlpha, LEAF_DITHER } from './nanite/shading.ts';
 import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
 import { viewerPos } from './planet.ts';
 import { createClouds, CLOUD_BASE } from './clouds.ts';
@@ -125,12 +125,17 @@ async function start() {
   };
   const instances = await planting;
   lap(`Planted ${(instances.a.length / 4).toLocaleString()} trees, bushes and statues in workers, done ${Math.round(plantedMs)} ms in; waited`);
+  // MSAA of the scene target (WebGPU has 1 or 4 samples): none under TAA, where the leaves are dithered by coverage
+  // (LEAF_DITHER) and TAA averages them; 4x MSAA with its alpha to coverage cost ~2.5 ms on High at 1080p on the
+  // user's 4070 Ti. 4 with ?taa=0 or ?leafalpha=a2c, or ?msaa=4.
+  const samples = Number(params.get('msaa') ?? (params.get('aa') === '0' || LEAF_DITHER ? 1 : 4)) > 1 ? 4 : 1;
   const forest = new NaniteForest(renderer, trees, instances, {
     bark: barkTex,
     leaf: leafTex,
     barkLayerOf: layerLookup(VARIANTS.map((v) => barkTypes.indexOf(v.bark))),
     leafLayerOf: layerLookup(VARIANTS.map((v) => leafTypes.indexOf(v.leaf))),
-    alphaToCoverage: params.get('a2c') !== '0',
+    alphaToCoverage: samples > 1 && params.get('a2c') !== '0',
+    leafDither: samples === 1 && LEAF_DITHER,
   });
   lap('Forest buffers and passes');
   forest.u.tau.value = Number(params.get('tau') ?? 1);
@@ -283,7 +288,6 @@ async function start() {
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
   // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
   // then a fullscreen pass tone-maps it to the canvas.
-  const samples = Number(params.get('msaa') ?? (params.get('aa') === '0' ? 1 : 4)); // (?msaa=1/2/4)
   // (two outputs: colour, and the wind's screen motion of the trees for the anti-aliasing, see src/taa.js)
   const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
   sceneRT.textures[0].name = 'output';

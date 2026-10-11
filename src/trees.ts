@@ -145,8 +145,10 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
           resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
         };
         w.onerror = (e) => reject(new Error(e.message));
-        const leafErr = Number(new URLSearchParams(location.search).get('leaferr') ?? NaN);
-        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}) });
+        const q = new URLSearchParams(location.search);
+        const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);
+        const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...attr });
       }),
     );
   }

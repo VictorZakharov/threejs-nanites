@@ -78,7 +78,11 @@ function groupByAdjacency(clusters: Cluster[], remap: Uint32Array): Cluster[][] 
   return groups;
 }
 
-function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out: Cluster[]): number {
+/** The bark simplifier's attribute weights (normal xyz, uv): their error adds to the position error (m). */
+const BARK_WEIGHTS = [0.5, 0.5, 0.5, 0.08, 0.08];
+
+function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out: Cluster[], [ns, us] = [1, 1]): number {
+  const weights = BARK_WEIGHTS.map((w, i) => w * (i < 3 ? ns : us));
   const nv = pos.length / 3;
   const remap = MeshoptSimplifier.generatePositionRemap(pos, 3);
   let current = meshletize(idx, pos).map((ci) => makeCluster(ci, pos, 0, 0, null));
@@ -120,7 +124,7 @@ function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out:
       }
       const target = Math.floor(tris / 2) * 3;
       const [res, err] = MeshoptSimplifier.simplifyWithAttributes(
-        local, lpos, 3, lattr, 5, [0.5, 0.5, 0.5, 0.08, 0.08], lock, target, 1e9, ['ErrorAbsolute'],
+        local, lpos, 3, lattr, 5, weights, lock, target, 1e9, ['ErrorAbsolute'],
       );
       if (res.length / 3 > tris * 0.85) {
         next.push(...g); // could not reduce enough: retry with different neighbours next level
@@ -148,7 +152,7 @@ function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out:
 
 /** The DAG of one mesh (bark + leaves; `leaves.pos` empty for a plain model), packed for the renderer. */
 export async function buildDag(req: DagRequest): Promise<DagResult> {
-  const { id, bark, leaves, leafErr } = req;
+  const { id, bark, leaves, leafErr, barkAttr } = req;
   {
     await MeshoptClusterizer.ready;
     await MeshoptSimplifier.ready;
@@ -161,7 +165,7 @@ export async function buildDag(req: DagRequest): Promise<DagResult> {
       battr.set(bark.nrm.subarray(i * 3, i * 3 + 3), i * 5);
       battr.set(bark.uv.subarray(i * 2, i * 2 + 2), i * 5 + 3);
     }
-    const barkLevels = buildBark(bark.pos, battr, bark.idx, barkClusters);
+    const barkLevels = buildBark(bark.pos, battr, bark.idx, barkClusters, barkAttr);
 
     // leaves (vertex arrays grow as reduced leaves are appended)
     const lv: LeafVerts = { pos: Array.from(leaves.pos), nrm: Array.from(leaves.nrm), uv: Array.from(leaves.uv) };

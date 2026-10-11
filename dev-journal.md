@@ -16,11 +16,13 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   floor/relief 6.18, autumn 7.11 (a different forest sample there: one more rnd() per tree), last 6.60. Fixed the
   fixed cost: impostor draws over every instance -> a compact list (6.60 -> 4.08); shadow casters at 5 x tau (half
   the shadow triangles); litter rebuild sliced (the 1% lows); desktop budget 5.5 ms.
-- High (tau 1, 1920x1080, the user wants 144 on a 4070 Ti): 12.1 -> ~10.2 ms frame at `plazane` (leaf LOD
-  `LEAF_ERR` 0.35 -> 0.175: software triangles 7.7M -> 2.7M). Next lever: MSAA (2x saves ~2.5 ms) but with fewer
-  than 4 samples the occlusion over-culls (`aa=0` / `?msaa=2`: distant trees behind crowns go missing, impostors
-  3171 -> 841 on `plazane`): fix the HZB for those first, then 2x MSAA (+ TAA) on High. Also: bark 3.2M hardware
-  triangles there (UV weights in the simplifier), shadow map ~2 ms.
+- High (tau 1, 1920x1080, the user wants 144 on a 4070 Ti): `plazane` 12.1 -> 10.2 ms frame (leaf LOD
+  `LEAF_ERR` 0.35 -> 0.175) -> 8.5 (no MSAA: one sample + alpha to coverage by a moving dither under TAA). The
+  "occlusion over-culls without MSAA" was a misread (`msaa=2` is 1 in WebGPU; the image is identical with `occ=0`:
+  a 0.5 cut-out just makes crowns solid). Profile there now (GPU 7.9 ms): tree draws 3.6, half the pixels 2.2,
+  shadow map 1.6, grass 0.55, sw raster 0.3, TAA 0.26. Tried: bark normal weights (fewer triangles, 3x the
+  popping: kept). Next: the shadow map (1.6 ms: 3.4M caster triangles; not every frame? but then frames alternate),
+  the per-pixel cost (relief floor, leaf overdraw), frame time ~1 ms over the GPU sum (bubbles between passes?).
 - Loading: planting 6.8 s -> in workers during tree growth (done ~1.8 s in, waits 0 ms). Shader compile ~4.7 s is
   now the bulk of "First frame ready".
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms
@@ -129,7 +131,7 @@ the forest towards an open area with statues circle")
   darkened by forest density), not full sun: that was the "brightness change of distant trees".
 - Planet curvature is applied in the vertex shaders (drop d^2/2R) to everything, culling included.
 - Speed ramps up the longer a movement key is held (cap 900 m/s); right mouse = 5x zoom (shadow LOD unaffected).
-- The scene renders into an MSAA HalfFloat target; `RenderPipeline` tone-maps it to the canvas.
+- The scene renders into a HalfFloat target (one sample under TAA, 4x MSAA without); `RenderPipeline` tone-maps it to the canvas.
 - Work straight on `main`, every push deploys to Pages; check the deployed site with `--url` after pushing.
 
 ## Known issues
