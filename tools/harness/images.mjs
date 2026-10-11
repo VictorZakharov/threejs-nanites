@@ -1,9 +1,13 @@
 // Measuring screenshots (PNG buffers). Shared by the harness and tools/img.mjs.
 import { PNG } from 'pngjs';
 
-/** The HUD panel in the top-left corner, left out of every measurement (pixels). */
-export const HUD = { w: 480, h: 170 };
-const inHud = (x, y) => x < HUD.w && y < HUD.h;
+/**
+ * The HUD panel in the top-right corner (#hud in index.html), left out of every measurement (pixels; a little wider
+ * than it is at 1920 px: it widens with its numbers). It was masked in the top-left, where it used to be: the sweeps
+ * then counted its changing numbers and edge as the worst popping.
+ */
+export const HUD = { w: 520, h: 190 };
+const inHud = (x, y, width) => x >= width - HUD.w && y < HUD.h;
 
 /** Tree-like pixel: clearly green, and not the yellow-green of grass. */
 export const isTreePixel = (r, g, b) => g > r * 1.25 && b > r * 0.6;
@@ -19,7 +23,7 @@ export function meanColour(png, rect = null) {
   let n = 0, nt = 0;
   for (let y = y0; y < y0 + h; y++)
     for (let x = x0; x < x0 + w; x++) {
-      if (inHud(x, y)) continue;
+      if (inHud(x, y, p.width)) continue;
       const i = (y * p.width + x) * 4, r = p.data[i], g = p.data[i + 1], b = p.data[i + 2];
       all[0] += r; all[1] += g; all[2] += b; n++;
       if (isTreePixel(r, g, b)) {
@@ -48,7 +52,7 @@ export function tileLuma(buf) {
   const luma = new Float32Array(tw * th);
   for (let ty = 0; ty < th; ty++)
     for (let tx = 0; tx < tw; tx++) {
-      if (inHud(tx * TILE, ty * TILE)) {
+      if (inHud((tx + 1) * TILE - 1, ty * TILE, png.width)) {
         luma[ty * tw + tx] = NaN;
         continue;
       }
@@ -110,7 +114,7 @@ export function typeMask(png, ids) {
   const mask = new Int8Array(p.width * p.height).fill(-1);
   for (let y = 0; y < p.height; y++)
     for (let x = 0; x < p.width; x++) {
-      if (inHud(x, y)) continue;
+      if (inHud(x, y, p.width)) continue;
       const i = (y * p.width + x) * 4;
       const r = p.data[i], g = p.data[i + 1], b = p.data[i + 2];
       const hi = Math.max(r, g, b);

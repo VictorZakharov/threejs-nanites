@@ -46,7 +46,7 @@ npm run harness -- --views=zoomref --zoom=5 --probe=occlusion  # zoomed view, oc
 npm run harness -- --views=bark --probe=occlusion --query=wind=0  # one trunk fills the screen: ~nothing else drawn
 npm run harness -- --ab="imppx=0|imppx=100000" --views=topdown700 --query="farall=1&wind=0"
                                                                # all geometry vs all impostors: colour match
-npm run harness -- --sweep=lod --views=treeline --steps=40 --step=2 --query=wind=0   # LOD popping
+npm run harness -- --sweep=lod --views=treeline --steps=40 --step=2 --query="wind=0&taa=0"   # LOD popping (TAA off: one frame a step, its noise swamps the pops)
 npm run harness -- --dolly --views=treeline --steps=30 --step=0.05 --query=wind=0     # flicker while moving
 npm run harness -- --ab="sw=0|sw=1" --views=canopy,d550 --query="wind=0&shadows=0"   # software vs hardware raster
 npm run harness -- --views=canopy --flicker --query="wind=0&taa=0"   # still camera: differing pixels between frames
@@ -59,7 +59,10 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - A view can carry its own `zoom` (`bark` uses 5x: the near plane is 0.3 m, so the camera can't get close enough to
   a trunk to fill the screen without it); `--zoom` overrides it.
 - Popping and flicker tests need `wind=0` (the harness freezes the clouds itself). With TAA on, every frame is
-  jittered, so `--flicker` (identical still frames) needs `taa=0`; `--dolly` measures TAA as seen in motion.
+  jittered, so `--flicker` (identical still frames) and `--sweep` (one frame a step: the same setting gave 678 and
+  1310 jumps in two runs) need `taa=0`; `--dolly` measures TAA as seen in motion. The measures leave out the HUD's
+  corner (`HUD` in `harness/images.mjs`, top right): masked in the top left, where it once was, its changing
+  numbers were most of every sweep's jumps and its edge the "worst".
   `?taadebug=1` shows the trees' wind motion vectors. `--turn=0.2 --step=0` turns the camera instead of moving
   it (mouse look: the far field sweeps across the screen); `--rect=x,y,w,h` counts only part of the screen. The
   metric isn't zero for a perfect image (content slides across tiles). `--rise=M` climbs instead (the switch band

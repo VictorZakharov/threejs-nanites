@@ -24,6 +24,8 @@ export interface DagRequest {
   leafErr?: number;
   /** Scales of the bark simplifier's normal and uv weights (dag-build.ts BARK_WEIGHTS; ?barkattr=n,uv). */
   barkAttr?: [number, number];
+  /** How a bark group's error adds to its children's: the max (default: each switch moves <= tau) or the sum (?barkerr=sum). */
+  barkErr?: 'sum' | 'max';
 }
 
 export interface DagStats {

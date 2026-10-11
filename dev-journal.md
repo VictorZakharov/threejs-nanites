@@ -43,8 +43,13 @@ popping, flicker, brightness seams or missing trees. The user tests on the live 
   triangles: fixed per-pixel/pass costs. Done: the shadow map follows the resolution (1024 there; on the dev GPU at
   its settings 5.97 -> 4.51 ms). Next: ask for its Profile GPU after this; then a last auto tier (grass, relief off).
 - NEXT (user, 4070 Ti, 2026-10-11): right-mouse zoom over the canopy into the distance drops frames to 20 ms (p95
-  21.8 ms, GPU 9.6 = 6.0 render + 3.6 compute, 7.3M software triangles, 278k impostors): view `canopyzoom`
-  `--zoom=5`. The zoom gives full detail as if 5x closer: the software rasterizer and the cull compute balloon.
+  21.8 ms, GPU 9.6 = 6.0 render + 3.6 compute; on High): view `canopyzoom` `--zoom=5` at 1920x1080: 28 ms, 38M
+  hardware + 35M software triangles, 33k trees as geometry (20-50 px ones at ~1350 triangles each). Done: bark
+  group errors by max, not sum (`--probe=lodcut`: far trees' bark was levels too fine): 31M + 9M, ~24 ms, -0.3..1 ms
+  on every view. Rejected: a bigger impostor switch while zoomed (imppx 100: 12 ms, but far pines become fat fuzzy
+  cones without trunks); lighter bark normal weights (20x the popping close up). Occlusion removes ~5% there (the
+  foliage's holes). Next: the leaves (22M hardware triangles: a 100 px oak draws its full 5k cards), auto quality's
+  reaction to the zoom (x1.3 per 0.5 s: seconds of slow frames; remember a tau per zoom level?).
 - HUD / panel triangle counts now include the impostors (2 each) and small counts read as numbers (the user: "0 + 0
   tris, obviously a lie" from 4.9 km: all impostors, 1,440 software triangles shown as 0.00 M).
 - Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms

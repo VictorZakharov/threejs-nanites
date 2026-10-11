@@ -148,7 +148,8 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
         const q = new URLSearchParams(location.search);
         const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);
         const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
-        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...attr });
+        const barkErr = q.get('barkerr') === 'sum' ? { barkErr: 'sum' } : {};
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...attr, ...barkErr });
       }),
     );
   }

@@ -23,4 +23,5 @@ A probe file holds one JavaScript expression, an async function `(demo, view) =>
 | `autumn` | autumn levels: share of green / yellow / red trees, the nearest stand of each (spots of the `autumn*` views) and the cover map's fallen leaves there |
 | `litter` | the litter map round the camera (src/ground/litter-map.ts): kind of leaf, amount and autumn level at the camera and 3 m around it, share of each kind |
 | `walk` | walking (`--query=walk=1`): stands at eye height, walks, jumps, double-jumps into flight, flies down and lands walking |
+| `lodcut` | the DAG cut per tree type by its height on screen (10..400 px, at the page's tau), on the CPU: bark and leaf triangles and clusters, the deepest level, and each level's median error |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |

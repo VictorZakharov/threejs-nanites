@@ -199,8 +199,12 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - Bark simplification weights normals/UVs (`simplifyWithAttributes`). meshopt folds attribute error into the error
   it returns, which drives LOD selection: heavier weights mean less texture popping but many more triangles
   (UVs run to ~10 along a branch). It's the normals that cost: at a quarter of their weight (`?barkattr=n,uv`
-  scales) `closeup` drew 2.3M fewer triangles (of 7.6M, hardware + software) but popped ~3x more (`--sweep=lod`); the
-  UV weight changes nothing.
+  scales) `closeup` drew ~20% fewer triangles but popped 20x more (`--sweep=lod` with `taa=0`: 57 -> 1172 jumps); the
+  UV weight changes nothing. A group's error is the *max* of its children's and its own simplification's (Nanite's
+  rule: each switch moves the image by at most tau; `?barkerr=sum` for the old sum, meshoptimizer's demo, the drift
+  from full detail): the sum kept far trees' bark levels too fine (a 30 px oak: 2900 bark triangles, now ~350;
+  `--probe=lodcut`), 35M software triangles at the user's zoomed spot (now 9M), with the same popping; -0.3..1 ms
+  on every view. Lucy's `.nm` was built with the sum (rebuild with `npm run model` to change it).
 - Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
   leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.

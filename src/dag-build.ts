@@ -81,7 +81,7 @@ function groupByAdjacency(clusters: Cluster[], remap: Uint32Array): Cluster[][] 
 /** The bark simplifier's attribute weights (normal xyz, uv): their error adds to the position error (m). */
 const BARK_WEIGHTS = [0.5, 0.5, 0.5, 0.08, 0.08];
 
-function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out: Cluster[], [ns, us] = [1, 1]): number {
+function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out: Cluster[], [ns, us] = [1, 1], errMode: 'sum' | 'max' = 'max'): number {
   const weights = BARK_WEIGHTS.map((w, i) => w * (i < 3 ? ns : us));
   const nv = pos.length / 3;
   const remap = MeshoptSimplifier.generatePositionRemap(pos, 3);
@@ -132,7 +132,11 @@ function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out:
       }
       progress = true;
       const childMax = Math.max(...g.map((c) => c.err));
-      const gErr = childMax + Math.max(err, 1e-5);
+      // The group's error: the largest of its children's and its own simplification's (measured from the children's
+      // mesh), as Nanite does: each switch then moves the image by at most tau. The sum (meshoptimizer's demo:
+      // conservative, the drift from full detail) kept far trees' bark several levels too fine: a 30 px oak drew
+      // ~2900 bark triangles (~40% of all at the user's zoomed spot), with the same popping (`--sweep=lod`).
+      const gErr = errMode === 'max' ? Math.max(childMax, err, 1e-5) : childMax + Math.max(err, 1e-5);
       const gSphere = mergeSpheres(g.map((c) => c.lod));
       for (const c of g) { c.parentErr = gErr; c.parentLod = gSphere; }
       if (res.length === 0) continue; // whole group collapsed away (tiny twigs)
@@ -152,7 +156,7 @@ function buildBark(pos: Float32Array, attr: Float32Array, idx: Uint32Array, out:
 
 /** The DAG of one mesh (bark + leaves; `leaves.pos` empty for a plain model), packed for the renderer. */
 export async function buildDag(req: DagRequest): Promise<DagResult> {
-  const { id, bark, leaves, leafErr, barkAttr } = req;
+  const { id, bark, leaves, leafErr, barkAttr, barkErr } = req;
   {
     await MeshoptClusterizer.ready;
     await MeshoptSimplifier.ready;
@@ -165,7 +169,7 @@ export async function buildDag(req: DagRequest): Promise<DagResult> {
       battr.set(bark.nrm.subarray(i * 3, i * 3 + 3), i * 5);
       battr.set(bark.uv.subarray(i * 2, i * 2 + 2), i * 5 + 3);
     }
-    const barkLevels = buildBark(bark.pos, battr, bark.idx, barkClusters, barkAttr);
+    const barkLevels = buildBark(bark.pos, battr, bark.idx, barkClusters, barkAttr, barkErr);
 
     // leaves (vertex arrays grow as reduced leaves are appended)
     const lv: LeafVerts = { pos: Array.from(leaves.pos), nrm: Array.from(leaves.nrm), uv: Array.from(leaves.uv) };
