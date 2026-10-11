@@ -8,6 +8,7 @@ import type { TAA } from './taa.ts';
 import type { GodRays } from './godrays.ts';
 import type { AutoQuality } from './hud.ts';
 import type { PerfPanel } from './perf-panel.ts';
+import type { Music } from './music.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 export interface MenuContext {
@@ -19,6 +20,7 @@ export interface MenuContext {
   grass: { visible: boolean };
   auto: AutoQuality;
   perf: PerfPanel | null;
+  music: Music;
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
   setScale(s: number): void;
@@ -48,7 +50,7 @@ const TOUCH_CONTROLS: [string, string][] = [
 ];
 
 export function createMenu(ctx: MenuContext) {
-  const { controls, forest, taa, rays, auto, perf } = ctx;
+  const { controls, forest, taa, rays, auto, perf, music } = ctx;
   const u = forest.u;
   const byId = (id: string) => document.getElementById(id);
   const shown = (id: string) => () => !byId(id)?.classList.contains('hidden');
@@ -62,6 +64,7 @@ export function createMenu(ctx: MenuContext) {
     { label: 'Grass', get: () => ctx.grass.visible, set: (v) => (ctx.grass.visible = v) },
     { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
+    { label: 'Music', key: 'KeyM', get: () => music.on, set: (v) => (music.on = v) },
     { label: 'Occlusion culling', get: () => forest.occlusionOn, set: (v) => (forest.occlusionOn = v) },
     ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),
   ];
@@ -194,7 +197,17 @@ export function createMenu(ctx: MenuContext) {
     gear.title = 'settings';
     gear.addEventListener('pointerdown', (e) => e.stopPropagation());
     gear.addEventListener('click', () => setOpen(!open));
-    document.body.append(gear);
+    // (no keyboard: the music's switch on screen too, beside the gear)
+    const note = document.createElement('button');
+    note.className = 'touch-btn touch-music';
+    note.textContent = '♪';
+    note.title = 'music';
+    const sync = () => note.classList.toggle('muted', !music.on);
+    note.addEventListener('pointerdown', (e) => e.stopPropagation());
+    note.addEventListener('click', () => (music.on = !music.on));
+    music.onChange = () => (sync(), open && refresh());
+    sync();
+    document.body.append(gear, note);
   }
 
   // keyboard shortcuts (the same switches)

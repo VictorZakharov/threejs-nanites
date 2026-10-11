@@ -35,7 +35,8 @@ export async function startServer(root: string): Promise<{ url: string; close: (
 }
 
 function gpuArgs(): string[] {
-  const a = ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-features=WebGPU'];
+  // (autoplay: --probe=music starts the track from a synthetic event; nothing else plays sound)
+  const a = ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-features=WebGPU', '--autoplay-policy=no-user-gesture-required'];
   if (process.platform === 'win32') a.push('--use-angle=d3d11');
   return a;
 }

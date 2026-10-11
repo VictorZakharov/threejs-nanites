@@ -10,6 +10,7 @@ import type { forestDensity } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
 import type { ImpostorAtlas } from './impostors.ts';
 import type { createHud } from './hud.ts';
+import type { Music } from './music.ts';
 
 /** window.__demo before the API is installed (main.ts): readiness, the boot error, the shadow map's debug shift. */
 export interface DemoState {
@@ -67,6 +68,7 @@ export interface DemoExtras {
   litter: ReturnType<typeof createLitterMap>;
   atlas: ImpostorAtlas;
   hud: ReturnType<typeof createHud>;
+  music: Music;
   perfReport(): string | undefined;
   profile(): Promise<string>;
 }

@@ -23,10 +23,10 @@ async (demo: Demo) => {
   const r: Record<string, unknown> = {
     open: !menu.classList.contains('hidden'),
     shadows: flip('Shadows'), taa: flip('TAA'), rays: flip('God rays'), wind: flip('Wind'), clouds: flip('Clouds'), grass: flip('Grass'), relief: flip('Ground relief'),
-    occlusion: flip('Occlusion'), sw: flip('Software'),
+    occlusion: flip('Occlusion'), sw: flip('Software'), music: flip('Music'),
     quality: [seg('quality', 'low'), seg('quality', 'auto')].join(' '),
     tau: demo.forest.u.tau.value,
-    gear: Boolean(document.querySelector('.touch-menu')),
+    gear: Boolean(document.querySelector('.touch-menu')), note: Boolean(document.querySelector('.touch-music')),
   };
   // in a short window only the columns scroll: the title and the buttons stay inside the box (the user's screenshot)
   const cols = menu.querySelector('.menu-cols')!, mbox = menu.querySelector('.menu-box')!, mb = mbox.getBoundingClientRect();

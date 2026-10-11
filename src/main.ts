@@ -37,6 +37,7 @@ import { createHud } from './hud.ts';
 import { createWaypoint } from './waypoint.ts';
 import { createCompass } from './compass.ts';
 import { GodRays } from './godrays.ts';
+import { createMusic } from './music.ts';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -370,7 +371,9 @@ async function start() {
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)
-  createMenu({ controls, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
+  const music = createMusic(params, HARNESS); // (ez-tree's ambience track, from the first click, tap or key)
+  demo.music = music;
+  createMenu({ controls, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
   let prev = performance.now();
   function loop() {

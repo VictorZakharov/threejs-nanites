@@ -56,6 +56,7 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   god rays.
 - **The plaza:** a cobblestone road from the start to a ring of statues, with a waypoint and a compass.
 - **Moving around:** walk, jump and fly; touch controls on phones.
+- **Music:** ez-tree's ambience track, looped. It starts on the first click, tap or key.
 
 **Tools**
 - A performance panel: FPS, the 1% low, frame and GPU time. A click copies a report.
@@ -81,13 +82,14 @@ fullscreen. You start on foot.
 | [ ] | error threshold τ in pixels (turns auto quality off) |
 | Q | auto quality on/off |
 | P / T / G / R / H | shadows / anti-aliasing (TAA) / wind / god rays / help |
+| M | music on/off (remembered in this browser) |
 | Esc | settings menu: quality presets, every switch, Profile GPU, fullscreen |
 
 On a phone or tablet:
 - The left thumb is a movement stick (push further to go faster).
 - The right thumb drags to look.
 - The buttons on the right are up (jump, then fly) / down / 5× zoom.
-- The gear opens the settings.
+- The gear opens the settings; ♪ turns the music on or off.
 
 `?touch=1` / `?touch=0` forces the touch controls on or off.
 
@@ -115,6 +117,7 @@ breakdown to it.
 | `msaa` | | 4 = MSAA instead of dithered leaf edges |
 | `occ`, `sw`, `imppx` | | 0 = no occlusion culling / no software rasterizer / no impostors |
 | `debug` | 0 | 1–5: the debug colours |
+| `music` | 1 | 0 = start muted |
 
 ## How it works
 
@@ -264,7 +267,8 @@ The code is [MIT](LICENSE).
 
   See [public/models/README.md](public/models/README.md).
 - **Trees:** generated with [ez-tree](https://github.com/dgreenheck/ez-tree) by Daniel Greenheck (MIT). The bark and
-  leaf textures in `public/textures` are ez-tree's.
+  leaf textures in `public/textures` and the music (`public/audio/ambience.mp3`, from ez-tree's demo app) are
+  ez-tree's.
 - **Libraries:** [three.js](https://threejs.org) and [meshoptimizer](https://github.com/zeux/meshoptimizer) (MIT).
 - **Forest floor:** follows the author's earlier project, last-stand.
 
