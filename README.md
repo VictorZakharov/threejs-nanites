@@ -13,7 +13,7 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
 | ![The road from the start through the autumn forest](screenshots/1.jpg) | ![A Lucy statue on the plaza](screenshots/2.jpg) |
 | The road from the start, at eye height: 3.5M triangles, GPU 3.6 ms | A [Lucy](http://graphics.stanford.edu/data/3Dscanrep/) statue on the plaza (Stanford's scan, 1M triangles through the same cluster LOD) |
 | ![9 km up: the forest under the clouds on the curved planet](screenshots/3.jpg) | ![Inside a pine's crown](screenshots/4.jpg) |
-| 9 km up: 808k plants, all but ~600 drawn as impostors; GPU 5.1 ms | Inside a pine's crown, 24 m up, at full detail (τ = 1 px) |
+| 9 km up: 808k plants, drawn as impostors (only the 12 statues stay geometry); GPU 5.1 ms | Inside a pine's crown, 24 m up, at full detail (τ = 1 px) |
 
 *RTX 4070 Ti at 1920×1080, 144 fps (vsync-capped).*
 
