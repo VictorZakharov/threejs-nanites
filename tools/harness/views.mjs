@@ -30,6 +30,8 @@ export const VIEWS = {
   // the cobblestone road's end, looking into the plaza with its ring of statues (src/road.ts); the plaza from the air
   plaza: { x: -19.2, z: -28, agl: 1.8, yaw: 30, pitch: 6 },
   plazaair: { x: -5.2, z: -3.7, agl: 30, yaw: 30, pitch: -28 },
+  // the user's 4070 Ti report (111 fps at tau 8, 85%): in the plaza walking, looking back along the road
+  plazaback: { x: -34, z: -54, agl: 1.7, yaw: 152.8, pitch: -7.7 },
   // straight down on the plaza from 60 / 150 m (user: some statues vanished from up high)
   plazatop: { x: -30.2, z: -47, agl: 60, yaw: 30, pitch: -89 },
   plazahigh: { x: -30.2, z: -47, agl: 150, yaw: 30, pitch: -89 },

@@ -16,7 +16,7 @@ import * as THREE from 'three/webgpu';
 import { storage, uniform, uniformArray, bitcast } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
-import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW } from './constants.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
@@ -32,13 +32,6 @@ type TypeStats = BuiltTree['stats'] & { name: string; radius: number };
 // The stage modules' methods, attached to the prototype at the end of this file.
 export interface NaniteForest
   extends Omit<typeof cullingMethods, never>, Omit<typeof hzbMethods, never>, Omit<typeof drawMethods, never>, Omit<typeof billboardMethods, never> {}
-
-function countFlags(buf: ArrayBuffer): number {
-  const f = new Uint32Array(buf);
-  let n = 0;
-  for (let i = 0; i < f.length; i++) n += f[i];
-  return n;
-}
 
 export class NaniteForest {
   readonly renderer: THREE.WebGPURenderer;
@@ -200,6 +193,7 @@ export class NaniteForest {
     view.ran = true; // (its buffers exist on the GPU from now on)
     for (const set of view.sets) r.compute(set.reset); // (phase 2 draws nothing unless occlusion() runs)
     if (view.retest) r.compute(view.retest.reset);
+    r.compute(view.impReset);
     const A = view.sets[0];
     r.compute(view.instances);
     r.compute(A.clampDispatch);
@@ -224,6 +218,7 @@ export class NaniteForest {
     // auto quality trims tau if it's still too much)
     this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1);
     this.sw.begin(this.renderer, camera, size.x, size.y);
+    this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)
     this._cull(this.main, camera);
     if (shadowCamera) {
       shadowCamera.updateMatrixWorld();
@@ -243,11 +238,7 @@ export class NaniteForest {
     if (!view.ran) return out;
     const get = (a: THREE.BufferAttribute) => this.renderer.getArrayBufferAsync(a);
     const sets = view.sets.filter((s, k) => k === 0 || s.ran);
-    const [flags, ctrBuf] = await Promise.all([
-      view === this.main ? get(view.impFlagAttr) : Promise.resolve(new ArrayBuffer(4)),
-      get(view.ctr.attr),
-    ]);
-    const ctr = new Uint32Array(ctrBuf);
+    const ctr = new Uint32Array(await get(view.ctr.attr));
     sets.forEach((set, k) => {
       const b = set.base, s = b + STATS;
       out.barkClusters += ctr[b + ARGS.bark + 1];
@@ -260,7 +251,7 @@ export class NaniteForest {
       out.items += ctr[b + ITEM_COUNT];
       if (k === 1) out.phase2 = ctr[s + 2];
     });
-    out.impostors = countFlags(flags);
+    out.impostors = ctr[IMP_ARGS + 1];
     if (view === this.main) Object.assign(out, await this.sw.readStats(this.renderer));
     return out;
   }

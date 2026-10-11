@@ -98,8 +98,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 8 ms, 14 on touch
-  devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
+- Auto quality (`main.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
+  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
   after the orbit). It's off
@@ -135,8 +135,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   ahead (the user).
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
-  along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). ~+1.9 ms on the dev
-  GPU at 1.5 (mostly the extra impostors). Nine variants overflow one atlas row (9216 px > WebGPU's guaranteed
+  along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). They took the instances from
+  1M to 2.5M, which mattered while the impostor draw covered every instance (see the impostor list below). Nine variants overflow one atlas row (9216 px > WebGPU's guaranteed
   8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
   colours are ten hues 36 degrees apart (typematch classifies within 18). Gains are linear: a measured sRGB ratio r
   needs about r^2.
@@ -144,7 +144,8 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   (soil, twigs, pebbles; 5 m tile; heights everywhere in cm / `HEIGHT_CM`); `floor-leaves.ts` the fallen leaves, a
   texture-array layer per kind (oak lobed, ash leaflets, aspen round, conifer sprays after the user's photo at a 2.5 m
   tile): height, normal and a per-leaf key (alpha: shown if the amount fallen is over it); both built in a worker.
-  `litter-map.ts`: a 256 m square of half-metre texels round the camera (rebuilt every 32 m from bucketed instances)
+  `litter-map.ts`: a 256 m square of half-metre texels round the camera (rebuilt every 32 m from bucketed instances, ~17 ms of main-thread work: in
+  slices of ~2 ms a frame into its own arrays, published with its centre when done; `--probe=litter` times both)
   holding the kind of leaf of the crown most over each texel, the amount fallen (all crowns) and that tree's autumn
   level; the floor lays that kind's layer in that tree's colour, so the litter matches the tree above in shape and
   colour (the user). Past the square the cover map's averages. `relief.ts` is the parallax occlusion in TSL (up to
@@ -211,6 +212,16 @@ its probes stay JavaScript (Node scripts and page-side expressions).
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
   Impostors are never drawn narrower than `MIN_PX` (2 px): smaller trees are enlarged and a matching share dropped
   per tree, otherwise sub-pixel trees flicker on/off as the camera moves.
+- The impostor draws (view and shadow map) have one instance per entry of the view's impostor list (`impListAttr`,
+  count in the counters at `IMP_ARGS`, the indirect args). The main view's is appended by phase 2 for the impostors
+  that pass its occlusion test (`impRetest`: phase 1 appends them itself when phase 2 won't run: `willOcclude`).
+  It was a flag per instance with a draw over all 2.5M instances x 6 vertices (twice), collapsing the unflagged:
+  a fixed cost no quality setting touched (the user's Mac at 4 fps; 4070 Ti ground view 6.6 -> 4.1 ms at tau 8).
+  An earlier note said appending was slower (900k threads on one atomic, ~5 ms): phase 2 appends only the visible
+  few thousand, and the retest list was already appending every impostor in view.
+- Shadow casters' LOD: by the camera's pixels at `SHADOW_TAU_MUL` (5, `?shadowtau=`) x tau; at 2.5 they were 9M
+  triangles at full detail (the trees all round, for ~11 cm texels), at 5 half, same image. A texel floor (no caster
+  finer than a shadow texel) changed nothing: few casters are that close.
 - Software rasterizer (`src/nanite/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
   rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the

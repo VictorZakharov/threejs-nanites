@@ -4,14 +4,15 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, dot, clamp, smoothstep, dFdx, dFdy, log2, cross,
-  cameraViewMatrix, normalize, asin, screenCoordinate,
+  cameraViewMatrix, normalize, asin, screenCoordinate, bool,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
-import { MIN_PX, FADE_HI, PHASE2_LAYER } from './constants.ts';
+import { MIN_PX, FADE_HI, PHASE2_LAYER, IMP_ARGS } from './constants.ts';
 import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.ts';
 import type { StorageBufferNode, UniformArrayNode, TextureNode } from 'three/webgpu';
 import type { NaniteForest } from './forest.ts';
+import type { View } from './types.ts';
 import type { ImpostorAtlas } from '../impostors.ts';
 import type { TreeVariant } from '../trees.ts';
 import type { Float, Uint, Vec2, Vec3 } from '../types.ts';
@@ -60,7 +61,7 @@ export const billboardMethods = {
    * Returns the position node, the varyings and per elevation k: q.t[k] (albedo sample), q.uv[k], q.a[k] (alpha).
    * `screen`: the camera's quads (sub-pixel trees thinned out, cross-fade share with the geometry, shading inputs).
    */
-  _impostorQuad(this: NaniteForest, atlas: ImpostorAtlas, flags: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
+  _impostorQuad(this: NaniteForest, atlas: ImpostorAtlas, list: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
     const u = this.u;
     const n = atlas.frames.length;
     const frameW = uniformArray<'float'>(atlas.frames.map((f) => f.w), 'float');
@@ -81,8 +82,8 @@ export const billboardMethods = {
     };
     const q = v;
     const position = Fn(() => {
-      const inst = instanceIndex;
-      const on = flags.element(inst).equal(1).toVar();
+      const inst = list.element(instanceIndex).toVar(); // (one instance per listed impostor, see View.impListAttr)
+      const on = bool(true).toVar();
       const a = this._a(inst), b = this._b(inst);
       const type = uint(b.z);
       const ti = this.typeInfo.element(type);
@@ -170,8 +171,8 @@ export const billboardMethods = {
   /** `gains`: per tree type, { side: [r, g, b], top: [r, g, b] } colour gains (VARIANTS[i].impGain). */
   buildImpostorMesh(this: NaniteForest, atlas: ImpostorAtlas, gains: TreeVariant['impGain'][]): THREE.Mesh {
     const u = this.u;
-    const flags = storage(this.main.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
-    const q = this._impostorQuad(atlas, flags, (pivot) => u.camPos.sub(pivot).normalize(), true);
+    const list = storage(this.main.impListAttr, 'uint', this.instanceCount).toReadOnly();
+    const q = this._impostorQuad(atlas, list, (pivot) => u.camPos.sub(pivot).normalize(), true);
     const { vRight, vUp, vDir, vTint, vFade, tile } = q;
     // lit like the real leaves (Lambert, same lights, shadow fade and fog), from baked albedo + normals
     const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMP_DITHER ? 0.5 : IMPOSTOR_CUT });
@@ -207,7 +208,7 @@ export const billboardMethods = {
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));
     mat.positionNode = q.position;
-    const mesh = new THREE.Mesh(this._impostorGeometry(), mat);
+    const mesh = new THREE.Mesh(this._impostorGeometry(this.main), mat);
     mesh.frustumCulled = false;
     mesh.name = 'nanite-impostors';
     // drawn in phase 2, after occlusion() has dropped the hidden ones (with occlusion off, all flagged ones)
@@ -221,12 +222,12 @@ export const billboardMethods = {
    * the geometry switch and with the zoom.
    */
   buildImpostorShadowMesh(this: NaniteForest, atlas: ImpostorAtlas): THREE.Mesh {
-    const flags = storage(this.shadow.impFlagAttr, 'uint', this.instanceCount).toReadOnly();
-    const q = this._impostorQuad(atlas, flags, () => this.u.sunDir, false);
+    const list = storage(this.shadow.impListAttr, 'uint', this.instanceCount).toReadOnly();
+    const q = this._impostorQuad(atlas, list, () => this.u.sunDir, false);
     const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
     mat.colorNode = vec4(1, 1, 1, q.alpha);
     mat.positionNode = q.position;
-    const mesh = new THREE.Mesh(this._impostorGeometry(), mat);
+    const mesh = new THREE.Mesh(this._impostorGeometry(this.shadow), mat);
     mesh.frustumCulled = false;
     mesh.castShadow = true;
     mesh.layers.set(1); // only the shadow camera renders it
@@ -234,12 +235,12 @@ export const billboardMethods = {
     return mesh;
   },
 
-  /** One instance per tree; trees not flagged as impostors this frame collapse to a point. */
-  _impostorGeometry(this: NaniteForest): THREE.BufferGeometry {
+  /** One instance per impostor the view listed this frame (the draw args in its counters, IMP_ARGS). */
+  _impostorGeometry(this: NaniteForest, view: View): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(6 * 3), 3));
-    geo.setIndirect(new THREE.IndirectStorageBufferAttribute(new Uint32Array([6, this.instanceCount, 0, 0]), 4));
+    geo.setIndirect(view.ctr.attr, IMP_ARGS * 4); // (byte offset)
     return geo;
   },
 };

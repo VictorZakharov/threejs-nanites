@@ -123,13 +123,20 @@ export const hzbMethods = {
     this.hzbReady = true;
   },
 
+  /** Will occlusion() run phase 2 this frame (at this drawing-buffer size)? */
+  willOcclude(this: NaniteForest, width: number, height: number): boolean {
+    const retest = this.main.retest;
+    return !this.frozen && this.hzbReady && this.u.occlusion.value !== 0 && Boolean(retest?.treesPass && retest.clustersPass) &&
+      Math.ceil(width / 2) * Math.ceil(height / 2) <= HZB_LEVEL0_MAX; // (a huge screen: phase 1 only)
+  },
+
   /** Phase 2 (main view): build the HZB from the phase 1 depth, then cull set B against it. */
   occlusion(this: NaniteForest, camera: THREE.Camera, width: number, height: number): void {
     const v = this.main, retest = v.retest;
-    if (this.frozen || !this.hzbReady || this.u.occlusion.value === 0 || !retest?.treesPass || !retest.clustersPass) return;
+    // (must agree with the instance pass's impRetest: it left the impostors to this pass)
+    if (!this.willOcclude(width, height) || !retest?.treesPass || !retest.clustersPass) return;
     const h = this.hzb;
     let w = Math.ceil(width / 2), hh = Math.ceil(height / 2), off = 0, n = 0;
-    if (w * hh > HZB_LEVEL0_MAX) return; // (a huge screen: phase 1 only)
     const counts: number[] = [];
     while (n < HZB_LEVELS) {
       h.levelValues[n].set(off, w, hh, 0);

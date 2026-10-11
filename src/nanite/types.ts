@@ -83,16 +83,18 @@ export interface ViewBase {
   tauMul: U<'float', number>;
   lodPos: U<'vec3', THREE.Vector3>;
   lodShift: THREE.Vector3;
-  impFlagAttr: THREE.StorageBufferAttribute;
+  impListAttr: THREE.StorageBufferAttribute; // the trees drawn as impostors this frame (their count: IMP_ARGS)
+  impRetest: U<'uint', number>; // (main view) 1: phase 2 lists the impostors that pass the occlusion test
   ctr: Counters;
   sphereVisible(c: Vec3, r: Float): Bool;
   retest: Retest | null;
 }
 
-/** The camera's or the sun's culling: frustum, LOD origin, impostor flags, its sets and the instance pass. */
+/** The camera's or the sun's culling: frustum, LOD origin, impostor list, its sets and the instance pass. */
 export interface View extends ViewBase {
   sets: CullSet[];
   instances: ComputeNode;
+  impReset: ComputeNode;
   ran?: boolean;
 }
 

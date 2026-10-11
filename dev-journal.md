@@ -7,8 +7,18 @@ short. History is in git.
 ## Goal
 
 A three.js WebGPU tech demo: 1M ez-tree trees, Nanite-style cluster LOD, free flight from the forest floor to 9 km,
-on one planet-curved world (R = 150 km). Smooth (8 ms GPU budget on an RTX 40), and it must *look* right: no
+on one planet-curved world (R = 150 km). Smooth (5.5 ms GPU budget: 144 Hz on the user's 4070 Ti), and it must *look* right: no
 popping, flicker, brightness seams or missing trees. The user tests on the live site and reports by screenshot.
+
+## Performance (user, 2026-10-11: "dropped below 144" on the 4070 Ti; Mac at 4 fps "instead of 40+")
+
+- Bisected by commit (`ground`, tau 8, 1632x918, GPU ms): before god rays 3.42, menu 3.54, bushes+grass 5.68,
+  floor/relief 6.18, autumn 7.11 (a different forest sample there: one more rnd() per tree), last 6.60. Fixed the
+  fixed cost: impostor draws over every instance -> a compact list (6.60 -> 4.08); shadow casters at 5 x tau (half
+  the shadow triangles); litter rebuild sliced (the 1% lows); desktop budget 5.5 ms.
+- Waiting: the Mac's Profile GPU report after this (its GPU timestamps aren't trustworthy: 383 ms GPU in a 230 ms
+  frame). If it's still far off: auto quality has no knob for the remaining fixed costs (instance passes over 2.5M,
+  ~240k impostor retests, the shadow map, grass): a last tier (bushes nearer, shadows off) or a Mac start preset.
 
 ## Immediate (user, 2026-10-10): fix these first, then decide on the roadmap below
 

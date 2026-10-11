@@ -208,8 +208,9 @@ async function start() {
   setShadows(shadowsOn);
 
   // Auto quality: steer the error threshold so the GPU frame time stays within budget (manual [ ] turns it off).
-  // (a phone's budget is a 60 fps frame: its GPU is far from the 8 ms a desktop one is steered to)
-  const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 8));
+  // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
+  // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
+  const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 5.5));
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;

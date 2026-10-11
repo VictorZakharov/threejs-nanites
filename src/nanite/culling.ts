@@ -7,7 +7,7 @@ import {
 import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
 import {
-  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
+  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
 } from './constants.ts';
 import type { NaniteForest } from './forest.ts';
 import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
@@ -205,11 +205,14 @@ export const cullingMethods = {
       tauMul: uniform(tauMul),
       lodPos: uniform(new THREE.Vector3()), // where LOD is measured from: the camera (+ a debug shift)
       lodShift: new THREE.Vector3(),
-      // per tree: drawn as an impostor this frame? (a flag per tree instead of an appended list: 900k threads
-      // appending through one atomic counter took ~5 ms; the impostor draw covers every tree and the vertex shader
-      // collapses the unflagged ones, which is far cheaper)
+      // the trees drawn as impostors this frame, appended; the impostor draw has one instance per entry (its count
+      // in the counters, IMP_ARGS). It was a flag per tree with a draw over every tree that collapsed the unflagged
+      // ones: 2.5M instances x 6 vertices, for the view and the shadow map, whatever the quality (a fixed cost the
+      // auto quality couldn't touch: a Mac at 4 fps). The main view lists only what passes phase 2's occlusion
+      // test (~2k at ground level, of ~240k in view).
       // (the shadow view's: trees that cast their impostor's shadow, see buildImpostorShadowMesh)
-      impFlagAttr: new THREE.StorageBufferAttribute(new Uint32Array(this.instanceCount), 1),
+      impListAttr: new THREE.StorageBufferAttribute(new Uint32Array(this.instanceCount), 1),
+      impRetest: uniform(0, 'uint'),
       ctr,
       sphereVisible: (c, r) => {
         const ok = uint(1).toVar();
@@ -223,7 +226,15 @@ export const cullingMethods = {
       retest: main ? this._buildRetest(ctr) : null,
     };
     const tau = u.tau.mul(v.tauMul);
-    const impFlag = storage(v.impFlagAttr, 'uint', this.instanceCount);
+    const impList = storage(v.impListAttr, 'uint', this.instanceCount);
+    const impCount = ctr.atomic.element(IMP_ARGS + 1);
+    // (a tree is listed once at most: by the instance pass, or by phase 2 when it tests the impostors)
+    const impAppend = (i: Uint): void => {
+      impList.element(atomicAdd(impCount, uint(1))).assign(i);
+    };
+    const impReset = Fn(() => {
+      atomicStore(impCount, uint(0));
+    })().compute(1, [1]);
     const sets = [this._buildSet(v, tau, main ? 'retest' : null, 0)];
     if (main) sets.push(this._buildSet(v, tau, 'final', 1));
 
@@ -251,12 +262,13 @@ export const cullingMethods = {
       const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
       const far = px.lessThan(swPx);
       const retest = v.retest;
-      if (!retest) impFlag.element(i).assign(select(visible.and(far), uint(1), uint(0))); // (impostor shadow casters)
+      if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
       else {
-        // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass)
-        const imp = visible.and(px.lessThan(swPx.mul(FADE_HI))).toVar();
-        impFlag.element(i).assign(select(imp, uint(1), uint(0)));
-        If(imp.and(u.occlusion.equal(1)), () => retest.tree(i.bitOr(IMP_BIT)));
+        // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
+        // phase 2 won't run (occlusion off, no HZB yet)
+        If(visible.and(px.lessThan(swPx.mul(FADE_HI))), () => {
+          If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i));
+        });
       }
       If(visible.and(far.not()), () => {
         if (retest) {
@@ -279,11 +291,10 @@ export const cullingMethods = {
           const { ti, s, centerC, r, dCam } = treeInfo(i);
           const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w.mul(s))));
           If(e.greaterThanEqual(IMP_BIT), () => {
-            // an impostor: drop it if hidden
+            // an impostor: listed if it's not hidden
             If(hidden, () => {
-              impFlag.element(i).assign(0);
               atomicAdd(setB.stat(4), uint(1));
-            });
+            }).Else(() => impAppend(i));
           })
             .ElseIf(hidden, () => {
               atomicAdd(setB.stat(3), uint(1));
@@ -306,6 +317,6 @@ export const cullingMethods = {
         });
       })().compute(LIST_CAP, [WG]);
     }
-    return { ...v, sets, instances };
+    return { ...v, sets, instances, impReset };
   },
 };

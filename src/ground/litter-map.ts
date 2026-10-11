@@ -15,6 +15,7 @@ export const LITTER_SIZE = 256; // m
 export const LITTER_RES = 512; // texels a side
 const MOVE = 32; // m the camera moves before a rebuild
 const BUCKET = 64; // m
+const SLICE_MS = 2; // main-thread time a frame for a rebuild
 
 export function createLitterMap({ a, b, radius }: TreeInstances) {
   const N = LITTER_RES, cellM = LITTER_SIZE / N;
@@ -39,8 +40,11 @@ export function createLitterMap({ a, b, radius }: TreeInstances) {
   const items = new Uint32Array(counts[side * side]), fill = counts.slice(0, side * side);
   for (let i = 0; i < count; i++) { const k = bucketOf(a[i * 4], a[i * 4 + 2]); if (k >= 0) items[fill[k]++] = i; }
 
-  function rebuild(cx: number, cz: number): void {
-    data.fill(0);
+  // a rebuild is ~17 ms of main-thread work (the user's 1% lows: a hitch every 32 m walked, under a second apart
+  // flying low): it runs in slices of SLICE_MS a frame into its own arrays, published (with its centre) when done
+  const work = new Uint8Array(N * N * 4);
+  function* rebuild(cx: number, cz: number): Generator<void, void, void> {
+    work.fill(0);
     best.fill(0);
     amount.fill(0);
     const x0 = cx - LITTER_SIZE / 2, z0 = cz - LITTER_SIZE / 2, pad = 12;
@@ -63,25 +67,44 @@ export function createLitterMap({ a, b, radius }: TreeInstances) {
           amount[p] += w * fall;
           if (w > best[p]) {
             best[p] = w;
-            data[p * 4] = kind;
-            data[p * 4 + 2] = Math.round(Math.min(1, turn / 2) * 255);
+            work[p * 4] = kind;
+            work[p * 4 + 2] = Math.round(Math.min(1, turn / 2) * 255);
           }
         }
       }
+      yield; // (a bucket at a time)
     }
-    for (let p = 0; p < N * N; p++) data[p * 4 + 1] = Math.round(Math.min(1, amount[p] * 1.6) * 255);
+    for (let p = 0; p < N * N; p++) work[p * 4 + 1] = Math.round(Math.min(1, amount[p] * 1.6) * 255);
+    data.set(work);
     tex.needsUpdate = true;
     center.value.set(cx, cz);
   }
+  let job: Generator<void, void, void> | null = null;
+  let jobAt = { x: 1e9, z: 1e9 };
+  const snap = (v: number): number => Math.round(v / cellM) * cellM;
 
   return {
     texture: tex,
     center,
-    /** Rebuilds round the camera once it has moved MOVE metres (skipped high up: the litter is gone by 200 m). */
-    update(cam: THREE.Vector3, agl: number): void {
+    /**
+     * Rebuilds round the camera once it has moved MOVE metres (skipped high up: the litter is gone by 200 m), a slice
+     * per frame; the first time all at once (and after a jump: then the old map is far off anyway).
+     */
+    update(cam: { x: number; z: number }, agl: number): void {
       if (agl > 220) return;
-      if (Math.hypot(cam.x - center.value.x, cam.z - center.value.y) < MOVE) return;
-      rebuild(Math.round(cam.x / cellM) * cellM, Math.round(cam.z / cellM) * cellM);
+      const far = Math.hypot(cam.x - center.value.x, cam.z - center.value.y);
+      if (!job && far >= MOVE && Math.hypot(cam.x - jobAt.x, cam.z - jobAt.z) >= 1) {
+        jobAt = { x: snap(cam.x), z: snap(cam.z) };
+        job = rebuild(jobAt.x, jobAt.z);
+      }
+      if (!job) return;
+      const until = far > LITTER_SIZE / 2 ? Infinity : performance.now() + SLICE_MS;
+      while (performance.now() < until) if (job.next().done) { job = null; break; }
+    },
+    /** A whole rebuild at once (the litter probe times it). */
+    rebuildNow(x: number, z: number): void {
+      job = null;
+      for (const _ of rebuild(snap(x), snap(z)));
     },
   };
 }
