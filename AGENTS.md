@@ -17,7 +17,7 @@ npm run harness    # headless benchmark + screenshots, see below
 ## Workflow
 
 - **For now, commit directly to `main`** (no PRs, no branches). A push to `main` deploys production to GitHub Pages
-  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ . The repo is private.
+  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ . The repo is public (MIT; since 2026-10-11): pull requests from forks get previews (below).
 - The PR-preview workflows (`pr-preview-build.yml`, `pr-preview.yml`, copied from the sibling projects) are in place
   but unused until PRs are used. Pages is served from the aggregated `gh-pages` branch (production at the root,
   previews under `pr-preview/`); don't delete that branch or switch Pages away from the workflow setup.
