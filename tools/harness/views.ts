@@ -69,6 +69,7 @@ export const VIEWS: Record<string, HarnessView> = {
   zoommid: { x: -1336, z: 756, agl: 478, yaw: -164.5, pitch: -22 },
   // the user's Samsung S25 report (20 fps "all the way up": 898k impostors listed for a 288x521 screen), straight down
   phonetop: { x: 20, z: 40, agl: 9004, yaw: -0.7, pitch: -85.7 },
+  phone9k: { x: 20, z: 40, agl: 9004, yaw: 26.7, pitch: -82 }, // (the phone's report at 9 km, 576x1248: --size=384x832 --query="touch=1&pr=1.5&tau=8")
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
   // looking down (impostor top views, coverage)
   // the forest from ~2.5 km at an angle (user: "from up top pattern of trees looks repetitive")

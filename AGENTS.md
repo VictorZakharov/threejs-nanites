@@ -165,7 +165,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - Music (`src/music.ts`, the user's: "ez tree had background music"): ez-tree's demo ambience (`public/audio/`), an
   `<audio>` loop fetched on first play; it starts on the first click, tap or key (browsers need a gesture) with a
   fade; M / the menu's switch / the touch screen's ♪ mute it, remembered in localStorage; paused while the tab is
-  hidden. Off under the harness unless `?music=1` (the harness's browser allows autoplay: `--probe=music`).
+  hidden. It's birdsong: it fades out with the height above the ground (`HEARD`: full to 40 m, silent and paused
+  from 300 m; the user: "can't hear if too high"). Off under the harness unless `?music=1` (the harness's browser allows autoplay: `--probe=music`).
 - Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): three instanced rings of
   blades round the viewer (cells 0.09 / 0.2 / 0.45 m out to 16 / 40 / 90 m), each a grid of world cells snapped to
   the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered

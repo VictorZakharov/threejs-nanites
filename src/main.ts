@@ -288,6 +288,8 @@ async function start() {
   if (startScale < 1) setScale(startScale);
 
   // ---------------------------------------------------------------- frame
+  const music = createMusic(params, HARNESS); // (ez-tree's birdsong, from the first click, tap or key)
+  demo.music = music;
   let time = 0;
   const waypoint = createWaypoint(HARNESS && params.get('waypoint') !== '1');
   const compass = createCompass(waypoint.target, HARNESS && params.get('waypoint') !== '1');
@@ -316,6 +318,7 @@ async function start() {
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
+    music.setAltitude(altitude); // (birdsong: fades out as you climb)
     // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
     if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
     // occlusion culling only up to OCC_ALTITUDE (to 130% of it): from above little hides anything and its passes cost
@@ -371,8 +374,6 @@ async function start() {
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)
-  const music = createMusic(params, HARNESS); // (ez-tree's ambience track, from the first click, tap or key)
-  demo.music = music;
   createMenu({ controls, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
   let prev = performance.now();

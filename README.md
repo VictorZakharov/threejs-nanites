@@ -56,7 +56,8 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   god rays.
 - **The plaza:** a cobblestone road from the start to a ring of statues, with a waypoint and a compass.
 - **Moving around:** walk, jump and fly; touch controls on phones.
-- **Music:** ez-tree's ambience track, looped. It starts on the first click, tap or key.
+- **Music:** ez-tree's birdsong ambience, looped. It starts on the first click, tap or key, and fades out as you
+  climb (full up to 40 m above the ground, silent from 300 m).
 
 **Tools**
 - A performance panel: FPS, the 1% low, frame and GPU time. A click copies a report.
