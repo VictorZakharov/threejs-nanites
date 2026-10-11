@@ -60,6 +60,13 @@ export class SoftRaster {
   readonly ctr: Counters;
   readonly dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
   readonly depthAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
+  /**
+   * Off for now (set per frame, see SW_ALTITUDE in main.ts): near the ground it doesn't pay. It costs ~0.36 ms a frame
+   * whatever it takes (clear, two walks, the resolve) and redoes each triangle's vertices twice; the far trees it's
+   * for are mostly hidden down there (on High at 1080p: 0.3-0.4 ms slower on the ground, 0.4-0.8 faster from 45 m up).
+   */
+  idle = false;
+  resolveMesh: THREE.Mesh | null = null;
   readonly idAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
   readonly wants: (cw: Vec3, rad: Float, tris: Uint) => Bool;
   readonly append: (inst: Uint, c: Uint, tris: Uint) => void;
@@ -257,7 +264,8 @@ export class SoftRaster {
   begin(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, width: number, height: number): void {
     this.size.value.set(width, height);
     this.near.value = camera.near;
-    this.on.value = this.forest.u.sw?.value === 1 && width * height <= MAX_PIXELS ? 1 : 0;
+    this.on.value = this.forest.u.sw?.value === 1 && !this.idle && width * height <= MAX_PIXELS ? 1 : 0;
+    if (this.resolveMesh) this.resolveMesh.visible = this.on.value === 1; // (not even a fullscreen pass of discards)
     renderer.compute(this.reset);
     this.ran = true;
   }
@@ -313,7 +321,7 @@ export class SoftRaster {
 
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array([-1, -1, 0, 3, -1, 0, -1, 3, 0]), 3));
-    const mesh = new THREE.Mesh(geo, mat);
+    const mesh = (this.resolveMesh = new THREE.Mesh(geo, mat));
     mesh.frustumCulled = false;
     mesh.receiveShadow = true;
     mesh.layers.set(PHASE2_LAYER);

@@ -256,7 +256,11 @@ its probes stay JavaScript (Node scripts and page-side expressions).
   builds the normal in a separate sub-build that re-declares them, and the pixels came out black. Leaves emulate
   three.js alpha to coverage (`smoothstep(0.5, 0.5 + fwidth(a), a)` against a fixed per-pixel threshold): a plain
   0.5 cut made distant crowns solid. Check with `?debug=5` (software pixels orange) and `--ab="sw=0|sw=1"` (mean
-  colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet.
+  colours should agree). Not in the HZB (it's built before) and not used for the shadow map yet. Only from 25 m above
+  the ground up (`?swalt=`, 0 = everywhere; `sw.idle`, off again under 70% of it): it costs ~0.36 ms a frame whatever
+  it takes and computes each triangle's vertices in both walks, and down there the far trees it's for are mostly
+  hidden (High, 1080p: 0.3-0.4 ms slower on `plazane`/`ground`/`closeup`, even on `treeline` at 30 m, 0.4-0.8 faster on
+  `canopy`/`fogline`/`slope`/`overview`). Compare it on the ground with `swalt=0`.
 - No MSAA under TAA (`samples` in `main.ts`; WebGPU has 1 or 4): the hardware leaves do alpha to coverage with one
   sample, three.js's `smoothstep(0.5, 0.5 + fwidth(a), a)` against the moving `ditherAlt` (`a2cDither` in
   `shading.ts`), so only each leaf's 1 px edge is dithered and TAA averages it. 4x MSAA cost ~2.5 ms on High at 1080p

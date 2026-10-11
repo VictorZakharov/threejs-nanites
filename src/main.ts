@@ -39,6 +39,7 @@ import { GodRays } from './godrays.ts';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
+const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
 const TREE_COUNT = Number(params.get('trees') ?? 1000000);
 if (HARNESS) document.body.classList.add('harness');
 if (params.get('help') === '1') document.body.classList.add('show-help'); // (the key help under the harness)
@@ -349,6 +350,8 @@ async function start() {
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
+    // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
+    if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     forest.u.maxDist.value = fogFar.value;
