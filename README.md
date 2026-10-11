@@ -11,7 +11,7 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
 | | |
 |---|---|
 | ![The road from the start through the autumn forest](screenshots/1.jpg) | ![A Lucy statue on the plaza](screenshots/2.jpg) |
-| The road from the start, at eye height: 3.5M triangles, GPU 3.6 ms | A Lucy statue on the plaza (a 1M-triangle scan through the same cluster LOD) |
+| The road from the start, at eye height: 3.5M triangles, GPU 3.6 ms | A [Lucy](http://graphics.stanford.edu/data/3Dscanrep/) statue on the plaza (Stanford's scan, 1M triangles through the same cluster LOD) |
 | ![9 km up: the forest under the clouds on the curved planet](screenshots/3.jpg) | ![Inside a pine's crown](screenshots/4.jpg) |
 | 9 km up: 808k plants, all but ~600 drawn as impostors; GPU 5.1 ms | Inside a pine's crown, 24 m up, at full detail (τ = 1 px) |
 
@@ -37,7 +37,7 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   - It only draws the casters whose shadow can land in view.
   - Its size follows the resolution and its extent the altitude.
   - Past its edge, an average canopy shadow takes over.
-- **Any mesh, not just trees:** twelve copies of Stanford's Lucy (1M triangles each) go through the same pipeline.
+- **Any mesh, not just trees:** twelve copies of Stanford's [Lucy](http://graphics.stanford.edu/data/3Dscanrep/) scan (1M triangles each) go through the same pipeline.
 - **Temporal anti-aliasing:**
   - Jittered camera, reprojection from depth, and wind motion vectors for the leaves.
   - History clipped in YCoCg and blended in a perceptual space.
@@ -163,7 +163,7 @@ guaranteed minimum; a Mac allowed no more).
 - Stands a PLY up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
   (`public/models/NAME.nm`; the site only decodes it).
 - A variant with `model: 'models/NAME.nm'` (`src/trees.ts`) then gets cluster LOD, shadows and occlusion like a tree.
-- The demo's proof is twelve copies of Stanford's **Lucy** scan (28M triangles, decimated to 1M; a 6.5 MB file with
+- The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 6.5 MB file with
   its 15.7k-cluster DAG). They stand round a plaza at the end of a cobblestone road from the start point;
   `?statues=N` scatters more through the clearings.
 
@@ -175,33 +175,36 @@ god rays and clouds on. The numbers are GPU milliseconds, the median of 40 frame
 The per-part costs come from the built-in Profile GPU: the GPU time saved by switching that part off. Because it's a
 difference, the parts don't add up exactly to the total.
 
-**The views:**
-- **Ground:** in the forest at eye height.
-- **Plaza:** the statues at eye height.
-- **Canopy:** 45 m above the treetops, looking across.
-- **Overview:** 260 m up, 22° down.
-- **Orbit:** 8.8 km up.
-- **Zoom:** 478 m up, 5× zoom.
+**The views** (each name links to its screenshot):
+- **[Ground](screenshots/view-ground.jpg):** in the forest at eye height.
+- **[Plaza](screenshots/view-plaza.jpg):** the statues at eye height.
+- **[Canopy](screenshots/view-canopy.jpg):** 45 m above the treetops, looking across.
+- **[Overview](screenshots/view-overview.jpg):** 260 m up, 22° down.
+- **[Orbit](screenshots/view-orbit.jpg):** 8.8 km up, 28° down.
+- **[Zoom](screenshots/view-zoom.jpg):** 478 m up, 22° down, through the 5× zoom.
 
-| | Ground | Plaza | Canopy | Overview | Orbit | Zoom |
+| | [Ground](screenshots/view-ground.jpg) | [Plaza](screenshots/view-plaza.jpg) | [Canopy](screenshots/view-canopy.jpg) | [Overview](screenshots/view-overview.jpg) | [Orbit](screenshots/view-orbit.jpg) | [Zoom](screenshots/view-zoom.jpg) |
 |---|---|---|---|---|---|---|
-| **Frame (ms)** | **3.9** | **3.7** | **7.2** | **5.5** | **3.8** | **10.1** |
-| **GPU total** | **3.50** | **3.54** | **7.04** | **5.23** | **3.92** | **10.34** |
-| of it compute (culling, LOD, HZB, software raster) | 0.45 | 0.45 | 1.50 | 1.22 | 0.97 | 1.80 |
-| Trees: all their draws, incl. impostors and shadows | 1.63 | 1.77 | 4.78 | 2.79 | 1.91 | 7.70 |
-| Shadow map | 0.41 | 0.43 | 0.52 | 0.67 | 1.09 | 0.67 |
-| Terrain and sky (floor relief, litter) | 0.18 | 0.20 | 0.09 | 0.58 | 0.74 | 0.49 |
+| **Frame (ms)** | **3.9** | **3.7** | **7.2** | **5.2** | **3.1** | **10.1** |
+| **GPU total** | **3.50** | **3.54** | **7.04** | **4.81** | **2.44** | **10.34** |
+| of it compute (culling, LOD, HZB, software raster) | 0.45 | 0.45 | 1.50 | 0.88 | 0.30 | 1.80 |
+| Trees: all their draws, incl. impostors and shadows | 1.63 | 1.77 | 4.78 | 2.90 | 1.11 | 7.70 |
+| Shadow map | 0.41 | 0.43 | 0.52 | 0.65 | (average only) | 0.67 |
+| Terrain and sky (floor relief, litter) | 0.18 | 0.20 | 0.09 | 0.68 | 0.80 | 0.49 |
 | Grass | 0.21 | 0.21 | 0 | 0 | 0 | 0 |
-| TAA | 0.16 | 0.15 | 0.15 | 0.09 | 0.10 | 0.11 |
+| TAA | 0.16 | 0.15 | 0.15 | 0.12 | 0.09 | 0.11 |
 | God rays | 0.06 | 0.08 | 0 | 0 | 0.01 | 0 |
-| Clouds | 0.01 | 0.04 | 0.04 | 0.04 | 0.09 | 0 |
-| Occlusion culling saves | 1.45 | 1.60 | 0.09 | -0.24 | -0.40 | 0.01 |
-| Software rasterizer saves | (off) | (off) | -0.21 | -0.14 | -0.09 | 0.11 |
-| Half the pixels saves | 1.15 | 1.12 | 3.19 | 2.30 | 0.86 | 5.47 |
-| Triangles drawn (hardware + software) | 3.4M | 2.9M | 7.5M | 2.6M | 840 | 16.1M |
-| Impostors | 529 | 233 | 34k | 415k | 737k | 3.4k |
+| Clouds | 0.01 | 0.04 | 0.04 | 0.04 | 0.08 | 0 |
+| Occlusion culling saves | 1.45 | 1.60 | 0.09 | (off) | (off) | (off) |
+| Software rasterizer saves | (off) | (off) | -0.21 | -0.12 | -0.09 | 0.11 |
+| Half the pixels saves | 1.15 | 1.12 | 3.19 | 2.33 | 0.52 | 5.47 |
+| Triangles drawn (hardware + software) | 3.4M | 2.9M | 7.5M | 2.6M | 1.4k | 16.1M |
+| Impostors | 529 | 233 | 34k | 516k | 821k | 3.4k |
 
-- **Occlusion** pays on the ground. From above, nothing is hidden behind anything, so its passes only cost time.
+- **Occlusion** pays on the ground. From above little hides anything, so it only runs below 150 m: at 260 m it
+  cost 0.24 ms and at 8.8 km 0.4 ms. (off) means it wasn't running.
+- **The shadow map** gives way to an average canopy shadow once its texels are too coarse to draw one tree's shadow
+  (from ~1 km up on desktop): at 8.8 km there's no shadow pass.
 - **The software rasterizer** pays only where many triangles are pixel-sized (the zoom). Elsewhere it costs up to
   0.2 ms, since the coarser leaf levels left few tiny triangles.
 - **Reproduce:**
@@ -226,19 +229,22 @@ forests (`--probe=fulldetail`).
 
 | View | 2,000 trees, Nanite | 2,000 trees, without Nanite | 1M trees, Nanite | 1M trees, without Nanite (estimate) |
 |---|---|---|---|---|
-| Ground | 3.0 ms | 7.4 ms (27M triangles) | 3.5 ms (3.4M triangles) | ~0.8 s (3.9 billion triangles) |
-| Plaza | 2.6 ms | 4.8 ms (15M) | 3.5 ms (2.9M) | ~1.0 s (3.9 billion) |
-| Canopy | 4.8 ms | 11.9 ms (43M) | 7.0 ms (7.5M) | ~1.1 s (5.3 billion) |
-| Overview | 2.2 ms | 13.2 ms (63M) | 5.2 ms (2.6M + 415k impostors) | ~2.1 s (12 billion) |
-| Orbit | | | 3.9 ms (737k impostors) | ~5.9 s (34 billion, at Overview's rate) |
+| [Ground](screenshots/view-ground.jpg) | 3.0 ms | 7.4 ms (27M triangles) | 3.5 ms (3.4M triangles) | ~0.8 s (3.9 billion triangles) |
+| [Plaza](screenshots/view-plaza.jpg) | 2.6 ms | 4.8 ms (15M) | 3.5 ms (2.9M) | ~1.0 s (3.9 billion) |
+| [Canopy](screenshots/view-canopy.jpg) | 4.8 ms | 11.9 ms (43M) | 7.0 ms (7.5M) | ~1.1 s (5.3 billion) |
+| [Overview](screenshots/view-overview.jpg) | 2.2 ms | 13.2 ms (63M) | 4.8 ms (2.6M + 516k impostors) | ~2.1 s (12 billion) |
+| [Orbit](screenshots/view-orbit.jpg) | n/a* | n/a* | 2.4 ms (821k impostors) | ~5.9 s (34 billion)* |
+
+\* From 8.8 km up the 2,000-tree forest (~520 m across) is outside the frame, so there's nothing to time. Orbit's
+estimate uses Overview's measured time per full-detail triangle.
 
 Switching off one part of the pipeline on the full forest (frame ms):
 
-| | Ground | Plaza | Overview | Orbit |
+| | [Ground](screenshots/view-ground.jpg) | [Plaza](screenshots/view-plaza.jpg) | [Overview](screenshots/view-overview.jpg) | [Orbit](screenshots/view-orbit.jpg) |
 |---|---|---|---|---|
-| Everything on | 3.9 | 3.7 | 5.5 | 3.8 |
-| No impostors (cluster LOD to the horizon) | 3.9 | 3.7 | 33.3 | 100.9 |
-| No occlusion culling | 5.4 | 5.4 | 5.3 | 3.5 |
+| Everything on | 3.9 | 3.7 | 5.2 | 3.1 |
+| No impostors (cluster LOD to the horizon) | 3.9 | 3.7 | 42.5 | 47.0 |
+| No occlusion culling | 5.4 | 5.4 | (off above 150 m) | (off) |
 
 ```sh
 npm run harness -- --views=ground,plazane,canopy,overview,orbit --size=1920x1080 --probe=fulldetail \
