@@ -96,6 +96,10 @@ async function start() {
   const terrain = createTerrain(terrainSize);
   const floorMaps = loadFloorMaps(); // (a worker: the forest floor's maps, src/ground/)
   scene.add(terrain);
+  // drawn after the trees, the sky last: what the trees hide is then rejected by its depth before the floor's
+  // shader (relief, litter) runs (created first, they were drawn first: over the canopy -0.5 ms, -0.2 elsewhere)
+  terrain.traverse((o) => (o.renderOrder = 1));
+  sky.renderOrder = 2;
   const clouds = createClouds();
   scene.add(clouds.group);
   clouds.group.traverse((o) => o.layers.set(PHASE2_LAYER)); // (transparent: drawn after both tree phases)
