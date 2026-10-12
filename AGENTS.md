@@ -16,11 +16,18 @@ npm run harness    # headless benchmark + screenshots, see below
 
 ## Workflow
 
-- **For now, commit directly to `main`** (no PRs, no branches). A push to `main` deploys production to GitHub Pages
-  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ . The repo is public (MIT; since 2026-10-11): pull requests from forks get previews (below).
-- The PR-preview workflows (`pr-preview-build.yml`, `pr-preview.yml`, copied from the sibling projects) are in place
-  but unused until PRs are used. Pages is served from the aggregated `gh-pages` branch (production at the root,
-  previews under `pr-preview/`); don't delete that branch or switch Pages away from the workflow setup.
+- **Pull requests with live previews** (the user's, since 2026-10-12): work on a branch, open a PR to `main`. Each
+  push to a PR builds a preview at https://victorzakharov.github.io/threejs-nanites/pr-preview/pr-N/ (a sticky
+  comment on the PR links it; check it with the harness's `--url`). The user looks at the preview; merge when they
+  say so.
+- **`main` has only merge commits:** PRs are merged with `gh pr merge N --merge` (squash and rebase merges are
+  off; a ruleset blocks direct pushes, force pushes and deletion of `main`). A merge deploys production
+  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ ; check it with `--url` afterwards.
+- **PR branches have linear history:** only rebases. Bring a branch up to date with `git fetch` and
+  `git rebase origin/main`, then `git push --force-with-lease`; never merge `main` into it.
+- The repo is public (MIT; since 2026-10-11): pull requests from forks get previews too. Pages is served from the
+  aggregated `gh-pages` branch (production at the root, previews under `pr-preview/`); don't delete that branch or
+  switch Pages away from the workflow setup.
 - **Ship something viewable early**, then keep iterating: the user wants to look at it and give feedback.
 - **Never develop blind:** check every visual or performance change with the harness (screenshots + numbers) before
   calling it done (see `tools/AGENTS.md`).
