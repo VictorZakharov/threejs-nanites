@@ -7,10 +7,17 @@
 // turning with the camera are small per frame; the history is clipped to the colour range of the pixel's 3x3
 // neighbourhood, which keeps them (and anything newly uncovered) from ghosting. The planet's curvature moves with
 // the viewer (see planet.js), so the reprojection undoes this frame's drop and applies last frame's.
+//
+// Upscaling (src/resolution.ts): the history and the output are at the canvas's resolution, the scene may be below
+// it. Each output pixel takes the 3x3 scene samples round its centre, each weighted by how near it lands (the jitter
+// moves the samples across the output pixels from frame to frame); the history keeps the weight it has gathered
+// (its alpha), so a pixel the samples have covered well changes slowly, and one that lost its history (uncovered,
+// clipped) takes new samples quickly. At one output pixel per scene pixel it flickers less than the plain blend of
+// the pixel's own sample (turning test: slope 1340 -> 1222, fogline 2359 -> 2183).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, mix, select, clamp, dot, sqrt,
-  screenUV, screenCoordinate, screenSize, abs,
+  Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, select, clamp, dot, sqrt, exp,
+  screenUV, screenSize, abs,
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
 import { ditherShift } from './nanite/shading.ts';
@@ -22,12 +29,26 @@ const halton = (i: number, b: number): number => {
   return r;
 };
 const params = new URLSearchParams(location.search);
-// the jitter's spread (pixels; 1 = the whole pixel): with MSAA, which already smooths geometric edges, half a pixel
-// (the jitter is for what's smaller than its samples, and a narrower spread keeps the image sharper); without, the
-// whole pixel: the jitter is the anti-aliasing
-const jitterOf = (samples: number): number[][] => {
-  const spread = Number(params.get('taajitter') ?? (samples > 1 ? 0.5 : 1));
-  return Array.from({ length: 8 }, (_, i) => [(halton(i + 1, 2) - 0.5) * spread, (halton(i + 1, 3) - 0.5) * spread]);
+// the jitter's spread (scene pixels; 1 = the whole pixel): with MSAA, which already smooths geometric edges, half a
+// pixel (the jitter is for what's smaller than its samples, and a narrower spread keeps the image sharper); without,
+// the whole pixel: the jitter is the anti-aliasing
+const spreadOf = (samples: number): number => Number(params.get('taajitter') ?? (samples > 1 ? 0.5 : 1));
+// (the samples must visit every output pixel a scene pixel covers: 8 offsets for each, as FSR 2)
+const phasesOf = (ratio: number): number => Math.max(8, Math.ceil(8 * ratio * ratio));
+// the weight of a sample d output pixels from a pixel's centre: exp(-k d^2 / ratio), a Gaussian narrower than a
+// pixel at one output pixel per scene pixel (k 2.29, UE's Blackman-Harris fit, was visibly softer than the plain
+// resolve; 5 is as sharp and flickers less turning: slope 1340 -> 1294, fogline 2359 -> 2266), wider when upscaling
+// (the samples are further apart: at 5 the cobbles a few metres off came out speckled at 2x)
+const KERNEL = Number(params.get('taakernel') ?? 5);
+/** The mean weight a frame's 3x3 samples bring an output pixel, at `ratio` output pixels per scene pixel. */
+const meanWeight = (ratio: number): number => {
+  let sum = 0;
+  const n = 8;
+  for (let i = 0; i < n; i++)
+    for (let j = 0; j < n; j++)
+      for (let y = -1; y <= 1; y++)
+        for (let x = -1; x <= 1; x++) sum += Math.exp(-KERNEL * (((i + 0.5) / n - 0.5 + x) ** 2 + ((j + 0.5) / n - 0.5 + y) ** 2) * ratio);
+  return sum / (n * n);
 };
 
 /** Colour <-> YCoCg (the neighbourhood box is tighter around foliage greens in it than in RGB). */
@@ -49,7 +70,8 @@ export class TAA {
   readonly renderer: THREE.WebGPURenderer;
   readonly sceneRT: THREE.RenderTarget;
   readonly extra: ((uv: Vec2) => Vec3) | null;
-  readonly jitters: number[][]; // sub-pixel offsets (pixels), one per frame in turn
+  readonly spread: number; // the jitter's spread (scene pixels)
+  readonly frames: number; // how many frames' worth of samples the history keeps (?taaframes=, else 1 / feedback)
   enabled: boolean;
   frame = 0;
   reset = true;
@@ -58,6 +80,8 @@ export class TAA {
   readonly viewProj = new THREE.Matrix4();
   readonly prevViewProjCPU = new THREE.Matrix4();
   readonly prevViewer = new THREE.Vector3();
+  readonly outSize = new THREE.Vector2();
+  lastRatio = 0;
   readonly historyTex: THREE.TextureNode;
   readonly quad: THREE.QuadMesh;
   /** What the output pass shows: the latest resolved frame (or the scene itself with TAA off). */
@@ -71,7 +95,8 @@ export class TAA {
     { enabled = true, feedback = Number(params.get('taafeedback') ?? 0.1), extra = null }: { enabled?: boolean; feedback?: number; extra?: ((uv: Vec2) => Vec3) | null } = {},
   ) {
     this.extra = extra;
-    this.jitters = jitterOf(samples);
+    this.spread = spreadOf(samples);
+    this.frames = Number(params.get('taaframes') ?? 1 / feedback);
     this.renderer = renderer;
     this.sceneRT = sceneRT;
     this.enabled = enabled;
@@ -83,8 +108,12 @@ export class TAA {
       reproject: uniform(new THREE.Matrix4()), // prevViewProj x invViewProj (this frame's clip -> last frame's)
       viewer: uniform(new THREE.Vector3()),
       prevViewer: uniform(new THREE.Vector3()),
-      feedback: uniform(feedback), // share of the new frame
       resetting: uniform(1),
+      renderSize: uniform(new THREE.Vector2(1, 1)), // the scene's pixels
+      jitterOff: uniform(new THREE.Vector2()), // this frame's samples from their texels' centres (scene pixels, y down)
+      ratio: uniform(1), // output pixels per scene pixel
+      maxWeight: uniform(9), // the most weight the history keeps
+      kernel: uniform(-KERNEL), // (-KERNEL / ratio)
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
       off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
     };
@@ -106,7 +135,7 @@ export class TAA {
     this.displayNode = t.div(t.oneMinus());
     // (?taadebug=1: shows the trees' wind motion instead, x red / y green, x200)
     if (params.get('taadebug') === '2') this.displayNode = this.outputTex.rgb;
-    if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenCoordinate.xy)).xyz).mul(200);
+    if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenUV.mul(this.u.renderSize))).xyz).mul(200);
   }
 
   _resolveNode(sceneRT: THREE.RenderTarget, samples: number) {
@@ -115,20 +144,31 @@ export class TAA {
     const colour = sceneRT.texture, depth = sceneRT.depthTexture!, wind = sceneRT.textures[1];
     const invTwoR = 1 / (2 * PLANET_RADIUS);
     return Fn(() => {
-      const p = ivec2(screenCoordinate.xy);
+      const R = u.renderSize;
+      // this output pixel's centre among the scene's samples (scene pixels: a sample sits at its texel's centre plus
+      // this frame's jitter), and the texel whose sample lands nearest it
+      const at = screenUV.mul(R).sub(u.jitterOff);
+      const p = ivec2(clamp(at.floor(), vec2(0), R.sub(1))).toVar();
       const sceneAt = (q: IVec2): Vec3 => {
         const c = textureLoad(colour, q).rgb;
-        return this.extra ? c.add(this.extra(vec2(q).add(0.5).div(screenSize))) : c;
+        return this.extra ? c.add(this.extra(vec2(q).add(0.5).div(R))) : c;
       };
-      const cur = enc(sceneAt(p)).toVar();
-      // neighbourhood: colour mean and spread (variance clipping box, in YCoCg) and the nearest depth (dilated:
-      // thin twigs reproject with the depth of what they are, not of the sky behind them)
+      // the 3x3 samples round it: this frame's value at the pixel (each weighted by how far from its centre it
+      // landed: the nearest alone left speckles and flickered more), the neighbourhood's colour mean and spread
+      // (variance clipping box, in YCoCg) and the nearest depth (dilated: thin twigs reproject with the depth of what
+      // they are, not of the sky behind them)
+      const sum = vec3(0).toVar(), w = float(0).toVar();
       const m1 = vec3(0).toVar(), m2 = vec3(0).toVar();
       const zMin = float(1).toVar();
       for (let dy = -1; dy <= 1; dy++)
         for (let dx = -1; dx <= 1; dx++) {
-          const q = p.add(ivec2(dx, dy));
-          const c = toYCoCg(enc(sceneAt(q)));
+          const q = ivec2(clamp(vec2(p).add(vec2(dx, dy)), vec2(0), R.sub(1)));
+          const e = enc(sceneAt(q));
+          const dq = vec2(q).add(0.5).sub(at).mul(u.ratio); // (output pixels)
+          const wq = exp(dot(dq, dq).mul(u.kernel));
+          sum.addAssign(e.mul(wq));
+          w.addAssign(wq);
+          const c = toYCoCg(e);
           m1.addAssign(c);
           m2.addAssign(c.mul(c));
           zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
@@ -160,16 +200,19 @@ export class TAA {
       const hist = toYCoCg(enc(this._catmullRom(prevUv)));
       const d = hist.sub(mean);
       const ext = max(boxMax.sub(mean), vec3(1e-4));
-      const t = max(max(abs(d.x).div(ext.x), abs(d.y).div(ext.y)), abs(d.z).div(ext.z));
-      const clipped = toRGB(select(t.greaterThan(1), mean.add(d.div(t)), hist));
+      const outside = max(max(abs(d.x).div(ext.x), abs(d.y).div(ext.y)), abs(d.z).div(ext.z)); // (> 1: outside the box)
+      const clipped = toRGB(select(outside.greaterThan(1), mean.add(d.div(outside)), hist));
+      // the history's weight: none off screen or after a reset, less the further outside the box it was
+      const kept = select(onScreen.and(u.resetting.equal(0)), min(this.historyTex.sample(prevUv).a, u.maxWeight), float(0));
+      const wHist = kept.mul(clamp(float(2).sub(outside), 0.5, 1));
       // blend in tone-mapped space (weights 1 / (1 + luma)): bright sky pixels don't swamp the leaves next to them
-      const a = select(onScreen.and(u.resetting.equal(0)), u.feedback, float(1));
-      const wc = a.div(cur.x.add(cur.y).add(cur.z).div(3).add(1));
-      const wh = a.oneMinus().div(clipped.x.add(clipped.y).add(clipped.z).div(3).add(1));
+      const cur = sum.div(max(w, 1e-5));
+      const wc = w.div(cur.x.add(cur.y).add(cur.z).div(3).add(1));
+      const wh = wHist.div(clipped.x.add(clipped.y).add(clipped.z).div(3).add(1));
       const out = cur.mul(wc).add(clipped.mul(wh)).div(max(wc.add(wh), 1e-5));
       // (?taadebug=2: how far each pixel's history is fetched from, in pixels x 0.1: red x, green y)
       if (params.get('taadebug') === '2') return vec4(abs(prevUv.sub(screenUV).mul(screenSize)).mul(0.1), 0, 1);
-      return vec4(clamp(dec(out), 0, 65000), 1);
+      return vec4(clamp(dec(out), 0, 65000), wHist.add(w));
     })();
   }
 
@@ -201,6 +244,7 @@ export class TAA {
   /**
    * Per frame, before anything is culled or drawn: jitters the camera's projection by this frame's sub-pixel offset
    * (the culling, the software rasterizer and the draws all see the same camera) and moves the dither pattern.
+   * `width` x `height`: the scene's pixels.
    */
   jitter(camera: THREE.PerspectiveCamera, width: number, height: number): void {
     camera.updateProjectionMatrix();
@@ -212,24 +256,39 @@ export class TAA {
       ditherShift.value.set(0, 0);
       return;
     }
-    const [jx, jy] = this.jitters[this.frame % this.jitters.length];
+    this.renderer.getDrawingBufferSize(this.outSize);
+    const ratio = this.outSize.x / width;
+    const i = (this.frame % phasesOf(ratio)) + 1;
+    const jx = (halton(i, 2) - 0.5) * this.spread, jy = (halton(i, 3) - 0.5) * this.spread;
     const e = camera.projectionMatrix.elements;
     e[8] += (jx * 2) / width;
     e[9] += (jy * 2) / height;
     camera.projectionMatrixInverse.copy(camera.projectionMatrix).invert();
+    // (the projection's x offset moves the image left by jx pixels, its y offset down by jy: the sample at a texel's
+    // centre sees what was jx to its right and jy above it)
+    this.u.jitterOff.value.set(jx, -jy);
+    this.u.renderSize.value.set(width, height);
+    this.u.ratio.value = ratio;
+    // (a frame's samples are then 1 / frames of the result, on average, at any ratio)
+    if (ratio !== this.lastRatio) {
+      this.lastRatio = ratio;
+      this.u.maxWeight.value = (this.frames - 1) * meanWeight(ratio);
+      this.u.kernel.value = -KERNEL / ratio;
+    }
     // (interleaved gradient noise: a shift of 5.588 px per frame decorrelates consecutive patterns)
     const s = 5.588238 * (this.frame % 64);
     ditherShift.value.set(s, s);
   }
 
-  /** After the scene is drawn: blends it into the history; the output pass then shows `outputTex`. */
+  /** After the scene is drawn: blends it into the history (at the canvas's size); the output pass then shows `outputTex`. */
   resolve(camera: THREE.Camera, viewer: THREE.Vector3): void {
     const r = this.renderer;
-    const w = this.sceneRT.width, h = this.sceneRT.height;
     if (!this.enabled) {
       this.outputTex.value = this.sceneRT.texture;
       return;
     }
+    r.getDrawingBufferSize(this.outSize);
+    const w = this.outSize.x, h = this.outSize.y;
     const src = this.history[this.frame % 2], dst = this.history[(this.frame + 1) % 2];
     for (const rt of this.history) if (rt.width !== w || rt.height !== h) {
       rt.setSize(w, h);

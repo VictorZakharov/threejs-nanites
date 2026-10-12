@@ -42,8 +42,11 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   - Jittered camera, reprojection from depth, and wind motion vectors for the leaves.
   - History clipped in YCoCg and blended in a perceptual space.
   - Leaf edges use dithered alpha-to-coverage, so there's no MSAA cost.
-- **Auto quality:** steers τ and the resolution to keep GPU time within a budget: 5.5 ms on desktop (144 Hz),
-  14 ms on phones.
+- **Temporal upscaling:** the scene renders below the screen's resolution, and the TAA resolve rebuilds the
+  screen's pixels from the jittered frames (as UE's TSR or FSR 2), with textures sampled for the screen's pixels.
+  A phone shows its own pixel density (up to 3 per CSS pixel) instead of a stretched 1.5.
+- **Auto quality:** steers τ and the render resolution to keep GPU time within a budget: 5.5 ms on desktop
+  (144 Hz), 14 ms on phones.
 
 **World**
 - **Plants:** 1M trees (six ez-tree variants: oak, ash, aspen, pine) and 1.5M bushes (three variants), with wind.
@@ -107,7 +110,9 @@ breakdown to it.
 | `tau` | 1 | error threshold in pixels (auto quality changes it) |
 | `auto` | 1 | auto quality (0 = off) |
 | `budget` | 5.5 (14 on touch) | GPU budget for auto quality, in ms |
-| `pr` | device pixel ratio, max 1.5 | pixel ratio |
+| `pr` | device pixel ratio, max 1.5 | the scene's pixel ratio at full resolution |
+| `outpr` | device pixel ratio, max 3 | the screen's pixel ratio (the TAA upscales to it) |
+| `taau` | 1 | 0 = no upscaling: the canvas at the scene's resolution |
 | `planet` | 150000 | planet radius in m |
 | `shadows` | 1 | 0 = no shadows |
 | `smap` | by resolution | shadow map size |
@@ -158,7 +163,7 @@ breakdown to it.
    and small.
 7. **Shadow map:** the same culling and LOD passes for the sun, at a coarser τ, for the casters whose shadow can
    land in view.
-8. **Then:** god rays, and the TAA resolve.
+8. **Then:** god rays, and the TAA resolve, which upscales to the screen's resolution.
 
 All of a stage's compute dispatches run in one compute pass. Each shader binds at most 8 storage buffers (WebGPU's
 guaranteed minimum; a Mac allowed no more).

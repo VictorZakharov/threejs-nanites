@@ -3,6 +3,7 @@
 // far away (a pattern finer than the pixels) their average colour and a flat normal.
 import { Fn, vec2, vec3, vec4, float, hash, smoothstep, mix, select, min, fwidth, mx_noise_float, int, uint, length, dFdx, dFdy } from 'three/tsl';
 import type { Vec2, Vec3, Vec4 } from '../types.ts';
+import { footprint } from '../nanite/shading.ts';
 
 const CELL = 0.22; // m
 
@@ -33,8 +34,8 @@ export function cobbles(p: Vec2): { colour: Vec3; tilt: Vec2 } {
   const edge = v.z, r = v.w;
   // the pixel's footprint in stones, by its area (the longest side, along the road at a grazing angle, faded the
   // stones out ~10 m ahead: a washed-out grey band, the user); TAA averages what's left of the aliasing
-  const px = length(dFdx(s)).mul(length(dFdy(s))).sqrt();
-  const aa = fwidth(edge).max(0.02);
+  const px = length(dFdx(s)).mul(length(dFdy(s))).sqrt().mul(footprint()); // (for the output's pixels)
+  const aa = fwidth(edge).mul(footprint()).max(0.02);
   const stone = smoothstep(float(0.09).sub(aa), float(0.09).add(aa), edge);
   const tone = mix(vec3(0.07, 0.065, 0.058), vec3(0.2, 0.18, 0.155), r).mul(mx_noise_float(p.mul(9)).mul(0.25).add(1));
   const joint = mix(vec3(0.025, 0.02, 0.014), vec3(0.03, 0.045, 0.018), smoothstep(0.2, 0.6, mx_noise_float(p.mul(1.3))));

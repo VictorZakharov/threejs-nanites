@@ -15,6 +15,7 @@ import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
 import { cobbles } from './cobbles.ts';
 import { roadDistanceNode } from '../road.ts';
+import { footprint } from '../nanite/shading.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
 const RELIEF = { depth: HEIGHT_CM / 100, tile: TILE, fade: 40 };
@@ -105,7 +106,7 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   const fallen = inMap.mul(smoothstep(0.08, 0.3, amount)); // (under a lone tree too)
   const under = max(smoothstep(0.3, 0.75, coverMap.r), fallen).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
-  const dx = uv0.dFdx(), dy = uv0.dFdy();
+  const dx = uv0.dFdx().mul(footprint()), dy = uv0.dFdy().mul(footprint()); // (for the output's pixels)
   const raw = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
   const baseH = texture(maps.height, uv).grad(dx, dy).r;
   const nmBase = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)

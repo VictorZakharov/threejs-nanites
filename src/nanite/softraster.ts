@@ -28,7 +28,7 @@ import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
 import { setEmissive, asReceivedShadow, floatBits, computeBatch } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
-import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER } from './shading.ts';
+import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER, mipBias } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
@@ -175,7 +175,7 @@ export class SoftRaster {
 
   /** Mip level for a texture of `size` texels (as the hardware leaves pick it: the larger of the two uv slopes). */
   _lod(slopes: Slopes, size: number): Float {
-    return log2(max(max(length(slopes.dx), length(slopes.dy)).mul(size), 1e-6));
+    return log2(max(max(length(slopes.dx), length(slopes.dy)).mul(size), 1e-6)).add(mipBias); // (for the output's pixels)
   }
 
   _rasterPass(mode: 'depth' | 'id'): ComputeNode {

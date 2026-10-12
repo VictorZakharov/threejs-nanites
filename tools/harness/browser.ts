@@ -60,9 +60,9 @@ export async function launchBrowser(): Promise<Browser> {
  */
 export async function openPage(
   browser: Browser,
-  { width, height, verbose }: { width: number; height: number; verbose: boolean },
+  { width, height, dpr = 1, verbose }: { width: number; height: number; dpr?: number; verbose: boolean },
 ): Promise<{ page: Page; logs: string[]; failed: () => boolean }> {
-  const page = await browser.newPage({ viewport: { width, height } });
+  const page = await browser.newPage({ viewport: { width, height }, deviceScaleFactor: dpr });
   const logs: string[] = [];
   const seen = new Set();
   let failed = false;

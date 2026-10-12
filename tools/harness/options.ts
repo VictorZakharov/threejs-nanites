@@ -12,6 +12,7 @@ views and settings
   --query=k=v&...    URL parameters of the demo (see README)
   --zoom=5           look through the right-mouse zoom (default: the view's own, else 1)
   --size=1600x900    viewport;  --frames=120 benchmark frames per view;  --no-shots  skip screenshots
+  --dpr=3            device pixel ratio (a phone's screen: screenshots at size x dpr; the demo upscales to it)
 
 measuring
   --probe=a,b        run tools/probes/<name>.ts after each view and print what it returns (a \`png\` data URL in it
@@ -56,6 +57,7 @@ export function parseOptions(argv: string[]) {
     help: Boolean(args.help || args.h),
     width,
     height,
+    dpr: Number(args.dpr ?? 1),
     frames: Number(args.frames ?? 120),
     query: String(args.query ?? ''),
     views,

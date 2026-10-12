@@ -32,7 +32,8 @@ export interface HudContext {
   forest: NaniteForest;
   taa: TAA;
   auto: AutoQuality;
-  size: THREE.Vector2;
+  size: THREE.Vector2; // the scene's pixels
+  output: THREE.Vector2; // the canvas's (the TAA upscales to it)
   samples: number;
   adapterName: string;
   harness: boolean;
@@ -42,7 +43,7 @@ export interface HudContext {
 type ForestStats = Awaited<ReturnType<NaniteForest['readStats']>>;
 
 export function createHud(ctx: HudContext) {
-  const { renderer, camera, controls, forest, taa, auto, size, samples } = ctx;
+  const { camera, controls, forest, taa, auto, size, samples } = ctx;
   const el = document.getElementById('hud')!; // (index.html)
   let frames = 0, acc = 0, last = performance.now(), fps = 0, ms = 0, shadowTris = 0;
   let gs: ForestStats | null = null;
@@ -53,7 +54,7 @@ export function createHud(ctx: HudContext) {
   const perf = ctx.harness ? null : new PerfPanel(() => ({
     gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
     quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
-    resolution: { width: size.x, height: size.y, pixelRatio: renderer.getPixelRatio(), msaa: samples, taa: taa.enabled },
+    resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: samples, taa: taa.enabled },
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,

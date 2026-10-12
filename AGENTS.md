@@ -93,7 +93,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
   plus `softraster.ts`, `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
-  loop; `lighting.ts` (sky, fog, sun, shadow map), `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
+  loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
   (`window.__demo`) are split out of it.
 
 - `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
@@ -355,6 +355,22 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   flicker). Not the plain filtered alpha as a probability: every card stacked in a pixel passed the same threshold,
   so crowns didn't add up (pale, see-through) and their holes left the HZB nothing to occlude with. A plain 0.5
   cut-out with one sample makes crowns solid and dark. 4x with `?taa=0`, `?leafalpha=a2c` or `?msaa=4`.
+- Temporal upscaling (`src/resolution.ts`, `src/taa.ts`; `?taau=0` off, `?outpr=`): the canvas at the device's
+  pixel ratio (up to 3), the scene at auto quality's (`?pr=`, the device's up to 1.5, times the scale). Before, the
+  canvas itself was rendered small and the browser stretched it: a DPR 3.75 phone at 1.5 (60% at start) showed each
+  pixel 2.5-4 screen pixels wide (the user: "blurry, no detail"). The history is at the canvas's size; each output
+  pixel gathers the 3x3 scene samples round its centre, weighted `exp(-k d^2 / ratio)` by their jittered distance in
+  output pixels (`?taakernel=` k, 5): the nearest sample alone speckled, k 2.29 (UE's Blackman-Harris fit) softened
+  the native image. The history's alpha holds the weight it has gathered, capped at (frames - 1) x a frame's mean
+  (`maxWeight`), so a frame is ~1/10 of the result at any ratio, and a clipped or uncovered pixel takes new samples
+  quickly. The jitter cycles 8 x ratio^2 Halton offsets (every output pixel gets near samples). Its sign: the
+  projection offset moves the image left by jx and down by jy, so a sample sees what was jx right of and jy above its
+  texel's centre (`jitterOff`); the other signs reconstruct 15-40% further from native. Textures get a mip bias of
+  log2(scene / output pixels) (`mipBias` in `shading.ts`: bark, leaves, impostors, the software rasterizer;
+  `footprint()` scales the floor's and the cobbles' derivatives); 0 with TAA off. At native resolution it flickers less
+  turning than the old resolve (slope 1340 -> 1294, fogline 2359 -> 2266), same cost. At the phone's settings on the dev
+  GPU (`--size=384x832 --dpr=3 --query=touch=1`: 576x1248 -> 1152x2496) +0.15-0.3 ms; rendering at 3x instead
+  costs twice. Trees' LOD and the impostor sizes still go by the scene's pixels.
 - Temporal anti-aliasing (`src/taa.ts`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
   offset each frame (`?taajitter=`: the whole pixel, half with MSAA, which does the geometric edges) *before* culling, so the
   culling, the software rasterizer and the draws see the same camera; the dither pattern (`ditherShift`) moves every

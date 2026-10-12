@@ -12,7 +12,7 @@ import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { ClusterVertex, CullSet, View } from './types.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { autumnOf } from '../autumn.ts';
-import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typeId, switchPx } from './shading.ts';
+import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typeId, switchPx, mipBias } from './shading.ts';
 
 /**
  * The leaf draws' index buffer, shared by every leaf cluster: a cluster's cards are quads from its first vertex
@@ -150,17 +150,17 @@ export const drawMethods = {
     if (shadowOnly) {
       // depth-only caster: just the alpha cut-out for leaves
       mat = new THREE.MeshBasicNodeMaterial({ side: kind === 1 ? THREE.DoubleSide : THREE.FrontSide, alphaTest: kind === 1 ? 0.5 : 0 });
-      if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).a, layerI));
+      if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).bias(mipBias).a, layerI));
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 });
-      const col = barkColour(texture(textures.bark, vUv).depth(layerI).rgb);
+      const col = barkColour(texture(textures.bark, vUv).depth(layerI).bias(mipBias).rgb);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), float(1), float(0)));
       mat.emissiveNode = select(u.debug.equal(4), vDebug, vec3(0));
     } else {
       // Lambert: no specular sheen on leaves, and cheaper for the heavy foliage overdraw
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
-      const tex = texture(textures.leaf, vUv).depth(layerI);
+      const tex = texture(textures.leaf, vUv).depth(layerI).bias(mipBias);
       // (without MSAA, under TAA: alpha to coverage against a moving dither, see a2cDither)
       const alpha = textures.leafDither ? a2cDither(leafAlpha(tex.a, layerI)) : leafAlpha(tex.a, layerI);
       const col = leafColour(tex.rgb, layerI, vTint, vAutumn);

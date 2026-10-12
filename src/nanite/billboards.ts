@@ -9,7 +9,7 @@ import {
 import { curve } from '../planet.ts';
 import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
 import { MIN_PX, FADE_HI, PHASE2_LAYER, IMP_ARGS } from './constants.ts';
-import { treeTint, dither, ditherAlt, typeId, switchPx } from './shading.ts';
+import { treeTint, dither, ditherAlt, typeId, switchPx, mipBias } from './shading.ts';
 import type { StorageBufferNode, UniformArrayNode, TextureNode } from 'three/webgpu';
 import type { NaniteForest } from './forest.ts';
 import type { View } from './types.ts';
@@ -183,11 +183,11 @@ export const billboardMethods = {
       const t = q.vType.round().add(k.mul(n)), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
       return q.vUv.add(vec2(col, row)).div(vec2(cols, rows));
     });
-    const t = uv.map((c) => texture(atlas.texture, c));
+    const t = uv.map((c) => texture(atlas.texture, c).bias(mipBias));
     const { scales, levels } = atlas.coverage;
     const scaleArr = uniformArray<'float'>(Array.from(scales), 'float');
     const texel = q.vUv.mul(vec2(TILE_W, TILE_H));
-    const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))), 0, levels - 1.001);
+    const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))).add(mipBias), 0, levels - 1.001);
     const scaleOf = (tile: Uint): Float => {
       const i0 = tile.mul(levels).add(uint(lod.floor()));
       return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
@@ -215,7 +215,7 @@ export const billboardMethods = {
     const albedo = q.t.reduce<Vec3>((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
     // tree-local normals to world: tile k looks from +z tilted up by e (screen right +x, up (0, cos e, -sin e))
     const nWorld = q.uv.reduce<Vec3>((acc, uv, i) => {
-      const n = texture(atlas.normals, uv).xyz;
+      const n = texture(atlas.normals, uv).bias(mipBias).xyz;
       const c = cos(q.elev[i].mul(deg)), sn = sin(q.elev[i].mul(deg));
       const up = n.y.mul(c).sub(n.z.mul(sn)), toward = n.y.mul(sn).add(n.z.mul(c));
       return acc.add(vRight.mul(n.x).add(vUp.mul(up)).add(vDir.mul(toward)).mul(q.a[i]));
