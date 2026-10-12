@@ -269,10 +269,12 @@ export class TAA {
     this.u.jitterOff.value.set(jx, -jy);
     this.u.renderSize.value.set(width, height);
     this.u.ratio.value = ratio;
-    // (a frame's samples are then 1 / frames of the result, on average, at any ratio)
+    // (a frame's samples are then 1 / (frames x ratio) of the result, on average: upscaled, an output pixel gets a
+    // near sample only every ratio^2 frames, and 10 frames' worth shimmered on a phone at 3x, the forest from 9 km
+    // and the canopy, still and turning; 30 halved it: canopy still 566 -> 209, turning 15679 -> 12526)
     if (ratio !== this.lastRatio) {
       this.lastRatio = ratio;
-      this.u.maxWeight.value = (this.frames - 1) * meanWeight(ratio);
+      this.u.maxWeight.value = (this.frames * Math.max(1, ratio) - 1) * meanWeight(ratio);
       this.u.kernel.value = -KERNEL / ratio;
     }
     // (interleaved gradient noise: a shift of 5.588 px per frame decorrelates consecutive patterns)

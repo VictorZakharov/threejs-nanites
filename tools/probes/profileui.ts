@@ -1,4 +1,4 @@
-// The GPU profile as a person runs it (src/menu.ts, src/profile-banner.ts): opens the settings, clicks Profile GPU,
+// The GPU profile as a person runs it (src/menu.ts, src/profile-banner.ts): opens the settings, presses Profile GPU,
 // runs the real loop and reads the banner every few seconds until it says done (or failed); leaves it showing for the
 // screenshot. Returns each distinct banner text with the seconds since the click, and whether the copy button shows.
 import type { Demo } from '../../src/harness-api.ts';
@@ -6,7 +6,8 @@ import type { Demo } from '../../src/harness-api.ts';
 async (demo: Demo) =>
   demo.withLoop(async () => {
     window.dispatchEvent(new KeyboardEvent('keydown', { code: 'Escape' }));
-    document.querySelector<HTMLElement>('#menu [data-a="profile"]')?.click();
+    // (a press's end alone, as after a long press on a phone, which fires no click)
+    document.querySelector<HTMLElement>('#menu [data-a="profile"]')?.dispatchEvent(new PointerEvent('pointerup', { bubbles: true }));
     const banner = document.getElementById('profile-banner');
     if (!banner) return { error: 'no banner' };
     const t0 = performance.now(), seen: string[] = [];

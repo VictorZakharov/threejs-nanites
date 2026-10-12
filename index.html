@@ -198,6 +198,7 @@
       .menu-box dd { margin: 0; color: rgb(220 244 237 / 60%); }
       .menu-actions { display: grid; grid-template-columns: 1fr 2fr; gap: 10px; margin-top: 14px; }
       .menu-actions .menu-btn { margin: 0; text-align: center; }
+      .menu-btn[data-a="profile"] { -webkit-touch-callout: none; user-select: none; -webkit-user-select: none; } /* (a long press starts it too, see menu.ts) */
       @media (max-width: 600px) {
         .menu-cols { grid-template-columns: 1fr; }
         .menu-cols section { padding: 0 4px; }

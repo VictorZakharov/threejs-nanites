@@ -43,7 +43,7 @@ export function createProfileBanner(): ProfileBanner {
     progress(label, i, n, left) {
       actions.classList.add('hidden');
       const eta = left === null ? 'estimating the time left' : left < 60 ? `about ${Math.max(1, Math.round(left))} s left` : `about ${Math.round(left / 60)} min left`;
-      show('Profiling the GPU: hold still', `Step ${i + 1} of ${n}: ${label} · ${eta}`, i / n);
+      show("Profiling the GPU: don't move the view", `Step ${i + 1} of ${n}: ${label} · ${eta}`, i / n);
     },
     done(c) {
       copy = c;

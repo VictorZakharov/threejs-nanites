@@ -181,7 +181,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
   time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
-  (`?msaa=4`).
+  (`?msaa=4`). Its progress shows in a banner (`src/profile-banner.ts`: step, bar, time left, then Copy report; the
+  panel's last line alone went unseen on a phone), and the menu button starts it on the press's end, however long (a
+  long press fires no click on a phone, and "hold still" read as press and hold: the user). `upscaling off` measures
+  the upscaling; no timings for 10 s fails it. `--probe=profileui` runs it as a person does.
 - Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
   the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
   the same switches): add a new switch there once and it gets both. Fullscreen as in last-stand (gd-clone, the user: "there it
@@ -361,9 +364,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   pixel 2.5-4 screen pixels wide (the user: "blurry, no detail"). The history is at the canvas's size; each output
   pixel gathers the 3x3 scene samples round its centre, weighted `exp(-k d^2 / ratio)` by their jittered distance in
   output pixels (`?taakernel=` k, 5): the nearest sample alone speckled, k 2.29 (UE's Blackman-Harris fit) softened
-  the native image. The history's alpha holds the weight it has gathered, capped at (frames - 1) x a frame's mean
-  (`maxWeight`), so a frame is ~1/10 of the result at any ratio, and a clipped or uncovered pixel takes new samples
-  quickly. The jitter cycles 8 x ratio^2 Halton offsets (every output pixel gets near samples). Its sign: the
+  the native image. The history's alpha holds the weight it has gathered, capped at (frames x ratio - 1) x a frame's
+  mean (`maxWeight`): upscaled, an output pixel gets a near sample only every ratio^2 frames, and 10 frames' worth
+  shimmered at 3x on the user's phone (66% at 9 km: "shimmer instead of blurry"; still `canopy` 566 -> 194 events,
+  turning 15679 -> 12526); a clipped or uncovered pixel still takes new samples quickly. The jitter cycles 8 x ratio^2 Halton offsets (every output pixel gets near samples). Its sign: the
   projection offset moves the image left by jx and down by jy, so a sample sees what was jx right of and jy above its
   texel's centre (`jitterOff`); the other signs reconstruct 15-40% further from native. Textures get a mip bias of
   log2(scene / output pixels) (`mipBias` in `shading.ts`: bark, leaves, impostors, the software rasterizer;
