@@ -72,6 +72,9 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 - Is it a regression? Build the last good commit in a worktree under `tools/tmp/` (`git worktree add`, then
   `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
   and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
+- A phone's screen: `--size=384x832 --dpr=3 --query=touch=1` (screenshots at 1152x2496; the demo renders 576x1248
+  and upscales). Compare the upscaling with `--ab="taau=0|taau=1"` (the old stretched canvas) and against rendering
+  natively at that density (`pr=3`); judge crops, not pixel counts (dithered foliage differs every run).
 - TAA vs a supersampled reference: `--size=800x450 --views=peaks --ab="taa=0&pr=2|taa=1"`, then
   `img.ts mean ... --rect=` on the far ridge. Don't judge TAA from a single frame (`taafeedback=1`): the output's
   unsharp mask turns isolated dark specks black there (`sharpen=0`).

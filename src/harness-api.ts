@@ -79,7 +79,8 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   renderer, scene, camera, forest, controls, instances, sceneRT,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
-    size: `${size.x}x${size.y}`,
+    size: `${size.x}x${size.y}`, // (the scene's; the canvas's below)
+    output: `${renderer.getDrawingBufferSize(new THREE.Vector2()).toArray().join('x')}`,
     trees: forest.instanceCount,
     forestRadius: Math.round(instances.radius),
     dagBuildMs: Math.round(buildMs),

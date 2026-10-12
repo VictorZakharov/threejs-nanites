@@ -18,7 +18,7 @@ export const short = (v: number): string =>
 export interface PerfDetails {
   gpu: { render: number; compute: number; total: number; budget: number };
   quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean };
-  resolution: { width: number; height: number; pixelRatio: number; msaa: number; taa: boolean };
+  resolution: { width: number; height: number; outWidth: number; outHeight: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
     trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
     tris: number; swTris: number; impostorTris: number; shadowTris: number;
@@ -170,7 +170,7 @@ export class PerfPanel {
       ? `<b>${fmt(g.total)}</b> MS GPU (<b>${fmt(g.render, 1)}</b> DRAW + <b>${fmt(g.compute, 1)}</b> CULL) / <b>${g.budget}</b> BUDGET`
       : 'GPU TIME UNAVAILABLE';
     const r = det.resolution;
-    this.k.res.innerHTML = `<b>${r.width}×${r.height}</b> @ <b>${r.pixelRatio.toFixed(2)}</b> · ${r.msaa}× MSAA · TAA ${r.taa ? 'ON' : 'OFF'}`;
+    this.k.res.innerHTML = `<b>${r.width}×${r.height}</b>${r.outWidth !== r.width ? ` → <b>${r.outWidth}×${r.outHeight}</b>` : ''} · ${r.msaa}× MSAA · TAA ${r.taa ? 'ON' : 'OFF'}`;
     this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale < 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}`;
     const sc = det.scene;
     this.k.scene.innerHTML = sc
@@ -200,7 +200,7 @@ export class PerfPanel {
       `url          ${location.href}`,
       `browser      ${navigator.userAgent}`,
       `adapter      ${det.adapter}`,
-      `screen       ${r.width}x${r.height} drawing buffer, ${innerWidth}x${innerHeight} css, pixel ratio ${r.pixelRatio} (device ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
+      `screen       ${r.width}x${r.height} rendered, ${r.outWidth}x${r.outHeight} output${r.outWidth !== r.width ? ` (upscaled ${(r.outWidth / r.width).toFixed(2)}x by the TAA)` : ''}, ${innerWidth}x${innerHeight} css (device pixel ratio ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
       '',
       `window       ${s.seconds.toFixed(1)} s, ${s.samples} frames, display ~${s.refresh} Hz`,
       `fps          ${fmt(s.avgFps)} avg, ${fmt(s.lowFps)} 1% low`,

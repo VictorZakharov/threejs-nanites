@@ -16,11 +16,18 @@ npm run harness    # headless benchmark + screenshots, see below
 
 ## Workflow
 
-- **For now, commit directly to `main`** (no PRs, no branches). A push to `main` deploys production to GitHub Pages
-  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ . The repo is public (MIT; since 2026-10-11): pull requests from forks get previews (below).
-- The PR-preview workflows (`pr-preview-build.yml`, `pr-preview.yml`, copied from the sibling projects) are in place
-  but unused until PRs are used. Pages is served from the aggregated `gh-pages` branch (production at the root,
-  previews under `pr-preview/`); don't delete that branch or switch Pages away from the workflow setup.
+- **Pull requests with live previews** (the user's, since 2026-10-12): work on a branch, open a PR to `main`. Each
+  push to a PR builds a preview at https://victorzakharov.github.io/threejs-nanites/pr-preview/pr-N/ (a sticky
+  comment on the PR links it; check it with the harness's `--url`). The user looks at the preview; merge when they
+  say so.
+- **`main` has only merge commits:** PRs are merged with `gh pr merge N --merge` (squash and rebase merges are
+  off; a ruleset blocks direct pushes, force pushes and deletion of `main`). A merge deploys production
+  (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ ; check it with `--url` afterwards.
+- **PR branches have linear history:** only rebases. Bring a branch up to date with `git fetch` and
+  `git rebase origin/main`, then `git push --force-with-lease`; never merge `main` into it.
+- The repo is public (MIT; since 2026-10-11): pull requests from forks get previews too. Pages is served from the
+  aggregated `gh-pages` branch (production at the root, previews under `pr-preview/`); don't delete that branch or
+  switch Pages away from the workflow setup.
 - **Ship something viewable early**, then keep iterating: the user wants to look at it and give feedback.
 - **Never develop blind:** check every visual or performance change with the harness (screenshots + numbers) before
   calling it done (see `tools/AGENTS.md`).
@@ -86,7 +93,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
   plus `softraster.ts`, `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
-  loop; `lighting.ts` (sky, fog, sun, shadow map), `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
+  loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
   (`window.__demo`) are split out of it.
 
 - `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
@@ -174,7 +181,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
   time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
-  (`?msaa=4`).
+  (`?msaa=4`). Its progress shows in a banner (`src/profile-banner.ts`: step, bar, time left, then Copy report; the
+  panel's last line alone went unseen on a phone), and the menu button starts it on the press's end, however long (a
+  long press fires no click on a phone, and "hold still" read as press and hold: the user). `upscaling off` measures
+  the upscaling; no timings for 10 s fails it. `--probe=profileui` runs it as a person does.
 - Settings menu (`src/menu.ts`, Esc / the gear on touch screens; layout after gd-clone's pause menu): quality presets,
   the scene switches, debug colours, overlays, Profile GPU, Fullscreen. It also owns the keyboard shortcuts (they flip
   the same switches): add a new switch there once and it gets both. Fullscreen as in last-stand (gd-clone, the user: "there it
@@ -230,6 +240,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   float index fails to compile), use `.level()` not `.grad()` on it, and the needle layer's tile scale must be a
   `.toVar()` (computed inline it sampled one uniform colour). `?litterkind=0..3` forces one kind (debug). Views
   `floor`, `litterclose`, `needlesclose`, `autumn*`; `--probe=litter` reads the map round the camera.
+- Terrain from high up (`terrainForAltitude` in `src/terrain.ts`, `?terrainhigh=0` off): from 350 m above the ground
+  the near square is `terrain-high`, the plain ground (`applyFarFloor`: what `applyFloor` comes to past 200 m, where
+  the litter, relief and moss are gone and the cobbles are their average; same image, `slope` 27 px over 8/255) on
+  coarser grids, 512 cells from 1 km, 256 from 3 km, 128 from 6 km (each back at 85%). They shade with the detailed
+  grid's normals and slope from a texture (`detailMap`): with their own, hills read smoother and ridges changed. The
+  1024 grid is ~2M triangles, over a pixel each from 9 km on a phone, and the floor's shader computed litter and
+  cobbles for every pixel and multiplied them by 0: the user's phone spent 4.3 of 15.5 ms on the terrain and sky at
+  9 km. Dev GPU 1080p: `phone9k` 2.13 -> 1.03 ms, `orbitsteep` 1.54 -> 0.86, `aerial` 2.29 -> 1.48, `oblique` 2.32 ->
+  1.79 (hairlines along the ridges: the coarser silhouette), `slope` 2.15 -> 1.96.
 - Autumn (`src/autumn.ts`, `?autumn=` 0 = summer): broadleaf trees and bushes are green, yellow or red by stands
   (noise ranked by its sampled quantiles: 40 / 32 / 28%) plus a jitter per tree; pines stay green. The level rides in
   the instance's wind phase as whole turns (b.w = phase + 2 pi L), so no buffer grew (a 9th storage buffer would
@@ -348,6 +367,23 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   flicker). Not the plain filtered alpha as a probability: every card stacked in a pixel passed the same threshold,
   so crowns didn't add up (pale, see-through) and their holes left the HZB nothing to occlude with. A plain 0.5
   cut-out with one sample makes crowns solid and dark. 4x with `?taa=0`, `?leafalpha=a2c` or `?msaa=4`.
+- Temporal upscaling (`src/resolution.ts`, `src/taa.ts`; `?taau=0` off, `?outpr=`): the canvas at the device's
+  pixel ratio (up to 3), the scene at auto quality's (`?pr=`, the device's up to 1.5, times the scale). Before, the
+  canvas itself was rendered small and the browser stretched it: a DPR 3.75 phone at 1.5 (60% at start) showed each
+  pixel 2.5-4 screen pixels wide (the user: "blurry, no detail"). The history is at the canvas's size; each output
+  pixel gathers the 3x3 scene samples round its centre, weighted `exp(-k d^2 / ratio)` by their jittered distance in
+  output pixels (`?taakernel=` k, 5): the nearest sample alone speckled, k 2.29 (UE's Blackman-Harris fit) softened
+  the native image. The history's alpha holds the weight it has gathered, capped at (frames x ratio - 1) x a frame's
+  mean (`maxWeight`): upscaled, an output pixel gets a near sample only every ratio^2 frames, and 10 frames' worth
+  shimmered at 3x on the user's phone (66% at 9 km: "shimmer instead of blurry"; still `canopy` 566 -> 194 events,
+  turning 15679 -> 12526); a clipped or uncovered pixel still takes new samples quickly. The jitter cycles 8 x ratio^2 Halton offsets (every output pixel gets near samples). Its sign: the
+  projection offset moves the image left by jx and down by jy, so a sample sees what was jx right of and jy above its
+  texel's centre (`jitterOff`); the other signs reconstruct 15-40% further from native. Textures get a mip bias of
+  log2(scene / output pixels) (`mipBias` in `shading.ts`: bark, leaves, impostors, the software rasterizer;
+  `footprint()` scales the floor's and the cobbles' derivatives); 0 with TAA off. At native resolution it flickers less
+  turning than the old resolve (slope 1340 -> 1294, fogline 2359 -> 2266), same cost. At the phone's settings on the dev
+  GPU (`--size=384x832 --dpr=3 --query=touch=1`: 576x1248 -> 1152x2496) +0.15-0.3 ms; rendering at 3x instead
+  costs twice. Trees' LOD and the impostor sizes still go by the scene's pixels.
 - Temporal anti-aliasing (`src/taa.ts`, `?taa=0` / T to turn off): the camera is jittered by a sub-pixel Halton
   offset each frame (`?taajitter=`: the whole pixel, half with MSAA, which does the geometric edges) *before* culling, so the
   culling, the software rasterizer and the draws see the same camera; the dither pattern (`ditherShift`) moves every

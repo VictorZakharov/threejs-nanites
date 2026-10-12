@@ -13,8 +13,10 @@ import { FLOOR_TILE, HEIGHT_CM, type PBRData } from './floor-maps.ts';
 import { LEAF_KINDS, LEAF_TILE } from './floor-leaves.ts';
 import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
-import { cobbles } from './cobbles.ts';
+import { cobbles, cobbleAverage, cobblePatches } from './cobbles.ts';
 import { roadDistanceNode } from '../road.ts';
+import { footprint } from '../nanite/shading.ts';
+import { meadowColour } from '../terrain.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
 const RELIEF = { depth: HEIGHT_CM / 100, tile: TILE, fade: 40 };
@@ -67,6 +69,22 @@ export interface LitterInput {
 // aspen ochre, conifer rust-tan (the user's photo)
 const KIND_COLOUR = [vec3(0.34, 0.15, 0.034), vec3(0.29, 0.24, 0.044), vec3(0.52, 0.3, 0.026), vec3(0.42, 0.17, 0.08)];
 
+/** The road and the plaza (src/road.ts) at world xz `p`: 1 on the paving, the edge a little ragged. */
+const pavedAt = (p: Vec2): Float => float(1).sub(smoothstep(-0.12, 0.12, roadDistanceNode(p).add(mx_noise_float(p.mul(1.7)).mul(0.25))));
+
+/**
+ * The ground seen from high up (src/terrain.ts, `terrain-high`): what `applyFloor` comes to past 200 m, where the
+ * litter, its relief and the moss have faded out and the cobbles are finer than the pixels: the ground's own colour,
+ * the paving's average on the road. Its shader computed all of them for every pixel and multiplied them by 0 (8
+ * noises, a Voronoi, ~10 texture reads): a phone 9 km up spent 4.3 of 15.5 ms on the terrain and sky.
+ */
+export function applyFarFloor(mat: THREE.MeshStandardNodeMaterial, detail: { slope: Float; normalView: Vec3 }): void {
+  const p = positionWorld.xz;
+  mat.colorNode = mix(meadowColour(detail.slope), cobbleAverage(cobblePatches(p)), pavedAt(p));
+  mat.normalNode = detail.normalView; // (the detailed grid's: the coarse grids shade like it)
+  mat.roughness = 0.95;
+}
+
 /**
  * Gives the terrain material the floor: `meadow` is its own (grass / dirt) colour, `coverMap` the cover map at the
  * world position (forestDensity: red canopy cover, green the fallen leaves' amount, blue their autumn level / 2: used
@@ -105,7 +123,7 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   const fallen = inMap.mul(smoothstep(0.08, 0.3, amount)); // (under a lone tree too)
   const under = max(smoothstep(0.3, 0.75, coverMap.r), fallen).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
-  const dx = uv0.dFdx(), dy = uv0.dFdy();
+  const dx = uv0.dFdx().mul(footprint()), dy = uv0.dFdy().mul(footprint()); // (for the output's pixels)
   const raw = texture(maps.map, uv).grad(dx, dy).rgb.mul(2); // (last-stand's colours, for our light)
   const baseH = texture(maps.height, uv).grad(dx, dy).r;
   const nmBase = texture(maps.normal, uv).grad(dx, dy).xyz.mul(2).sub(1); // (r: -dh/du, g: +dh/dv, b: up)
@@ -135,7 +153,7 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   // the far shading (the litter's average brown turned the whole forest floor brown from the air); the meadow keeps
   // its plain colour (the litter's pattern in it read as pale stamped leaves up close)
   // the road and the plaza (src/road.ts): cobbles, the edge a little ragged
-  const paved = float(1).sub(smoothstep(-0.12, 0.12, roadDistanceNode(p).add(mx_noise_float(p.mul(1.7)).mul(0.25))));
+  const paved = pavedAt(p);
   const cob = cobbles(p);
   mat.colorNode = mix(mix(meadow, floor, under), cob.colour, paved);
   // the maps' normals on the terrain's (v runs along +z: dh/dz = g)

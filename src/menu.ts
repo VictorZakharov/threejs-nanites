@@ -9,6 +9,8 @@ import type { GodRays } from './godrays.ts';
 import type { AutoQuality } from './hud.ts';
 import type { PerfPanel } from './perf-panel.ts';
 import type { Music } from './music.ts';
+import type { ProfileProgress } from './profile.ts';
+import { createProfileBanner } from './profile-banner.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 export interface MenuContext {
@@ -24,7 +26,7 @@ export interface MenuContext {
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
   setScale(s: number): void;
-  profile(): Promise<string>;
+  profile(progress?: ProfileProgress): Promise<string>;
   touch: boolean;
 }
 
@@ -98,7 +100,7 @@ export function createMenu(ctx: MenuContext) {
         <section>
           ${overlays.length ? `<h3>Overlays</h3>${overlays.map((t, i) => row(t, i, 'o')).join('')}` : ''}
           <h3>Performance</h3>
-          <button class="menu-btn" data-a="profile">Profile GPU<small>about a minute: hold still</small></button>
+          <button class="menu-btn" data-a="profile">Profile GPU<small>up to a minute: don't move the view</small></button>
           <button class="menu-btn" data-a="copy">Copy performance report</button>
           <h3>Controls</h3>
           <dl>${(ctx.touch ? TOUCH_CONTROLS : CONTROLS).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
@@ -150,9 +152,20 @@ export function createMenu(ctx: MenuContext) {
     if (action === 'resume') resume();
     if (action === 'fullscreen') controls.toggleFullscreen();
     if (action === 'copy') perf?.copy();
-    if (action === 'profile') runProfile();
+    if (action === 'profile' && performance.now() - profileAt > 1000) runProfile(); // (a key's click: see pointerup)
     refresh();
   });
+
+  // Profile GPU starts when the press ends, however long it was: on a phone a long press fires no click, and the
+  // button's "hold still" read as press and hold (the user); a finger that scrolls the menu cancels instead
+  let profileAt = 0;
+  const onProfile = (e: Event): boolean => Boolean((e.target as HTMLElement).closest('[data-a="profile"]'));
+  el.addEventListener('pointerup', (e) => {
+    if (!onProfile(e)) return;
+    profileAt = performance.now();
+    runProfile();
+  });
+  el.addEventListener('contextmenu', (e) => onProfile(e) && e.preventDefault());
 
   // the button says what it will do (the browser's own F11 fullscreen isn't the page's: it says "Fullscreen" there)
   const fsBtn = q<HTMLButtonElement>('[data-a="fullscreen"]')[0];
@@ -160,6 +173,7 @@ export function createMenu(ctx: MenuContext) {
   document.addEventListener('fullscreenchange', syncFullscreen);
   fsBtn.classList.toggle('hidden', !document.fullscreenEnabled);
 
+  const banner = createProfileBanner(); // (the profile's progress, on screen)
   let open = false;
   function setOpen(v: boolean): void {
     open = v;
@@ -174,11 +188,13 @@ export function createMenu(ctx: MenuContext) {
   async function runProfile(): Promise<void> {
     setOpen(false); // (the menu's blur would be measured too)
     if (!perf) return;
-    perf.status('PROFILING: HOLD STILL');
+    perf.status("PROFILING: DON'T MOVE");
     try {
-      perf.profileText = await ctx.profile();
+      perf.profileText = await ctx.profile((label, i, n, left) => banner.progress(label, i, n, left));
       perf.status('PROFILED: TAP TO COPY THE REPORT');
+      banner.done(() => perf.copy());
     } catch (err) {
+      banner.failed();
       perf.status('PROFILE FAILED');
       console.warn(err);
     }

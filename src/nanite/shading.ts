@@ -16,7 +16,7 @@ type Index = Uint | Float;
  */
 export function makeLeafAlpha(leafTex: THREE.DataArrayTexture, uvNode: Vec2): (a: Float, layer: Index) => Float {
   const scaled = makeLeafAlphaLod(leafTex);
-  return (a, layer) => scaled(a, layer, log2(max(length(dFdx(uvNode)), length(dFdy(uvNode))).mul(leafTex.image.width)));
+  return (a, layer) => scaled(a, layer, log2(max(length(dFdx(uvNode)), length(dFdy(uvNode))).mul(leafTex.image.width)).add(mipBias));
 }
 
 /** The same with the mip level given (`lod`), for where there are no derivatives (the software rasterizer). */
@@ -74,6 +74,13 @@ export const treeTint = (inst: Uint): Float => hash(inst).mul(0.35).add(0.8);
 // (`ditherShift` moves the pattern every frame under temporal anti-aliasing, which then averages the dithered leaf
 // edges and cross-fades into smooth ones instead of a fixed speckle; see src/taa.js)
 export const ditherShift = uniform(new THREE.Vector2());
+/**
+ * Mip bias under temporal upscaling (src/resolution.ts): textures are sampled for the output's pixels, not the
+ * scene's (log2 of scene / output pixels, set every frame; 0 without the TAA, which averages the extra detail).
+ * Derivative-based footprints (the floor, the cobbles, the coverage scales) are scaled by `footprint()`.
+ */
+export const mipBias = uniform(0);
+export const footprint = (): Float => exp2(mipBias);
 export const ditherAt = (xy: Vec2): Float => fract(dot(xy.add(ditherShift), vec2(0.06711056, 0.00583715)).fract().mul(52.9829189));
 export const dither = (): Float => ditherAt(screenCoordinate.xy);
 /**

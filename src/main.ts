@@ -1,13 +1,13 @@
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
-import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour } from './terrain.ts';
+import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour, terrainForAltitude, terrainDetail } from './terrain.ts';
 import { createGrass } from './grass.ts';
-import { loadFloorMaps, applyFloor } from './ground/floor.ts';
+import { loadFloorMaps, applyFloor, applyFarFloor } from './ground/floor.ts';
 import { createLitterMap } from './ground/litter-map.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
-import { makeLeafAlpha, LEAF_DITHER } from './nanite/shading.ts';
+import { makeLeafAlpha, LEAF_DITHER, mipBias } from './nanite/shading.ts';
 import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
 import { viewerPos } from './planet.ts';
 import { createClouds, CLOUD_BASE } from './clouds.ts';
@@ -19,7 +19,7 @@ import { arrayTexture, layerLookup } from './textures.ts';
 import { stoneTextureUrl } from './stone.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, plantForest } from './placement.ts';
 import { createLighting } from './lighting.ts';
-import { runProfile } from './profile.ts';
+import { runProfile, type ProfileProgress } from './profile.ts';
 import { createMenu } from './menu.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
@@ -38,6 +38,7 @@ import { createWaypoint } from './waypoint.ts';
 import { createCompass } from './compass.ts';
 import { GodRays } from './godrays.ts';
 import { createMusic } from './music.ts';
+import { createResolution } from './resolution.ts';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -76,9 +77,7 @@ async function start() {
   if (!gpuBackend(renderer).isWebGPUBackend) throw new Error('WebGPU backend unavailable (got WebGL fallback).');
   const ai = adapter.info ?? {};
   ui.note(`WebGPU adapter: ${[ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown'}`);
-  const pixelRatio = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, 1.5));
-  renderer.setPixelRatio(pixelRatio);
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight); // (the pixel ratios: src/resolution.ts)
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
   // Shadows stay compiled in; turning them "off" zeroes the intensity and skips the shadow pass. Toggling
@@ -177,6 +176,7 @@ async function start() {
   demo.litter = litter;
   lap('Litter map');
   applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap, litter);
+  applyFarFloor((terrain.getObjectByName('terrain-high') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>).material, terrainDetail(terrain)); // (from high up)
   lap('Forest floor');
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
@@ -246,8 +246,7 @@ async function start() {
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
   const setScale = (s: number): void => {
     auto.scale = s;
-    renderer.setPixelRatio(pixelRatio * s);
-    fitToWindow();
+    res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, params.get('autozoom') === '0' ? null : controls);
@@ -272,18 +271,11 @@ async function start() {
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.occlusionOn = params.get('occ') !== '0';
 
-  const viewSize = new THREE.Vector2(), size = new THREE.Vector2();
-  function fitToWindow() {
-    renderer.getSize(viewSize);
-    const w = window.innerWidth, h = window.innerHeight;
-    if (viewSize.x !== w || viewSize.y !== h) {
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
-    }
-    renderer.getDrawingBufferSize(size);
-    if (sceneRT.width !== size.x || sceneRT.height !== size.y) sceneRT.setSize(size.x, size.y);
-  }
+  // the canvas at the display's resolution, the scene at auto quality's (src/resolution.ts; the TAA upscales)
+  const res = createResolution(renderer, camera, sceneRT, params);
+  const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
+  const fitToWindow = (): void => res.fit();
+  fitToWindow();
   window.addEventListener('resize', fitToWindow);
   if (startScale < 1) setScale(startScale);
 
@@ -313,12 +305,13 @@ async function start() {
     camera.updateMatrixWorld();
     waypoint.update(camera);
     compass.update(camera, controls.walking);
-    renderer.getDrawingBufferSize(size);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
+    mipBias.value = taa.enabled ? -Math.log2(res.ratio()) : 0; // (textures for the output's pixels: the TAA upscales)
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
     music.setAltitude(altitude); // (birdsong: fades out as you climb)
+    terrainForAltitude(terrain, altitude); // (coarser ground from high up)
     // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
     if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
     // occlusion culling only up to OCC_ALTITUDE (to 130% of it): from above little hides anything and its passes cost
@@ -333,7 +326,6 @@ async function start() {
     const castShadows = shadowFarOnly() ? false : shadowsOn;
     sun.shadow.autoUpdate = castShadows;
 
-    renderer.getDrawingBufferSize(size);
     forest.update(camera, size, time, castShadows ? sun.shadow.camera : null);
     // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);
@@ -360,7 +352,7 @@ async function start() {
 
   // HUD and performance panel
   const hud = createHud({
-    renderer, camera, controls, forest, taa, auto, size, samples, shadowsOn: () => shadowsOn,
+    renderer, camera, controls, forest, taa, auto, size, output: res.output, samples, shadowsOn: () => shadowsOn,
     harness: HARNESS && params.get('perf') !== '1', // (?perf=1: the panel under the harness too)
     adapterName: [ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown adapter',
   });
@@ -368,9 +360,12 @@ async function start() {
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
-  const profile = (): Promise<string> => runProfile(
-    { auto, forest, taa, rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale },
-    (label, i, n) => hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`),
+  const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
+    {
+      auto, forest, taa, rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale,
+      upscale: { on: () => res.upscale, set: (v) => res.setUpscale(v) },
+    },
+    (label, i, n, left) => (hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`), progress?.(label, i, n, left)),
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)
@@ -408,6 +403,7 @@ async function start() {
   ];
   const all = [terrain, sky, clouds.group, ...forest.group.children];
   const wasVisible = all.map((o) => o.visible);
+  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
   fitToWindow();
   renderer.setRenderTarget(sceneRT);
   renderer.setMRT(sceneMRT);
@@ -427,7 +423,7 @@ async function start() {
   renderer.setMRT(null);
   renderer.setRenderTarget(null);
   // the compute passes, one stage at a time (each compiles on its first dispatch)
-  renderer.getDrawingBufferSize(size);
+  fitToWindow();
   follow(camera, heightAt(camera.position.x, camera.position.z), demo.shadowShift);
   const computeSteps: [string, () => void][] = [
     ['culling', () => forest.update(camera, size, 0, shadowsOn ? sun.shadow.camera : null)],
