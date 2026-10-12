@@ -240,6 +240,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   float index fails to compile), use `.level()` not `.grad()` on it, and the needle layer's tile scale must be a
   `.toVar()` (computed inline it sampled one uniform colour). `?litterkind=0..3` forces one kind (debug). Views
   `floor`, `litterclose`, `needlesclose`, `autumn*`; `--probe=litter` reads the map round the camera.
+- Terrain from high up (`terrainForAltitude` in `src/terrain.ts`, `?terrainhigh=0` off): from 350 m above the ground
+  the near square is `terrain-high`, the plain ground (`applyFarFloor`: what `applyFloor` comes to past 200 m, where
+  the litter, relief and moss are gone and the cobbles are their average; same image, `slope` 27 px over 8/255) on
+  coarser grids, 512 cells from 1 km, 256 from 3 km, 128 from 6 km (each back at 85%). They shade with the detailed
+  grid's normals and slope from a texture (`detailMap`): with their own, hills read smoother and ridges changed. The
+  1024 grid is ~2M triangles, over a pixel each from 9 km on a phone, and the floor's shader computed litter and
+  cobbles for every pixel and multiplied them by 0: the user's phone spent 4.3 of 15.5 ms on the terrain and sky at
+  9 km. Dev GPU 1080p: `phone9k` 2.13 -> 1.03 ms, `orbitsteep` 1.54 -> 0.86, `aerial` 2.29 -> 1.48, `oblique` 2.32 ->
+  1.79 (hairlines along the ridges: the coarser silhouette), `slope` 2.15 -> 1.96.
 - Autumn (`src/autumn.ts`, `?autumn=` 0 = summer): broadleaf trees and bushes are green, yellow or red by stands
   (noise ranked by its sampled quantiles: 40 / 32 / 28%) plus a jitter per tree; pines stay green. The level rides in
   the instance's wind phase as whole turns (b.w = phase + 2 pi L), so no buffer grew (a 9th storage buffer would

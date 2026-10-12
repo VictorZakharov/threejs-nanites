@@ -1,8 +1,8 @@
 import * as THREE from 'three/webgpu';
 import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
-import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour } from './terrain.ts';
+import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour, terrainForAltitude, terrainDetail } from './terrain.ts';
 import { createGrass } from './grass.ts';
-import { loadFloorMaps, applyFloor } from './ground/floor.ts';
+import { loadFloorMaps, applyFloor, applyFarFloor } from './ground/floor.ts';
 import { createLitterMap } from './ground/litter-map.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
@@ -176,6 +176,7 @@ async function start() {
   demo.litter = litter;
   lap('Litter map');
   applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap, litter);
+  applyFarFloor((terrain.getObjectByName('terrain-high') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>).material, terrainDetail(terrain)); // (from high up)
   lap('Forest floor');
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
@@ -310,6 +311,7 @@ async function start() {
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
     music.setAltitude(altitude); // (birdsong: fades out as you climb)
+    terrainForAltitude(terrain, altitude); // (coarser ground from high up)
     // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
     if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
     // occlusion culling only up to OCC_ALTITUDE (to 130% of it): from above little hides anything and its passes cost
@@ -401,6 +403,7 @@ async function start() {
   ];
   const all = [terrain, sky, clouds.group, ...forest.group.children];
   const wasVisible = all.map((o) => o.visible);
+  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
   fitToWindow();
   renderer.setRenderTarget(sceneRT);
   renderer.setMRT(sceneMRT);
