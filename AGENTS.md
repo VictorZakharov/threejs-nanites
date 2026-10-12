@@ -37,10 +37,34 @@ scratchpad on C:. The harness already points TEMP/TMP at `tools/tmp/browser` bef
 than once go into the harness (views, probes in `tools/probes/`, image tools), never retyped as one-off snippets:
 retyped probe code drifts and compounds errors.
 
-## Dev journal
+## Goal
 
-`dev-journal.md` holds the current direction: what's being worked on, what's decided, the known issues. Read it
-first in a new session. Update it as you go, and keep it short and current, not historical: trim what's done.
+1M ez-tree trees and 1.5M bushes with Nanite-style cluster LOD, free flight from the forest floor to 9 km over one
+planet-curved world (R = 150 km). Smooth (GPU budget 5.5 ms on desktop: 144 Hz on an RTX 4070 Ti; 14 ms on phones),
+and it must *look* right: no popping, flicker, brightness seams or missing trees. Feedback comes from the live site,
+by screenshot and the performance panel's copied report.
+
+## Open work: GitHub issues
+
+Open problems and planned work are GitHub issues (`gh issue list`), labelled by priority (`P1` next up, `P2`, `P3`),
+area (`performance`, `mobile`, `visuals`, `tooling`, `refactor`, `bug`) and size (`size: S` up to ~2 h, `M` ~3-4 h,
+`L` about a day, `XL` more), with the estimate in the body, at this project's pace (the demo took ~3 days from an
+empty folder). Read the open `P1`s first in a new session. Close an issue from the commit that fixes it (`Fixes #n`)
+and add what you learn to it; open one for a new problem you can't fix now. How things work belongs in this file,
+history in git.
+
+## Decided
+
+- Trees become 2-triangle impostors under ~20 px tall (each tree its own threshold); impostors are relit (albedo +
+  normal atlases), cross-faded by a dither, never narrower than 2 px, and cast shadows. Billboards make 1M trees cheap
+  from the air; occlusion culling is for the forest interior.
+- Leaf LOD levels keep the coverage of the leaves they replace (not their area); bark group errors are the max of
+  their children's and their own (Nanite's rule).
+- Past the shadow map and from high up, receivers get an average shadow (canopy self-shadow, ground darkened by
+  forest density), not full sun.
+- Planet curvature is applied in the vertex shaders (drop d^2/2R) to everything, culling included.
+- The scene renders into a HalfFloat target (one sample under TAA, 4x MSAA without); a render pipeline tone-maps it
+  to the canvas.
 
 ## TypeScript
 
