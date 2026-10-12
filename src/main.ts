@@ -19,7 +19,7 @@ import { arrayTexture, layerLookup } from './textures.ts';
 import { stoneTextureUrl } from './stone.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, plantForest } from './placement.ts';
 import { createLighting } from './lighting.ts';
-import { runProfile } from './profile.ts';
+import { runProfile, type ProfileProgress } from './profile.ts';
 import { createMenu } from './menu.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
@@ -358,9 +358,12 @@ async function start() {
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
-  const profile = (): Promise<string> => runProfile(
-    { auto, forest, taa, rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale },
-    (label, i, n) => hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`),
+  const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
+    {
+      auto, forest, taa, rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky], shadowsOn: () => shadowsOn, setShadows, setScale,
+      upscale: { on: () => res.upscale, set: (v) => res.setUpscale(v) },
+    },
+    (label, i, n, left) => (hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`), progress?.(label, i, n, left)),
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)

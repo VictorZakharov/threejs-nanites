@@ -9,6 +9,8 @@ import type { GodRays } from './godrays.ts';
 import type { AutoQuality } from './hud.ts';
 import type { PerfPanel } from './perf-panel.ts';
 import type { Music } from './music.ts';
+import type { ProfileProgress } from './profile.ts';
+import { createProfileBanner } from './profile-banner.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 export interface MenuContext {
@@ -24,7 +26,7 @@ export interface MenuContext {
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
   setScale(s: number): void;
-  profile(): Promise<string>;
+  profile(progress?: ProfileProgress): Promise<string>;
   touch: boolean;
 }
 
@@ -160,6 +162,7 @@ export function createMenu(ctx: MenuContext) {
   document.addEventListener('fullscreenchange', syncFullscreen);
   fsBtn.classList.toggle('hidden', !document.fullscreenEnabled);
 
+  const banner = createProfileBanner(); // (the profile's progress, on screen)
   let open = false;
   function setOpen(v: boolean): void {
     open = v;
@@ -176,9 +179,11 @@ export function createMenu(ctx: MenuContext) {
     if (!perf) return;
     perf.status('PROFILING: HOLD STILL');
     try {
-      perf.profileText = await ctx.profile();
+      perf.profileText = await ctx.profile((label, i, n, left) => banner.progress(label, i, n, left));
       perf.status('PROFILED: TAP TO COPY THE REPORT');
+      banner.done(() => perf.copy());
     } catch (err) {
+      banner.failed();
       perf.status('PROFILE FAILED');
       console.warn(err);
     }

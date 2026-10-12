@@ -18,7 +18,9 @@ export interface Resolution {
   /** Pixel ratios: the scene's at scale 1, the canvas's. */
   readonly basePR: number;
   readonly outPR: number;
+  /** Upscaling on (the canvas at `outPR`) or off (at the scene's ratio, stretched by the browser: Profile GPU). */
   readonly upscale: boolean;
+  setUpscale(on: boolean): void;
   /** Output pixels per scene pixel, along each axis (1: none). */
   ratio(): number;
   /** Follows the window (every frame: a resize while loading fired before any listener existed). */
@@ -29,13 +31,21 @@ export interface Resolution {
 
 export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, sceneRT: THREE.RenderTarget, params: URLSearchParams): Resolution {
   const basePR = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, 1.5));
-  const upscale = params.get('taau') !== '0' && params.get('taa') !== '0';
-  const outPR = upscale ? Number(params.get('outpr') ?? Math.max(basePR, Math.min(window.devicePixelRatio, OUT_MAX))) : basePR;
+  let upscale = params.get('taau') !== '0' && params.get('taa') !== '0';
+  const outPR = Number(params.get('outpr') ?? Math.max(basePR, Math.min(window.devicePixelRatio, OUT_MAX)));
   const render = new THREE.Vector2(), output = new THREE.Vector2(), view = new THREE.Vector2();
   let scale = 1;
-  renderer.setPixelRatio(outPR);
+  renderer.setPixelRatio(upscale ? outPR : basePR);
   const res: Resolution = {
-    render, output, basePR, outPR, upscale,
+    render, output, basePR, outPR,
+    get upscale() {
+      return upscale;
+    },
+    setUpscale(on) {
+      upscale = on;
+      renderer.setPixelRatio(on ? outPR : basePR * scale);
+      res.fit();
+    },
     ratio: () => output.x / render.x,
     fit() {
       renderer.getSize(view);

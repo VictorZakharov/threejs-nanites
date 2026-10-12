@@ -23,6 +23,7 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `visible` | trees, clusters and triangles drawn vs seen (`--query=ids=1`: debug 6 writes each pixel's tree and cluster to the scene target; hardware geometry only): what occlusion culling leaves on the table |
 | `cullcheck` | why drawn-but-unseen clusters weren't culled (`--query=ids=1`): an exact-rect test on the CPU against HZB level 0 sorts them into "a finer test would get it", "only without the wind margin", "something farther shows in its rect"; triangles of each |
 | `fulldetail` | what the view would cost without Nanite: the plants in the view frustum (within the view distance) and their full-detail triangles, counted on the CPU (README's with/without table: time a small forest, `trees=2000&tau=0.01&imppx=0&occ=0&sw=0&shadows=0`, and scale by this count) |
+| `profileui` | the GPU profile as a person runs it: clicks Profile GPU in the menu, reads the progress banner until done, leaves it for the screenshot (`--timeout=300`) |
 | `profile` | the panel's GPU profile in the real loop: median render/compute ms with each feature switched off in turn (`--timeout=240`) |
 | `menu` | the settings menu: opens it with Esc, clicks each switch and the quality presets, reads the state back; leaves it open for the screenshot |
 | `autumn` | autumn levels: share of green / yellow / red trees, the nearest stand of each (spots of the `autumn*` views) and the cover map's fallen leaves there |
