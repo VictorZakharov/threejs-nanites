@@ -218,6 +218,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
   the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
   ahead (the user).
+  Tufts: a jittered 0.8 m grid of clump centres in world space (every ring agrees); a tuft's blades share a height
+  and dryness, are pulled towards its centre and fan out from it, and where grass is sparse whole tufts are kept or
+  dropped (`?grassclump=sparse,dense` gathering, 0,0 = evenly): evenly spread, the forest floor's few blades were lone
+  green spikes. Tufts fade out by ~35 m (a ring's cells get as big as them). Blades bend along an arc (capped at ~80
+  degrees: further, they lay flat as pale streaks), turn up to ~25 degrees towards the viewer when edge-on, and get
+  a yellow-green glow where the sun is behind the face we see (scaled down by canopy cover: the shadow map only
+  darkens the surface light, so a glow would stay in the shade). The old root colour (dark green up to 3/4 of the
+  blade) made every blade darker than the ground; with the ground's own colour (a debug test) blades matched it, so
+  the lighting was fine. Views `meadow`, `meadowclose` (a clearing ~350 m from the spawn). Same GPU time as before.
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). They took the instances from
