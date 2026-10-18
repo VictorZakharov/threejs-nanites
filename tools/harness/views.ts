@@ -9,6 +9,9 @@ export const VIEWS: Record<string, HarnessView> = {
   ground: { x: 20, z: 40, agl: 1.8, yaw: 30, pitch: 4 },
   // grass up close, half a metre up (user: "grass up close is not very detailed"; blades, the floor's relief)
   grassclose: { x: 20, z: 40, agl: 0.5, yaw: 30, pitch: -14 },
+  // a clearing ~350 m from the spawn (grass in the open: tufts, blade shapes, sun and shade), eye level and close up
+  meadow: { x: 150, z: 290, agl: 1.7, yaw: 30, pitch: -4 },
+  meadowclose: { x: 165, z: 310, agl: 0.6, yaw: 30, pitch: -18 },
   closeup: { x: 0, z: 0, agl: 3, yaw: 0, pitch: 10, nearTree: 7 },
   // the screen filled by one trunk: occlusion culling should leave only that tree (see --probe=occlusion)
   bark: { x: 0, z: 0, agl: 1.5, yaw: 0, pitch: 0, trunk: 1.5, zoom: 5 },

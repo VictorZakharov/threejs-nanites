@@ -181,7 +181,7 @@ async function start() {
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
-    cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)),
+    cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir,
   });
   scene.add(grass.group);
   scene.add(forest.group);
