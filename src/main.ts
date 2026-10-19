@@ -145,7 +145,7 @@ async function start() {
   scene.add(terrain);
   terrain.traverse((o) => (o.renderOrder = 1));
   // the ground's shaders compile from here, the slowest (src/ground/setup.ts)
-  const { cover: density, litter, groundFar } = setupGround(terrain, floorMaps, forestRadius(TREE_COUNT), (far) => asReceivedShadow(makeFadeShadow(far)));
+  const { cover: density, litter, groundFar, near: nearGround, floor: floorMat } = setupGround(terrain, floorMaps, forestRadius(TREE_COUNT), (far) => asReceivedShadow(makeFadeShadow(far)));
   demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves, and each variant's kind of leaf)
   demo.leafOf = VARIANTS.map((v) => v.leaf);
   demo.litter = litter;
@@ -416,7 +416,8 @@ async function start() {
     const now = performance.now();
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
-    frame(dt);
+    if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
+    else frame(dt);
     autoQuality(dt);
     hud.frame(now, dt);
   }
@@ -444,8 +445,6 @@ async function start() {
     grass.update(camera);
   });
   await covered;
-  const floor = await floorMaps.ready;
-  ui.note(`Floor maps in workers: soil and leaves ${floor.ms.join(' / ')} ms, done ${floor.doneMs} ms in`);
   await ui.update(0.84, 'Compiling shaders', false);
   const slowest = await pre.done();
   if (pre.on) ui.note(`Compiled the materials and ${passes} compute passes in parallel (slowest: ${slowest}), waited (${Math.round(performance.now() - tc)} ms)`);
@@ -468,6 +467,17 @@ async function start() {
   ui.note(`First frame ready (${Math.round(performance.now() - tc)} ms)`);
   await ui.reveal();
   if (!HARNESS) renderer.setAnimationLoop(loop);
+  // the forest floor's shader, the slowest to compile, after the first frame (src/ground/setup.ts): till then the near
+  // square has the ground from high up (no litter, relief or cobbles); then once its maps are in too
+  const tg = performance.now();
+  const proxy = new THREE.Mesh(nearGround.geometry, floorMat); // (the same pipeline as the square's)
+  proxy.receiveShadow = nearGround.receiveShadow;
+  const floorIn = Promise.all([floorMaps.ready, pre.after(proxy)]).then(([floor]) => {
+    nearGround.material = floorMat;
+    ui.note(`Forest floor in, ${Math.round(performance.now() - tg)} ms after the first frame (its maps in workers: ${floor.ms.join(' / ')} ms, done ${floor.doneMs} ms in)`);
+  });
+  if (HARNESS) await floorIn; // (views and screenshots with the floor)
+  else floorIn.catch((e) => console.error(e));
   demo.ready = true;
 }
 

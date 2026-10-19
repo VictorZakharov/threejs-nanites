@@ -1,7 +1,9 @@
-// The ground's materials (src/terrain.ts's meshes), given their final shaders as soon as the terrain exists: they're
-// the slowest to compile (~2 s on the dev machine, ~8 at a phone's pace), so they compile from there (src/warmup.ts),
-// against their maps' textures before they're filled: the cover map (placement.ts forestDensity) and the litter map
-// from the planting, the floor's maps from their workers (a texture filled in place is the same pipeline).
+// The ground's materials (src/terrain.ts's meshes), given their final shaders as soon as the terrain exists, against
+// their maps' textures before they're filled: the cover map (placement.ts forestDensity) and the litter map from the
+// planting, the floor's maps from their workers (a texture filled in place is the same pipeline). The forest floor's
+// shader is the slowest to compile (~1.5 s of the GPU process on the dev machine): the near square starts with the
+// ground from high up (what the floor comes to past 200 m) and gets the floor once it's compiled, after the first
+// frame (main.ts).
 import * as THREE from 'three/webgpu';
 import { float, positionWorld, texture, uniform } from 'three/tsl';
 import { applyFloor, applyFarFloor, type FloorMaps } from './floor.ts';
@@ -25,7 +27,10 @@ export function setupGround(terrain: THREE.Group, floorMaps: FloorMaps, radius: 
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = receivedShadow(groundFar);
   // the forest floor near the viewer: leaf litter under the canopy, parallax relief
   const litter = createLitterMap(); // (which tree's leaves lie where near the viewer)
-  applyFloor((terrain.getObjectByName('terrain') as StandardMesh).material, floorMaps, meadowColour(), coverMap, litter);
-  applyFarFloor((terrain.getObjectByName('terrain-high') as StandardMesh).material, terrainDetail(terrain)); // (from high up)
-  return { cover, litter, groundFar };
+  const near = terrain.getObjectByName('terrain') as StandardMesh, high = terrain.getObjectByName('terrain-high') as StandardMesh;
+  const floor = near.material;
+  applyFloor(floor, floorMaps, meadowColour(), coverMap, litter);
+  applyFarFloor(high.material, terrainDetail(terrain)); // (from high up)
+  near.material = high.material; // (until the floor is compiled)
+  return { cover, litter, groundFar, near, floor };
 }

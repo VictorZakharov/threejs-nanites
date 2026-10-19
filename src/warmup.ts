@@ -94,6 +94,29 @@ export class Precompile {
     this.jobs.push(job.then(() => (t.end = performance.now())));
   }
 
+  /** A compile started by `after` is in flight: draw frames through `apart`. */
+  pending = false;
+
+  /**
+   * Compiles `objects` after the load, while frames are drawn (through `apart` while `pending`); resolves when
+   * they're compiled. (A compile reads the renderer's target as it goes, between frames.)
+   */
+  async after(...objects: THREE.Object3D[]): Promise<void> {
+    if (!this.on) return;
+    const from = this.jobs.length;
+    this.pending = true;
+    this.hold();
+    this.add(...objects);
+    try {
+      await Promise.all(this.jobs.slice(from));
+    } finally {
+      this.pending = false;
+      this.held = false;
+      this.renderer.setRenderTarget(null);
+      this.renderer.setMRT(null);
+    }
+  }
+
   /** Waits for everything started so far; returns the slowest few and the last to finish, for the log. */
   async done(): Promise<string> {
     await Promise.all(this.jobs);
