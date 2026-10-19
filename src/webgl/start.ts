@@ -143,8 +143,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const setScale = (s: number): void => {
     auto.trials?.push(`${(performance.now() / 1000).toFixed(2)} s: ${auto.scale.toFixed(2)} -> ${s.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
     ev(`resolution ${Math.round(auto.scale * 100)}% -> ${Math.round(s * 100)}% (median frame ${median.toFixed(1)} ms)`);
-    auto.scale = s;
-    renderer.setPixelRatio(maxPr * s);
+    auto.scale = s; // (applied by the next frame, just before it draws: see frame)
   };
   // By the median frame of each second, not an eased mean: one slow frame (a shader compile, the floor coming in, the
   // GPU catching up as the loop starts: 250-350 ms) pushed the mean over the budget, and the resolution stepped
@@ -188,11 +187,14 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     sun.shadow.needsUpdate = true;
   };
 
-  let time = 0, frameTris = 0;
+  let time = 0, frameTris = 0, drawnWidth = 0;
   const waypoint = createWaypoint(harness && params.get('waypoint') !== '1'); // (to the plaza; as main.ts)
   const compass = createCompass(waypoint.target, harness && params.get('waypoint') !== '1');
   const size = new THREE.Vector2();
   function frame(dt: number): void {
+    // a new resolution right before this frame draws: resizing the canvas clears it, and set after a frame (auto
+    // quality, the menu) the browser showed that frame blank, a flicker at every step (the user)
+    if (Math.abs(renderer.getPixelRatio() - maxPr * auto.scale) > 1e-6) renderer.setPixelRatio(maxPr * auto.scale);
     if (renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
       ev(`canvas resized ${renderer.domElement.clientWidth}x${renderer.domElement.clientHeight} -> ${window.innerWidth}x${window.innerHeight}`);
       renderer.setSize(window.innerWidth, window.innerHeight);
@@ -229,6 +231,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
     renderer.render(scene, camera);
     frameTris = renderer.info.render.triangles;
+    drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
   installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
@@ -281,7 +284,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     await Promise.all([floorIn, new Promise((r) => setTimeout(r, 10000))]);
     renderer.setAnimationLoop(null);
   }
-  demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on);
+  demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on, () => drawnWidth);
   hud.update();
   demo.ready = true;
 }
