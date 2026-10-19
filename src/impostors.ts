@@ -13,7 +13,8 @@
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
-import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint, uniform } from 'three/tsl';
+import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint, uniform, uniformArray } from 'three/tsl';
+import type { UniformArrayNode } from 'three/webgpu';
 import type { BuiltTree } from './trees.ts';
 import type { CoverageJob } from './atlas-coverage-worker.ts';
 import type { Float, Uint, Vec4 } from './types.ts';
@@ -42,13 +43,51 @@ export interface AtlasCoverage {
   ms?: { readback: number; work: number }; // (the loading log)
 }
 
-/** The baked atlases and each tile's quad size (m); `coverage` from impostorCoverage. */
+/**
+ * The atlases and each type's quad size (m); `coverage` from impostorCoverage. Made before the bake (createAtlas), so
+ * the impostors' shaders compile while the trees grow: the bake and impostorCoverage fill it in place, the frame
+ * sizes and coverage scales also into the uniform arrays the shaders read (`frameW`, `frameH`, `scales`).
+ */
 export interface ImpostorAtlas {
   texture: THREE.Texture;
   normals: THREE.Texture;
   frames: { w: number; h: number }[];
   renderTarget: THREE.RenderTarget;
+  normalsTarget: THREE.RenderTarget;
   coverage: AtlasCoverage;
+  frameW: UniformArrayNode<'float'>;
+  frameH: UniformArrayNode<'float'>;
+  scales: UniformArrayNode<'float'>; // (coverage.scales)
+}
+
+/** An empty atlas for `n` types (see ImpostorAtlas). */
+export function createAtlas(n: number): ImpostorAtlas {
+  const { cols, rows } = atlasLayout(n);
+  const makeRT = () =>
+    new THREE.RenderTarget(TILE_W * cols, TILE_H * rows, {
+      type: THREE.HalfFloatType,
+      samples: 4,
+      generateMipmaps: true,
+      minFilter: THREE.LinearMipmapLinearFilter,
+      magFilter: THREE.LinearFilter,
+      depthBuffer: true,
+    });
+  const rt = makeRT(), rtN = makeRT();
+  const frames = Array.from({ length: n }, () => ({ w: 1, h: 2 }));
+  const levels = Math.log2(TILE_W) + 1, scales = new Float32Array(ELEVATIONS.length * n * levels).fill(1);
+  return {
+    texture: rt.texture, normals: rtN.texture, frames, renderTarget: rt, normalsTarget: rtN, coverage: { scales, levels },
+    frameW: uniformArray<'float'>(frames.map((f) => f.w), 'float'),
+    frameH: uniformArray<'float'>(frames.map((f) => f.h), 'float'),
+    scales: uniformArray<'float'>(Array.from(scales), 'float'),
+  };
+}
+
+/** Sets type k's frame size, in `frames` and the shaders' arrays. */
+function setFrame(atlas: ImpostorAtlas, k: number, w: number, h: number): void {
+  atlas.frames[k] = { w, h };
+  (atlas.frameW.array as number[])[k] = w;
+  (atlas.frameH.array as number[])[k] = h;
 }
 
 export const TILE_W = 256;
@@ -112,20 +151,10 @@ function fullDetail({ bark, leaves }: BuiltTree['src']): { bark: MeshPart; leave
  * @param cutPx  bake each tree at the DAG cut it has when it's this many pixels tall (at tau 1); 0 = full detail
  * @returns { texture, normals, frames: [{ w, h }], renderTarget } frame size (m) of each tile's quad (aspect 1:2)
  */
-export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[], tex: BakeTextures, cutPx = 0): Omit<ImpostorAtlas, 'coverage'> {
+export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, trees: BuiltTree[], tex: BakeTextures, cutPx = 0): void {
   const n = trees.length;
   const { cols, rows } = atlasLayout(n);
-  const makeRT = () =>
-    new THREE.RenderTarget(TILE_W * cols, TILE_H * rows, {
-      type: THREE.HalfFloatType,
-      samples: 4,
-      generateMipmaps: true,
-      minFilter: THREE.LinearMipmapLinearFilter,
-      magFilter: THREE.LinearFilter,
-      depthBuffer: true,
-    });
-  const rt = makeRT(), rtN = makeRT();
-  const frames: { w: number; h: number }[] = [];
+  const rt = atlas.renderTarget, rtN = atlas.normalsTarget;
   const prevTarget = renderer.getRenderTarget();
   const prevClear = renderer.getClearColor(new THREE.Color());
   const prevAlpha = renderer.getClearAlpha();
@@ -142,7 +171,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
   trees.forEach((t, i) => {
     // models are never impostors (switchPx): their tiles stay empty (Lucy's took ~0.45 s of a phone's main thread for
     // her 1M triangles' cut, and she may not have arrived yet: BuiltTree.later)
-    if (t.variant.model) return void frames.push({ w: 1, h: 2 });
+    if (t.variant.model) return void setFrame(atlas, i, 1, 2);
     // (frame size from the full-detail tree: the same tile whichever cut is baked)
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
@@ -199,7 +228,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
       }
     const fw = Math.max(2 * r, h / 2) * 1.04;
     const fh = fw * 2;
-    frames.push({ w: fw, h: fh });
+    setFrame(atlas, i, fw, fh);
     // every view is centred on the trunk axis at half the frame height (the runtime quad's pivot), looking from +z
     // tilted up by the elevation: screen right = +x, screen up = (0, cos e, -sin e) (from above: -z)
     ELEVATIONS.forEach((deg, k) => {
@@ -231,7 +260,6 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
   renderer.toneMapping = prevTone;
   renderer.setRenderTarget(prevTarget);
   renderer.setClearColor(prevClear, prevAlpha);
-  return { texture: rt.texture, normals: rtN.texture, frames, renderTarget: rt };
 }
 
 /** Maps a type (uint node) to a value from a JS array via a select chain. */
@@ -250,7 +278,7 @@ export function lookup(values: number[]): (type: Uint) => Float {
  * alpha scale that keeps the full-size tile's fraction of texels above `cut`.
  * @returns { scales: Float32Array (tile * levels + level), levels }
  */
-export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Omit<ImpostorAtlas, 'coverage'>, cut: number): Promise<AtlasCoverage> {
+export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, cut: number): Promise<void> {
   const rt = atlas.renderTarget;
   const W = rt.width, H = rt.height, tiles = ELEVATIONS.length * atlas.frames.length;
   const t = performance.now();
@@ -259,7 +287,15 @@ export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Om
   // (in a worker: ~0.5 s of the main thread while loading, when it's busiest)
   return new Promise((resolve, reject) => {
     const w = new Worker(new URL('./atlas-coverage-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<AtlasCoverage>) => (w.terminate(), resolve({ ...e.data, ms: { readback, work: performance.now() - t - readback } }));
+    w.onmessage = (e: MessageEvent<AtlasCoverage>) => {
+      w.terminate();
+      const c = atlas.coverage;
+      if (e.data.levels !== c.levels || e.data.scales.length !== c.scales.length) return reject(new Error('atlas coverage: unexpected layout'));
+      c.scales.set(e.data.scales);
+      (atlas.scales.array as number[]).splice(0, c.scales.length, ...c.scales);
+      c.ms = { readback, work: performance.now() - t - readback };
+      resolve();
+    };
     w.onerror = (e) => reject(new Error(e.message));
     const job: CoverageJob = { raw: raw as CoverageJob['raw'], W, tiles, cut, tileW: TILE_W, tileH: TILE_H };
     w.postMessage(job, [job.raw.buffer]);

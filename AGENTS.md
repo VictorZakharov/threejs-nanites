@@ -153,8 +153,14 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   the cover map is computed in a worker (`cover-worker.ts`); the chunks' runs use typed arrays; the statues no longer
   hold the load up (Models above). three.js builds each shader in steps that yield to the main thread
   (`buildAsync`), so every long main-thread task delays the compiles too: at a phone's pace they "took" 9-15 s.
-  What's left at a phone's pace: the GPU process compiling the biggest shaders (the floor's, the retest passes),
-  which the atlas read-back waits behind (~4 s), and three.js's node building (~3.5 s of main thread).
+  The impostors' shaders (quads, splats, shadow quads) compile from the forest's creation too, against an empty
+  atlas (`createAtlas`: its render targets, and the frame sizes and coverage scales as uniform arrays the bake and
+  `impostorCoverage` fill in place; the splats are switched on once it's filled): the splat pass compiled after the
+  bake was the last wait (phone pace -0.6..1.4 s back to back with main; desktop within the noise). What's left is
+  the GPU process's compile throughput: some 20 render pipelines and 45 compute passes, the floor's ~1.5 s alone on
+  the dev machine (relief and cobbles ~0.6 of it; the rest is the PBR material with shadows), and the atlas read-back
+  queues behind them. Starting the terrain's compile before its grids (a stand-in geometry) finished no earlier.
+  `--probe=nodebuild` times each material's compile and the main thread's share (small: it's the GPU process).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
