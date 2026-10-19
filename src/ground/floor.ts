@@ -21,6 +21,7 @@ import { detailPos } from '../planet.ts';
 import { meadowColour } from '../terrain.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
+const LEAF_SIZE = 1024; // (the leaf layers' texels: the floor maps' size)
 const RELIEF = { depth: HEIGHT_CM / 100, tile: TILE, fade: 40 };
 
 export interface FloorMaps {
@@ -28,36 +29,47 @@ export interface FloorMaps {
   normal: THREE.DataTexture;
   height: THREE.DataTexture;
   leaves: THREE.DataArrayTexture; // per kind of leaf (LEAF_KINDS): height, normal, key
+  /** Each worker's own time (ms: the soil's, then each kind of leaf's) and when the last was done (ms after the start). */
+  ms: number[];
+  doneMs: number;
 }
 
-/** Starts building the maps in a worker; resolves to textures. */
+/** Starts building the maps in workers (the soil's, and a layer per kind of leaf, in parallel); resolves to textures. */
 export function loadFloorMaps(): Promise<FloorMaps> {
-  return new Promise((resolve, reject) => {
+  const t0 = performance.now(), ms: number[] = [];
+  const job = <T>(leaf: number | null): Promise<T> => new Promise((resolve, reject) => {
     const w = new Worker(new URL('./floor-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<PBRData & { leaves: Uint8ClampedArray<ArrayBuffer> }>) => {
+    w.onmessage = (e: MessageEvent<{ out: T; ms: number }>) => {
       w.terminate();
-      const d = e.data;
-      const tex = (px: Uint8ClampedArray, srgb: boolean): THREE.DataTexture => {
-        const t = new THREE.DataTexture(new Uint8Array(px.buffer), d.size, d.size);
-        t.wrapS = t.wrapT = THREE.RepeatWrapping;
-        t.magFilter = THREE.LinearFilter;
-        t.minFilter = THREE.LinearMipmapLinearFilter;
-        t.generateMipmaps = true;
-        t.anisotropy = 8;
-        if (srgb) t.colorSpace = THREE.SRGBColorSpace;
-        t.needsUpdate = true;
-        return t;
-      };
-      const leaves = new THREE.DataArrayTexture(new Uint8Array(d.leaves.buffer), d.size, d.size, LEAF_KINDS.length);
-      leaves.wrapS = leaves.wrapT = THREE.RepeatWrapping;
-      leaves.magFilter = THREE.LinearFilter;
-      leaves.minFilter = THREE.LinearMipmapLinearFilter;
-      leaves.generateMipmaps = true;
-      leaves.needsUpdate = true;
-      resolve({ map: tex(d.albedo, true), normal: tex(d.normal, false), height: tex(d.rough, false), leaves });
+      ms[leaf === null ? 0 : leaf + 1] = Math.round(e.data.ms);
+      resolve(e.data.out);
     };
     w.onerror = (e) => reject(new Error(e.message));
-    w.postMessage(null);
+    w.postMessage({ leaf, size: LEAF_SIZE });
+  });
+  const floor = job<PBRData>(null);
+  const layers = LEAF_KINDS.map((_, i) => job<Uint8ClampedArray<ArrayBuffer>>(i));
+  return Promise.all([floor, Promise.all(layers)]).then(([d, ls]) => {
+    const tex = (px: Uint8ClampedArray, srgb: boolean): THREE.DataTexture => {
+      const t = new THREE.DataTexture(new Uint8Array(px.buffer), d.size, d.size);
+      t.wrapS = t.wrapT = THREE.RepeatWrapping;
+      t.magFilter = THREE.LinearFilter;
+      t.minFilter = THREE.LinearMipmapLinearFilter;
+      t.generateMipmaps = true;
+      t.anisotropy = 8;
+      if (srgb) t.colorSpace = THREE.SRGBColorSpace;
+      t.needsUpdate = true;
+      return t;
+    };
+    const n = LEAF_SIZE * LEAF_SIZE * 4, all = new Uint8Array(n * LEAF_KINDS.length);
+    ls.forEach((px, i) => all.set(px, i * n));
+    const leaves = new THREE.DataArrayTexture(all, LEAF_SIZE, LEAF_SIZE, LEAF_KINDS.length);
+    leaves.wrapS = leaves.wrapT = THREE.RepeatWrapping;
+    leaves.magFilter = THREE.LinearFilter;
+    leaves.minFilter = THREE.LinearMipmapLinearFilter;
+    leaves.generateMipmaps = true;
+    leaves.needsUpdate = true;
+    return { map: tex(d.albedo, true), normal: tex(d.normal, false), height: tex(d.rough, false), leaves, ms, doneMs: Math.round(performance.now() - t0) };
   });
 }
 

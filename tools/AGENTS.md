@@ -33,6 +33,7 @@ is about using it well.
 | `harness/typematch.ts` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
 | `harness/status.ts` | the current step, for the watchdog |
 | `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
+| `harness/load.ts` | `--load=N`: cold boots, the loading log's timeline (median), the downloads, `--profile` of the main thread |
 | `harness/images.ts` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
 | `img.ts` | command line for those: `node tools/img.ts mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match) |
 | `probes/` | page-side measures (`--probe=<name>`), see `probes/README.md` |
@@ -54,7 +55,23 @@ npm run harness -- --ab="sw=0|sw=1" --views=canopy,d550 --query="wind=0&shadows=
 npm run harness -- --views=canopy --flicker --query="wind=0&taa=0"   # still camera: differing pixels between frames
 npm run harness -- --dolly --ab="taa=0|taa=1" --views=slope --steps=20 --step=0.5 --query=wind=0   # TAA in motion
 npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --views=ground,orbit   # after a deploy
+npx vite build && npm run harness -- --dist --load=3                    # loading: the production build, as Pages serves it
+npm run harness -- --dist --load=3 --size=384x832 --dpr=3 --query=touch=1 --cpu=4   # loading at a phone's size and pace
+npm run harness -- --dist=tools/tmp/dist-prof --load=1 --profile        # where the main thread's time goes (see below)
 ```
+
+- Loading (`--load=N`, `harness/load.ts`): N cold boots, each in a fresh browser (no HTTP or shader cache), print
+  the loading log (`[loading]` lines: `LoadingScreen.entries`, ms since the navigation started) as a timeline, the
+  median per step, and every download with its gzipped size and when it was done (the workers' fetches included).
+  Measure the production build: `--dist` serves `dist/` gzipped as GitHub Pages does (`--dist=<folder>` another
+  build: a baseline built in a worktree under `tools/tmp/`), or `--url` the live site or a PR preview. The headless
+  browser reads every size uncompressed (Resource Timing and CDP, even from Pages) and its network throttling went
+  by those, so there's no network throttle: the sizes are fetched again with gzip, and download time is for the real
+  site. `--cpu=4` slows the page's main thread (DevTools' emulation; not the workers, not the GPU process): a phone's
+  pace, roughly. Boots swing by ~0.5 s on the desktop and more at `--cpu=4` (the workers compete for the cores):
+  compare medians of 3. `--profile` saves the main thread's CPU profile of the first boot
+  (`tools/out/load.cpuprofile`, opens in DevTools) and prints the top functions by self time: build without
+  minifying for names (`npx vite build --minify false --outDir tools/tmp/dist-prof`).
 
 - Compare like with like: `--ab` reloads the page per variant in one run, so views, size and GPU state match.
   `--sweep`/`--dolly` run per variant too (heatmaps tagged `@<k>`).

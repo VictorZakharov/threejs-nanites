@@ -11,6 +11,8 @@ views and settings
   --views=a,b        viewpoints from tools/harness/views.ts (default: ${DEFAULT_VIEWS.join(',')})
   --query=k=v&...    URL parameters of the demo (see README)
   --zoom=5           look through the right-mouse zoom (default: the view's own, else 1)
+  --dist[=dir]       the production build in dist/ (npx vite build first), served gzipped as GitHub Pages does; another
+                     build's folder (a baseline's worktree: --dist=tools/tmp/base/dist)
   --size=1600x900    viewport;  --frames=120 benchmark frames per view;  --no-shots  skip screenshots
   --dpr=3            device pixel ratio (a phone's screen: screenshots at size x dpr; the demo upscales to it)
 
@@ -36,6 +38,10 @@ measuring
   --eval="expr"      evaluate an expression in the page once after loading;  --eval-file=path  the same from a file
 
 loading
+  --load=N           N cold boots (a fresh browser each) instead of the views: the loading log's timeline (median)
+                     and the downloads (gzipped sizes);  --cpu=N  slow the page's CPU N x;  --profile  the main
+                     thread's CPU profile of the first boot (top functions; tools/out/load.cpuprofile)
+                     (a phone: --size=384x832 --dpr=3 --query=touch=1 --cpu=4)
   --loading-shots    screenshots of the loading screen;  --resize-during-load=1280x1000  resize while loading
   --verbose          echo the whole page console
 
@@ -63,6 +69,7 @@ export function parseOptions(argv: string[]) {
     views,
     zoom: args.zoom === undefined ? undefined : Number(args.zoom), // (unset: the view's own zoom, else 1)
     url: args.url ? String(args.url) : null,
+    dist: args.dist === undefined ? null : args.dist === true ? 'dist' : String(args.dist), // (a folder, from the project root)
     shots: !args['no-shots'],
     probes: args.probe ? String(args.probe).split(',') : [],
     variants: args.ab ? String(args.ab).split('|') : null,
@@ -79,6 +86,9 @@ export function parseOptions(argv: string[]) {
     eval: args.eval ? String(args.eval) : null,
     evalFile: args['eval-file'] ? String(args['eval-file']) : null,
     loadingShots: Boolean(args['loading-shots']),
+    load: args.load === undefined ? 0 : args.load === true ? 1 : Number(args.load),
+    cpu: args.cpu ? Number(args.cpu) : 0,
+    profile: Boolean(args.profile),
     resizeDuringLoad: args['resize-during-load'] ? String(args['resize-during-load']).split('x').map(Number) : null,
     verbose: Boolean(args.verbose),
   };
@@ -89,8 +99,9 @@ export function parseOptions(argv: string[]) {
 export type Options = ReturnType<typeof parseOptions>;
 
 /** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
-function expectedSeconds(o: { views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; steps: number | null; typematch: string | null }): number {
+function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; steps: number | null; typematch: string | null }): number {
   const runs = o.views.length * (o.variants?.length ?? 1);
   const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0);
+  if (o.load) return 30 + o.load * (o.variants?.length ?? 1) * 120; // (throttled boots can take a minute or two)
   return Math.round(30 + runs * (8 + steps));
 }

@@ -1,4 +1,5 @@
 // What the main thread sends the DAG worker (src/dag-worker.ts) and what comes back.
+import type { TreeSource, TreeVariant } from './trees.ts';
 
 /** Bark mesh of one tree, in metres: positions, normals, uvs (2 per vertex), triangles. */
 export interface BarkSource {
@@ -29,6 +30,12 @@ export interface DagRequest {
   /** How a bark group's error adds to its children's: the max (default: each switch moves <= tau) or the sum (?barkerr=sum). */
   barkErr?: 'sum' | 'max';
 }
+
+/**
+ * What the worker is sent: a mesh, or a variant to grow first (tree-grow.ts; its meshes come back as `src`), then
+ * its leaf mask (or null) in a message of its own.
+ */
+export type DagJob = DagRequest | (Omit<DagRequest, 'bark' | 'leaves'> & { grow: TreeVariant });
 
 /** A leaf texture's alpha as a coarse mask: `size` x `size`, 1 = opaque, rows from the image's top. */
 export interface LeafMask {
@@ -62,6 +69,9 @@ export interface DagResult {
   rec: Float32Array;
   meta: Uint32Array;
   stats: DagStats;
+  /** With `grow`: the tree's source meshes and how long growing it took (ms). */
+  src?: TreeSource;
+  growMs?: number;
 }
 
 export type DagReply = DagResult | { id: number; error: string };

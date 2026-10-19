@@ -73,6 +73,7 @@ export interface DemoExtras {
   hud: ReturnType<typeof createHud>;
   music: Music;
   perfReport(): string | undefined;
+  loadLog: { t: number; msg: string }[]; // (the loading log's lines, ms since the navigation started: --load)
   profile(): Promise<string>;
 }
 

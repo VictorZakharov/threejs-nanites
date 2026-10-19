@@ -1,5 +1,5 @@
 // Startup screen: progress bar, status line, timestamped log, error panel (after the cape-physics demo's).
-const t0 = performance.now();
+// (times are from the navigation's start, performance.now(): the download of the page and its script counts)
 
 /** The element under `root` matching `selector` (the page's markup is fixed: missing means a broken page). */
 function find<T extends Element = HTMLElement>(root: ParentNode, selector: string): T {
@@ -16,6 +16,8 @@ export class LoadingScreen {
   readonly log: HTMLElement;
   readonly errorPanel: HTMLElement;
   readonly errorDetail: HTMLElement;
+  /** The log's lines with their times (ms since the navigation started): the harness's `--load` reads them. */
+  readonly entries: { t: number; msg: string }[] = [];
   estimate: number | null = null;
   value = 0;
 
@@ -32,9 +34,11 @@ export class LoadingScreen {
   /** Logs a line without moving the bar. */
   note(message: string): void {
     console.info(`[loading] ${message}`); // (the harness keeps the page console: boot breakdown)
+    const now = performance.now();
+    this.entries.push({ t: now, msg: message });
     const li = document.createElement('li');
     const time = document.createElement('time');
-    time.textContent = `${((performance.now() - t0) / 1000).toFixed(2)}s`;
+    time.textContent = `${(now / 1000).toFixed(2)}s`;
     const span = document.createElement('span');
     span.textContent = message;
     li.append(time, span);

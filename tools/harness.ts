@@ -11,8 +11,9 @@ import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { HELP, parseOptions } from './harness/options.ts';
-import { useProjectTemp, startServer, launchBrowser, openPage } from './harness/browser.ts';
+import { useProjectTemp, startServer, startStatic, launchBrowser, openPage } from './harness/browser.ts';
 import { boot, runViews } from './harness/session.ts';
+import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
 import { typeMatch } from './harness/typematch.ts';
 import { status, at } from './harness/status.ts';
@@ -34,8 +35,29 @@ const watchdog = setTimeout(() => {
   console.error(`HARNESS TIMEOUT after ${opts.timeout}s, at: ${status.step}`);
   process.exit(2);
 }, opts.timeout * 1000);
-const server = opts.url ? null : await startServer(root); // --url tests a deployed build instead of the source
+// --url tests a deployed build instead of the source, --dist the local build (dist/) served as Pages serves it
+const server = opts.url ? null : opts.dist ? await startStatic(join(root, opts.dist)) : await startServer(root);
 const url = opts.url ?? server?.url ?? '';
+if (opts.load) {
+  // --load: cold boots only, each in its own browser (see harness/load.ts)
+  let code = 0;
+  try {
+    const out: Record<string, unknown> = {};
+    for (const variant of opts.variants ?? [null]) {
+      const query = [opts.query, variant].filter(Boolean).join('&');
+      if (variant !== null) console.log(`
+=== variant: ${variant}`);
+      out[query] = await measureLoads(url, query, opts, outDir);
+    }
+    writeFileSync(join(outDir, 'report.json'), JSON.stringify(out, null, 2));
+  } catch (e) {
+    console.error('HARNESS ERROR:', e instanceof Error ? e.message : e);
+    code = 1;
+  }
+  clearTimeout(watchdog);
+  await server?.close();
+  process.exit(code);
+}
 const browser = await launchBrowser();
 let exitCode = 0;
 try {
