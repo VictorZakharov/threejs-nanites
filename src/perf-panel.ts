@@ -61,6 +61,7 @@ export class PerfPanel {
   readonly paths: { avg: SVGPathElement; low: SVGPathElement };
   copyTimer = 0;
   profileText = ''; // the last GPU profile (src/profile.ts, from the settings menu), appended to the report
+  extra: (() => string) | null = null; // more lines for the report (the WebGL mode's startup timeline)
 
   constructor(details: () => PerfDetails) {
     this.details = details;
@@ -214,6 +215,8 @@ export class PerfPanel {
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,
     ];
     if (this.profileText) lines.push('', this.profileText);
+    const more = this.extra?.();
+    if (more) lines.push('', more);
     return lines.join('\n');
   }
 

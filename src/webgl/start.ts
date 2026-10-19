@@ -22,6 +22,7 @@ import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
 import { installWebGLHarness } from './harness.ts';
 import { createWebGLHud } from './hud.ts';
+import { runLoop } from './harness.ts';
 import { createMenu } from '../menu.ts';
 import { createWaypoint } from '../waypoint.ts';
 import { createCompass } from '../compass.ts';
@@ -135,18 +136,46 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const budget = Number(params.get('budget') ?? (touch0 ? 33 : 17)); // ms a frame
   const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: renderer.getPixelRatio() / maxPr, gpuMs: 0, busy: false };
   const tau = { value: 1 };
+  // what happened when, from the reveal (the report's startup timeline: what a flicker could be)
+  let shownAt = 0;
+  const events: string[] = [];
+  const ev = (msg: string): void => void (events.length < 200 && events.push(`${((performance.now() - shownAt) / 1000).toFixed(2)} s  ${msg}`));
   const setScale = (s: number): void => {
-    auto.scale = s;
-    renderer.setPixelRatio(maxPr * s);
+    auto.trials?.push(`${(performance.now() / 1000).toFixed(2)} s: ${auto.scale.toFixed(2)} -> ${s.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
+    ev(`resolution ${Math.round(auto.scale * 100)}% -> ${Math.round(s * 100)}% (median frame ${median.toFixed(1)} ms)`);
+    auto.scale = s; // (applied by the next frame, just before it draws: see frame)
   };
-  let ema = budget, settle = 0, detail = tau.value;
+  // By the median frame of each second, not an eased mean: one slow frame (a shader compile, the floor coming in, the
+  // GPU catching up as the loop starts: 250-350 ms) pushed the mean over the budget, and the resolution stepped
+  // down and back up twice in the first seconds, each a resize the user saw as a flicker. Nothing in the first 3 s
+  // or 2 s after a step (a resize is a slow frame itself); up only if the larger size should stay under 85%.
+  // A step down is a trial: if it didn't make frames 10% faster (the frame time was the CPU's or the display's, not
+  // the pixels'), it goes back and the resolution holds for 30 s (as auto-quality.ts on WebGPU).
+  let detail = tau.value, hold = 3, median = 0, span = 0, times: number[] = [];
+  let trial: { from: number; before: number } | null = null;
   const steer = (dt: number): void => {
     if (tau.value !== detail) forest.setDetail((detail = tau.value)); // (the menu, or the [ ] keys)
-    ema += (dt * 1000 - ema) * 0.1;
-    auto.frameMs = ema;
-    if (!auto.on || (settle -= dt) > 0) return;
-    const s = auto.scale, next = ema > budget * 1.15 ? Math.max(0.5, s * 0.85) : ema < budget * 0.7 ? Math.min(1, s * 1.1) : s;
-    if (Math.abs(next - s) > 0.01) (setScale(next), (settle = 1));
+    if ((hold -= dt) > 0) return void ((times = []), (span = 0)); // (the frames held off don't count)
+    times.push(dt * 1000);
+    if ((span += dt) < 1) return;
+    median = [...times].sort((x, y) => x - y)[times.length >> 1];
+    auto.frameMs = median;
+    times = [];
+    span = 0;
+    if (!auto.on) return void (trial = null);
+    const s = auto.scale;
+    if (trial) {
+      const failed = median > trial.before * 0.9;
+      if (failed) auto.trials?.push(`step down saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
+      if (failed) ev(`that step saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
+      if (failed) (setScale(trial.from), (hold = 30));
+      trial = null;
+      if (failed) return;
+    }
+    const down = median > budget * 1.15 ? Math.max(0.5, s * 0.85) : s;
+    const up = Math.min(1, s * 1.1), upCost = median * (up / s) ** 2; // (the cost goes with the pixels)
+    const next = down < s ? down : median < budget * 0.7 && upCost < budget * 0.85 ? up : s;
+    if (Math.abs(next - s) > 0.01) (next < s && (trial = { from: s, before: median }), setScale(next), (hold = 2));
   };
   // shadows off: no pass and no light lost (switching the shadow map off would recompile every shader)
   let shadowsOn = renderer.shadowMap.enabled;
@@ -158,12 +187,16 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     sun.shadow.needsUpdate = true;
   };
 
-  let time = 0, frameTris = 0;
+  let time = 0, frameTris = 0, drawnWidth = 0;
   const waypoint = createWaypoint(harness && params.get('waypoint') !== '1'); // (to the plaza; as main.ts)
   const compass = createCompass(waypoint.target, harness && params.get('waypoint') !== '1');
   const size = new THREE.Vector2();
   function frame(dt: number): void {
+    // a new resolution right before this frame draws: resizing the canvas clears it, and set after a frame (auto
+    // quality, the menu) the browser showed that frame blank, a flicker at every step (the user)
+    if (Math.abs(renderer.getPixelRatio() - maxPr * auto.scale) > 1e-6) renderer.setPixelRatio(maxPr * auto.scale);
     if (renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
+      ev(`canvas resized ${renderer.domElement.clientWidth}x${renderer.domElement.clientHeight} -> ${window.innerWidth}x${window.innerHeight}`);
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -190,12 +223,15 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     renderer.getDrawingBufferSize(size);
+    const smap = sun.shadow.mapSize.x;
     fitShadowMap(size.x * size.y);
+    if (sun.shadow.mapSize.x !== smap) ev(`shadow map ${smap} -> ${sun.shadow.mapSize.x}`);
     follow(camera, gy, demo.shadowShift);
     forest.update(camera, size.y, fogFar.value);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
     renderer.render(scene, camera);
     frameTris = renderer.info.render.triangles;
+    drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
   installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
@@ -215,6 +251,9 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   frame(0);
   ui.note('WebGL mode: first frame ready');
   await ui.reveal();
+  shownAt = performance.now();
+  ev(`shown: ${size.x}x${size.y}, resolution ${Math.round(auto.scale * 100)}%, shadow map ${sun.shadow.mapSize.x}`);
+  if (hud.perf) hud.perf.extra = () => ['startup (s from the reveal: resolution steps, resizes, slow frames)', ...events.map((e) => `  ${e}`)].join('\n');
   // the forest floor after the first frame, its shader compiled meanwhile (~1.8 s of the dev machine's on its own):
   // till then the plain ground from high up (?glfloor=0: for good)
   const tg = performance.now();
@@ -223,17 +262,29 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const floorIn = params.get('glfloor') === '0' ? Promise.resolve() : Promise.all([o.floorMaps.ready, renderer.compileAsync(proxy, camera, scene)]).then(() => {
     nearGround.material = floorMat;
     ui.note(`Forest floor in, ${Math.round(performance.now() - tg)} ms after the first frame`);
+    ev('forest floor in (the plain ground before)');
   });
-  if (harness) await floorIn;
+  // (?startloop=1 under the harness: the page's own first 10 s, the floor coming in meanwhile, as a person sees them)
+  const startLoop = harness && params.get('startloop') === '1';
+  if (harness && !startLoop) await floorIn;
   else floorIn.catch((e) => console.error(e));
   let prev = performance.now();
-  if (!harness) renderer.setAnimationLoop(() => {
+  const loop = (): void => {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000);
+    if (now - prev > 50 && now - shownAt < 60000) ev(`frame of ${Math.round(now - prev)} ms`);
     prev = now;
     frame(dt);
     steer(dt);
     hud.frame(now, dt);
-  });
+  };
+  if (!harness) renderer.setAnimationLoop(loop);
+  if (startLoop) {
+    auto.on = params.get('auto') !== '0';
+    renderer.setAnimationLoop(loop);
+    await Promise.all([floorIn, new Promise((r) => setTimeout(r, 10000))]);
+    renderer.setAnimationLoop(null);
+  }
+  demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on, () => drawnWidth);
   hud.update();
   demo.ready = true;
 }
