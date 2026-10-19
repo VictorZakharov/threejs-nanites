@@ -13,20 +13,25 @@ import type { ProfileProgress } from './profile.ts';
 import { createProfileBanner } from './profile-banner.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
+/**
+ * What the menu switches. The WebGL mode (src/webgl/) has no forest renderer, TAA, god rays, grass or GPU profile:
+ * left out, their switches, the debug colours and their keys aren't shown; `u` is then its own detail level.
+ */
 export interface MenuContext {
   controls: FlyControls;
-  forest: NaniteForest;
-  taa: TAA;
-  rays: GodRays;
+  u: { tau: { value: number }; debug?: { value: number } }; // (the forest's uniforms: forest.u)
+  forest?: NaniteForest;
+  taa?: TAA;
+  rays?: GodRays;
   clouds: { visible: boolean };
-  grass: { visible: boolean };
+  grass?: { visible: boolean };
   auto: AutoQuality;
   perf: PerfPanel | null;
   music: Music;
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
   setScale(s: number): void;
-  profile(progress?: ProfileProgress): Promise<string>;
+  profile?: (progress?: ProfileProgress) => Promise<string>;
   touch: boolean;
 }
 
@@ -52,23 +57,23 @@ const TOUCH_CONTROLS: [string, string][] = [
 ];
 
 export function createMenu(ctx: MenuContext) {
-  const { controls, forest, taa, rays, auto, perf, music } = ctx;
-  const u = forest.u;
+  const { controls, forest, taa, rays, grass, auto, perf, music, u } = ctx;
   const byId = (id: string) => document.getElementById(id);
   const shown = (id: string) => () => !byId(id)?.classList.contains('hidden');
   const show = (id: string) => (v: boolean) => byId(id)?.classList.toggle('hidden', !v);
 
+  const fu = forest?.u;
   const scene: Toggle[] = [
     { label: 'Shadows', key: 'KeyP', get: ctx.shadowsOn, set: ctx.setShadows },
-    { label: 'Anti-aliasing (TAA)', key: 'KeyT', get: () => taa.enabled, set: (v) => ((taa.enabled = v), (taa.reset = true)) },
-    { label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v) => (rays.enabled = v) },
-    { label: 'Wind', key: 'KeyG', get: () => u.wind.value > 0, set: (v) => (u.wind.value = v ? 1 : 0) },
-    { label: 'Grass', get: () => ctx.grass.visible, set: (v) => (ctx.grass.visible = v) },
+    ...(taa ? [{ label: 'Anti-aliasing (TAA)', key: 'KeyT', get: () => taa.enabled, set: (v: boolean) => ((taa.enabled = v), (taa.reset = true)) }] : []),
+    ...(rays ? [{ label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v: boolean) => (rays.enabled = v) }] : []),
+    ...(fu ? [{ label: 'Wind', key: 'KeyG', get: () => fu.wind.value > 0, set: (v: boolean) => (fu.wind.value = v ? 1 : 0) }] : []),
+    ...(grass ? [{ label: 'Grass', get: () => grass.visible, set: (v: boolean) => (grass.visible = v) }] : []),
     { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
     { label: 'Music', key: 'KeyM', get: () => music.on, set: (v) => (music.on = v) },
-    { label: 'Occlusion culling', get: () => forest.occlusionOn, set: (v) => (forest.occlusionOn = v) },
-    ...(u.sw ? [{ label: 'Software rasterizer', get: () => u.sw!.value > 0, set: (v: boolean) => (u.sw!.value = v ? 1 : 0) }] : []),
+    ...(forest ? [{ label: 'Occlusion culling', get: () => forest.occlusionOn, set: (v: boolean) => (forest.occlusionOn = v) }] : []),
+    ...(fu?.sw ? [{ label: 'Software rasterizer', get: () => fu.sw!.value > 0, set: (v: boolean) => (fu.sw!.value = v ? 1 : 0) }] : []),
   ];
   const overlays: Toggle[] = [
     { label: 'Waypoint to the statues', get: shown('waypoint'), set: show('waypoint') },
@@ -94,16 +99,16 @@ export function createMenu(ctx: MenuContext) {
           <div class="seg" data-seg="quality">${Object.keys(PRESETS).map((p) => `<button data-v="${p}">${p}</button>`).join('')}</div>
           <h3>Scene</h3>
           ${scene.map((t, i) => row(t, i, 's')).join('')}
-          <h3>Debug colours</h3>
-          <div class="seg" data-seg="debug">${DEBUG.map((d, i) => `<button data-v="${i}">${d}</button>`).join('')}</div>
+          ${u.debug ? `<h3>Debug colours</h3>
+          <div class="seg" data-seg="debug">${DEBUG.map((d, i) => `<button data-v="${i}">${d}</button>`).join('')}</div>` : ''}
         </section>
         <section>
           ${overlays.length ? `<h3>Overlays</h3>${overlays.map((t, i) => row(t, i, 'o')).join('')}` : ''}
           <h3>Performance</h3>
-          <button class="menu-btn" data-a="profile">Profile GPU<small>up to a minute: don't move the view</small></button>
+          ${ctx.profile ? `<button class="menu-btn" data-a="profile">Profile GPU<small>up to a minute: don't move the view</small></button>` : ''}
           <button class="menu-btn" data-a="copy">Copy performance report</button>
           <h3>Controls</h3>
-          <dl>${(ctx.touch ? TOUCH_CONTROLS : CONTROLS).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
+          <dl>${(ctx.touch ? TOUCH_CONTROLS : CONTROLS.filter(([k]) => forest || (k !== 'F' && k !== 'L'))).map(([k, v]) => `<dt>${k}</dt><dd>${v}</dd>`).join('')}</dl>
         </section>
       </div>
       <div class="menu-actions">
@@ -124,7 +129,7 @@ export function createMenu(ctx: MenuContext) {
     for (const c of q<HTMLInputElement>('input[data-t]')) c.checked = toggleOf(c.dataset.t!).get();
     const seg = (name: string, v: string) => q<HTMLButtonElement>(`[data-seg="${name}"] button`).forEach((b) => b.classList.toggle('active', b.dataset.v === v));
     seg('quality', preset());
-    seg('debug', String(u.debug.value));
+    if (u.debug) seg('debug', String(u.debug.value));
   }
 
   // ---- behaviour
@@ -138,7 +143,7 @@ export function createMenu(ctx: MenuContext) {
     const segBtn = t.closest<HTMLButtonElement>('[data-seg] button');
     if (segBtn) {
       const v = segBtn.dataset.v!, seg = segBtn.parentElement!.dataset.seg;
-      if (seg === 'debug') u.debug.value = Number(v);
+      if (seg === 'debug' && u.debug) u.debug.value = Number(v);
       else {
         const p = PRESETS[v as Preset];
         auto.on = !p;
@@ -187,7 +192,7 @@ export function createMenu(ctx: MenuContext) {
   }
   async function runProfile(): Promise<void> {
     setOpen(false); // (the menu's blur would be measured too)
-    if (!perf) return;
+    if (!perf || !ctx.profile) return;
     perf.status("PROFILING: DON'T MOVE");
     try {
       perf.profileText = await ctx.profile((label, i, n, left) => banner.progress(label, i, n, left));
@@ -236,8 +241,8 @@ export function createMenu(ctx: MenuContext) {
       return controls.release();
     }
     for (const t of [...scene, ...overlays]) if (t.key === code) t.set(!t.get());
-    if (code === 'KeyL') u.debug.value = (u.debug.value + 1) % DEBUG.length;
-    if (code === 'KeyF') forest.frozen = !forest.frozen;
+    if (code === 'KeyL' && u.debug) u.debug.value = (u.debug.value + 1) % DEBUG.length;
+    if (code === 'KeyF' && forest) forest.frozen = !forest.frozen;
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (u.tau.value = Math.max(0.25, u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (u.tau.value = Math.min(64, u.tau.value * 1.5));
     if (code === 'KeyQ') auto.on = !auto.on;
