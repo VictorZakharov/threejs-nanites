@@ -10,24 +10,38 @@ export { fbm, heightAt };
 /** Cells per side of the detailed terrain square (src/grass.ts reads its vertex heights). */
 export const TERRAIN_SEGMENTS = 1024;
 
-function terrainGeometry(size: number, seg: number, lowerInside = 0): THREE.PlaneGeometry {
-  const geo = new THREE.PlaneGeometry(size, size, seg, seg);
-  geo.rotateX(-Math.PI / 2);
-  const pos = geo.attributes.position;
-  for (let i = 0; i < pos.count; i++) {
-    const x = pos.getX(i), z = pos.getZ(i);
-    let y = heightAt(x, z);
-    // the outer skirt hides under the detailed terrain (its boundary vertices stay exact, so the seam matches)
-    if (lowerInside && Math.abs(x) < lowerInside - 1 && Math.abs(z) < lowerInside - 1) y -= 150;
-    pos.setY(i, y);
-  }
-  geo.computeVertexNormals();
-  // per-vertex grass/dirt mix from slope
-  const nrm = geo.attributes.normal;
-  const tint = new Float32Array(pos.count);
-  for (let i = 0; i < pos.count; i++) tint[i] = 1 - THREE.MathUtils.smoothstep(nrm.getY(i), 0.8, 0.95);
-  geo.setAttribute('slope', new THREE.BufferAttribute(tint, 1));
-  return geo;
+/** A grid for the terrain worker to build (terrain-worker.ts). */
+export interface GridJob { size: number; seg: number; lowerInside: number; detail: boolean }
+/** A built grid: PlaneGeometry's attributes laid on the height field, its slope, bounding sphere, detail texels. */
+export interface GridData {
+  position: Float32Array<ArrayBuffer>;
+  normal: Float32Array<ArrayBuffer>;
+  uv: Float32Array<ArrayBuffer>;
+  index: Uint32Array<ArrayBuffer> | Uint16Array<ArrayBuffer>;
+  slope: Float32Array<ArrayBuffer>; // per-vertex grass/dirt mix from the slope
+  sphere: [number, number, number, number];
+  texels: Uint8Array<ArrayBuffer> | null; // (the detailed square's: see detailMap)
+}
+
+/** Builds a grid in a worker: `seg` cells a side over `size` m (the skirt lowered under the square inside `lowerInside`). */
+function terrainGeometry(size: number, seg: number, lowerInside = 0, detail = false): Promise<{ geo: THREE.BufferGeometry; texels: GridData['texels'] }> {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./terrain-worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<GridData>) => {
+      w.terminate();
+      const d = e.data, geo = new THREE.BufferGeometry();
+      geo.setIndex(new THREE.BufferAttribute(d.index, 1));
+      geo.setAttribute('position', new THREE.BufferAttribute(d.position, 3));
+      geo.setAttribute('normal', new THREE.BufferAttribute(d.normal, 3));
+      geo.setAttribute('uv', new THREE.BufferAttribute(d.uv, 2));
+      geo.setAttribute('slope', new THREE.BufferAttribute(d.slope, 1));
+      geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(d.sphere[0], d.sphere[1], d.sphere[2]), d.sphere[3]);
+      resolve({ geo, texels: d.texels });
+    };
+    w.onerror = (e) => reject(new Error(e.message));
+    const job: GridJob = { size, seg, lowerInside, detail };
+    w.postMessage(job);
+  });
 }
 
 /**
@@ -69,18 +83,25 @@ const HIGH_ON = new URLSearchParams(location.search).get('terrainhigh') !== '0';
  * Detailed square terrain of `size` (covers the forest) plus a coarse skirt out to ~65 km, so the curved horizon
  * seen from altitude is ground all the way. The skirt's cells line up with the square's edges.
  */
-export function createTerrain(size: number): THREE.Group {
+export async function createTerrain(size: number): Promise<THREE.Group> {
+  // every grid in its own worker, all at once (started before the GPU is asked for: main.ts)
+  const m = 2 * Math.ceil(65000 / size) + 1; // odd: the square sits exactly in the middle
+  const [nearGrid, farGrid, ...coarse] = await Promise.all([
+    terrainGeometry(size, TERRAIN_SEGMENTS, 0, true),
+    terrainGeometry(size * m, 48 * m, size / 2),
+    ...HIGH.filter(([, seg]) => seg !== TERRAIN_SEGMENTS).map(([, seg]) => terrainGeometry(size, seg)),
+  ]);
   const group = new THREE.Group();
-  const near = new THREE.Mesh(terrainGeometry(size, TERRAIN_SEGMENTS), terrainMaterial());
+  const near = new THREE.Mesh(nearGrid.geo, terrainMaterial());
   near.receiveShadow = true;
   near.name = 'terrain';
-  const levels = HIGH.map(([, seg]) => (seg === TERRAIN_SEGMENTS ? near.geometry : terrainGeometry(size, seg)));
+  let c = 0;
+  const levels = HIGH.map(([, seg]) => (seg === TERRAIN_SEGMENTS ? near.geometry : coarse[c++].geo));
   const high = new THREE.Mesh(levels[0], terrainMaterial());
   high.receiveShadow = true;
   high.name = 'terrain-high';
   high.visible = false;
-  const m = 2 * Math.ceil(65000 / size) + 1; // odd: the square sits exactly in the middle
-  const far = new THREE.Mesh(terrainGeometry(size * m, 48 * m, size / 2), terrainMaterial());
+  const far = new THREE.Mesh(farGrid.geo, terrainMaterial());
   far.material.polygonOffset = true; // loses depth ties against the detailed terrain
   far.material.polygonOffsetFactor = 2;
   far.material.polygonOffsetUnits = 8;
@@ -88,7 +109,7 @@ export function createTerrain(size: number): THREE.Group {
   group.add(near, high, far);
   group.userData.materials = [near.material, high.material, far.material];
   group.userData.high = { near, high, levels, level: -1 };
-  group.userData.detail = detailMap(near.geometry, size);
+  group.userData.detail = detailMap(nearGrid.texels!, size);
   return group;
 }
 
@@ -96,15 +117,8 @@ export function createTerrain(size: number): THREE.Group {
  * The detailed grid's normals and slope as a texture over the square (rgb normal, a slope), so the coarse grids from
  * high up shade like it: with their own normals the hills read smoother and the ridges changed (`slope`, `phone9k`).
  */
-function detailMap(geo: THREE.BufferGeometry, size: number) {
-  const n = geo.attributes.normal, sl = geo.attributes.slope, side = TERRAIN_SEGMENTS + 1;
-  const data = new Uint8Array(side * side * 4);
-  for (let i = 0; i < side * side; i++) {
-    data[i * 4] = Math.round((n.getX(i) * 0.5 + 0.5) * 255);
-    data[i * 4 + 1] = Math.round((n.getY(i) * 0.5 + 0.5) * 255);
-    data[i * 4 + 2] = Math.round((n.getZ(i) * 0.5 + 0.5) * 255);
-    data[i * 4 + 3] = Math.round(sl.getX(i) * 255);
-  }
+function detailMap(data: Uint8Array<ArrayBuffer>, size: number) {
+  const side = TERRAIN_SEGMENTS + 1; // (the texels: terrain-worker.ts)
   const tex = new THREE.DataTexture(data, side, side); // (row j: z = j cells from the -z edge; texel i: x)
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearMipmapLinearFilter;

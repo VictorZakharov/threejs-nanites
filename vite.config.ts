@@ -21,11 +21,12 @@ export default defineConfig({
   resolve: {
     alias: [
       { find: /^@dgreenheck\/ez-tree$/, replacement: `/${EZ_TREE}index.js` },
-      // (ez-tree imports 'three': the WebGL build, ~half a megabyte the demo never runs; WebGPU's has the same classes)
-      { find: /^three$/, replacement: 'three/webgpu' },
+      // (ez-tree imports 'three', in the DAG worker where it grows the trees: three's core from source, so only the
+      // classes it uses are bundled; the build, with the WebGL renderer, made a ~1 MB worker)
+      { find: /^three$/, replacement: 'three/src/Three.Core.js' },
     ],
   },
-  worker: { format: 'es' },
+  worker: { format: 'es', plugins: () => [ezTreeWithoutTextures()] }, // (ez-tree grows in the DAG worker)
   build: { target: 'es2022' },
   // (the harness's scratch and output: browser profiles left by hung runs are ~100k files, and watching them held
   // up the dev server's first requests for minutes)

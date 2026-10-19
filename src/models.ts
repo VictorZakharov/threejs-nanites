@@ -72,8 +72,16 @@ export async function decodeModel(buf: Uint8Array, height: number): Promise<{ da
   return { dag: { vtx, idx, rec, meta, stats: { ...head.stats, ms: 0 } }, src };
 }
 
-export async function loadModel(url: string, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
-  const res = await fetch(url);
-  if (!res.ok) throw new Error(`${url}: ${res.status}`);
-  return decodeModel(new Uint8Array(await res.arrayBuffer()), height);
+/** Downloads and decodes a model in a worker (model-worker.ts); `url` relative to the page. */
+export function loadModel(url: string, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<{ dag: Omit<DagResult, 'id'>; src: ModelSource } | { error: string }>) => {
+      w.terminate();
+      if ('error' in e.data) reject(new Error(e.data.error));
+      else resolve(e.data);
+    };
+    w.onerror = (e) => reject(new Error(e.message));
+    w.postMessage({ url: new URL(url, document.baseURI).href, height });
+  });
 }

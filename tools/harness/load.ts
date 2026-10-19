@@ -76,22 +76,23 @@ async function oneBoot(url: string, query: string, opts: Options, outDir: string
       await cdp.send('Profiler.setSamplingInterval', { interval: 250 });
       await cdp.send('Profiler.start');
     }
+    // every request, the workers' too (Resource Timing has only the page's own): URL, body size, epoch ms done
+    const done: Promise<{ name: string; body: number; endEpoch: number }>[] = [];
+    page.on('requestfinished', (req) => {
+      const t = req.timing();
+      done.push(req.sizes().then((sz) => sz.responseBodySize, () => 0).then((body) => ({ name: req.url(), body, endEpoch: t.startTime + t.responseEnd })));
+    });
     await boot(page, url, query, opts, outDir);
     if (cdp) printProfile((await cdp.send('Profiler.stop')).profile as unknown as Profile, outDir);
     const r = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-      return {
-        log: window.__demo.loadLog,
-        html: nav?.responseEnd ?? 0,
-        res: performance.getEntriesByType('resource').map((e) => {
-          const t = e as PerformanceResourceTiming;
-          return { name: t.name, transfer: t.transferSize, body: t.decodedBodySize, start: t.startTime, end: t.responseEnd };
-        }),
-      };
+      return { log: window.__demo.loadLog, html: nav?.responseEnd ?? 0, origin: performance.timeOrigin };
     });
     // (each URL once: the workers load their script once per worker, from the cache)
     const seen = new Set<string>();
-    const res = r.res.filter((e) => !seen.has(e.name) && seen.add(e.name) && !e.name.startsWith('data:'));
+    const res = (await Promise.all(done))
+      .filter((e) => e.endEpoch >= r.origin && !e.name.startsWith('data:') && !seen.has(e.name) && seen.add(e.name))
+      .map((e) => ({ name: e.name, transfer: 0, body: e.body, start: 0, end: e.endEpoch - r.origin }));
     return { ...r, res, failed: failed() };
   } finally {
     // (closing can hang, as at the harness's end: 5 s, then on regardless)
@@ -106,7 +107,7 @@ const median = (a: number[]): number => {
 /** A log line without its numbers: the same step across boots. */
 const stepKey = (msg: string): string => msg.replace(/[\d.,]+/g, '#');
 /** A resource's file name without Vite's content hash or the query. */
-const shortName = (u: string): string => decodeURIComponent(new URL(u).pathname.split('/').pop() ?? u).replace(/-[\w-]{8}(\.\w+)$/, '$1');
+const shortName = (u: string): string => decodeURIComponent(new URL(u).pathname.split('/').pop() || 'index.html').replace(/-[\w-]{8}(\.\w+)$/, '$1');
 
 /** --load=N for one query: prints the median timeline and the downloads; returns them for report.json. */
 export async function measureLoads(url: string, query: string, opts: Options, outDir: string) {
@@ -138,7 +139,7 @@ export async function measureLoads(url: string, query: string, opts: Options, ou
     endS: median(runs.map((x) => x.res.find((y) => y.name === r.name)?.end ?? NaN).filter((v) => !Number.isNaN(v))) / 1000,
   }));
   res.sort((a, b) => a.endS - b.endS);
-  console.log('\ndownloads (kB over the wire / decoded, done at s)');
+  console.log('\ndownloads (kB gzipped / decoded, done at s)');
   for (const r of res) console.log(`  ${r.file.slice(0, 40).padEnd(40)} ${String(r.kB).padStart(7)} ${String(r.bodykB).padStart(7)} ${r.endS.toFixed(2).padStart(7)}s`);
   const total = res.reduce((s, r) => s + r.kB, 0);
   console.log(`  ${'total'.padEnd(40)} ${String(total).padStart(7)} kB`);

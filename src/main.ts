@@ -56,11 +56,23 @@ const ui = new LoadingScreen();
 demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 
 // ---------------------------------------------------------------- setup
-// the bark and leaf texture arrays' layers load in workers from the start (src/texture-worker.ts)
+// Everything that needs no GPU starts in workers at once, before the GPU is even asked for: the bark and leaf texture
+// arrays' layers (src/texture-worker.ts), the forest floor's maps (src/ground/), the planting (src/planting.ts), the
+// trees grown with their cluster DAGs (src/trees.ts) and Lucy's download.
 const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
 const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
 const barkLayers = barkTypes.map((t) => loadLayer(t === 'stone' ? 'stone' : `./textures/${t}_color_1k.jpg`, 1024));
 const leafLayers = leafTypes.map((t) => loadLayer(`./textures/${t}_color.png`, 1024, true));
+const t0 = performance.now();
+const floorMaps = loadFloorMaps();
+let plantedMs = 0;
+const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
+const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
+// terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog (its grids: terrain-worker.ts)
+const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
+const terrainReady = createTerrain(terrainSize);
+// (a failure surfaces where it's awaited; meanwhile no unhandled-rejection noise)
+for (const p of [...barkLayers, ...leafLayers, floorMaps, planting, growing, terrainReady]) p.catch(() => {});
 
 async function start() {
   await ui.update(0.02, 'Waking the GPU');
@@ -122,27 +134,20 @@ async function start() {
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
-  // the workers first (the forest floor's maps, src/ground/; the forest planted while the trees grow, src/planting.ts)
-  const t0 = performance.now();
-  const floorMaps = loadFloorMaps();
-  let plantedMs = 0;
-  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
-  // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
-  const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
-  const terrain = createTerrain(terrainSize);
-  scene.add(terrain);
   // drawn after the trees, the sky last: what the trees hide is then rejected by its depth before the floor's
   // shader (relief, litter) runs (created first, they were drawn first: over the canopy -0.5 ms, -0.2 elsewhere)
-  terrain.traverse((o) => (o.renderOrder = 1));
   sky.renderOrder = 2;
   const clouds = createClouds();
   scene.add(clouds.group);
   clouds.group.traverse((o) => o.layers.set(PHASE2_LAYER)); // (transparent: drawn after both tree phases)
   clouds.group.visible = params.get('clouds') !== '0'; // (debug switch)
   pre.add(sky, clouds.group); // (the GPU is idle while the trees grow)
+  const terrain = await terrainReady;
+  scene.add(terrain);
+  terrain.traverse((o) => (o.renderOrder = 1));
 
   // trees
-  const trees = await buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
+  const trees = await growing;
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
@@ -438,10 +443,13 @@ async function start() {
   const slowest = await pre.done();
   if (pre.on) ui.note(`Compiled the materials and ${passes} compute passes in parallel (slowest: ${slowest}), waited (${Math.round(performance.now() - tc)} ms)`);
   const byName = (prefix: string): THREE.Object3D[] => forest.group.children.filter((o) => o.name.startsWith(prefix));
+  // (compiled ahead, one draw of everything compiles the shadow-map versions and one frame the full-screen passes;
+  // else a group and a stage at a time, so the bar moves between the compiles)
+  const all = [terrain, sky, clouds.group, ...forest.group.children];
   await warmUp(ui, {
-    renderer, scene, camera, target: sceneRT, mrt: sceneMRT, sun, shadowsOn, stages,
-    all: [terrain, sky, clouds.group, ...forest.group.children],
-    groups: [
+    renderer, scene, camera, target: sceneRT, mrt: sceneMRT, sun, shadowsOn, all,
+    stages: pre.on ? stages.slice(-1) : stages,
+    groups: pre.on ? [['shadows', all]] : [
       ['terrain and sky', [terrain, sky]],
       ['bark', byName('nanite-bark')],
       ['leaves', byName('nanite-leaves')],
