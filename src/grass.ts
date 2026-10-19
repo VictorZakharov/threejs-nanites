@@ -16,7 +16,7 @@ import {
   Fn, instanceIndex, attribute, uniform, float, vec2, vec3, vec4, sin, cos, mix, clamp, smoothstep, varying,
   normalLocal, cameraProjectionMatrix, cameraViewMatrix, mrt, normalViewGeometry, abs, sign, storage,
 } from 'three/tsl';
-import { curve, viewerPos } from './planet.ts';
+import { curve, viewerPos, detailShift } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import { BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, type KeepRing } from './grass-keep.ts';
 import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
@@ -217,7 +217,7 @@ export function createGrass(ctx: GrassContext) {
       if (!group.visible) return;
       camera.updateMatrixWorld();
       frustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
-      const c = camera.position;
+      const c = camera.position.clone().add(detailShift); // (detailPos: the grid and the keep test's distances)
       for (const r of rings) {
         const ox = Math.floor(c.x / r.cell) - (r.N >> 1), oz = Math.floor(c.z / r.cell) - (r.N >> 1);
         r.keep.origin.value.set(ox, oz);

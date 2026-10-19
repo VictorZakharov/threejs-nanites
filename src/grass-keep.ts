@@ -10,7 +10,7 @@ import {
   cos, mix, clamp, smoothstep, textureLoad, texture, mx_noise_float, select, sqrt, atomicAdd, atomicStore, atomicLoad,
 } from 'three/tsl';
 import { minU } from './nanite/constants.ts';
-import { curve, viewerPos } from './planet.ts';
+import { curve, detailPos } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import { meadowColourAt } from './terrain.ts';
 import { floatAsUint, packHalf, packUnorm4 } from './three-gaps.ts';
@@ -18,8 +18,9 @@ import type { Float, Uint, Vec2 } from './types.ts';
 
 const params = new URLSearchParams(location.search);
 /** A blade grows in over this share of its keep chance (`?grassgrow=`, 0 = pops): popping in whole, walking forward
- * showed grass appearing ahead (the user). */
-const GROW = Number(params.get('grassgrow') ?? 0.3);
+ * showed grass appearing ahead (the user); over 0.3 of it, blades rose within a metre or two of walking, a band of
+ * them moving along ahead ("a redraw circle": `--sweep=detail` 53 -> 13 jumps on `meadow`, the same image). */
+const GROW = Number(params.get('grassgrow') ?? 0.6);
 const CLUMP = 0.8; // m: the tufts' grid (one jittered centre per cell)
 /** How much the blades gather into tufts where grass is sparse / dense (`?grassclump=sparse,dense`, 0,0 = evenly). */
 const [CLUMP_SPARSE, CLUMP_DENSE] = (params.get('grassclump') ?? '0.85,0').split(',').map(Number);
@@ -160,11 +161,11 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
       // the distance along the ground: from high up there's nothing left to see anyway); its blades are pulled a
       // little towards its centre
       const tuft = clumpOf(at);
-      const near = float(1).sub(smoothstep(18 * ctx.scale, 34 * ctx.scale, at.sub(viewerPos.xz).length()));
+      const near = float(1).sub(smoothstep(18 * ctx.scale, 34 * ctx.scale, at.sub(detailPos.xz).length()));
       const clumpy = mix(CLUMP_SPARSE, CLUMP_DENSE, smoothstep(0.1, 0.6, flat)).mul(near).toVar();
       const xz = mix(at, tuft.centre, clumpy.mul(0.3)).toVar();
       const g = ground(xz);
-      const d = vec3(xz.x, g.y, xz.y).sub(viewerPos).length(); // (3D: flying up, the grass thins out evenly)
+      const d = vec3(xz.x, g.y, xz.y).sub(detailPos).length(); // (3D: flying up, the grass thins out evenly)
       // ring cross-fade: fade in over the inner ring's last 20%, out over this ring's last 20% (the outermost to 0)
       const fadeIn = k === 0 ? float(1) : smoothstep(inner * 0.8, inner, d);
       const fadeOut = float(1).sub(smoothstep(radius * 0.8, radius, d));

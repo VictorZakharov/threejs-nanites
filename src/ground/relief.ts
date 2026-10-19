@@ -4,6 +4,7 @@
 // and the shadows are. The steps are a uniform (0 = off: the menu switch compiles nothing); the relief fades out with
 // distance, where it's too fine to see.
 import { Fn, Loop, If, Break, float, vec2, uniform, select, smoothstep, max, mix, clamp, cameraPosition, positionWorld, dFdx, dFdy } from 'three/tsl';
+import { detailPos } from '../planet.ts';
 import type * as THREE from 'three/webgpu';
 import type { Float, Vec2 } from '../types.ts';
 
@@ -29,7 +30,7 @@ export function reliefUv(height: THREE.Texture, uv: Vec2, r: Relief, sample: (t:
     const toEyeRaw = cameraPosition.sub(positionWorld);
     const dist = toEyeRaw.length();
     const toEye = toEyeRaw.div(max(dist, 1e-4));
-    const depth = float(r.depth).mul(scale).mul(float(1).sub(smoothstep(r.fade * 0.6, r.fade, dist)));
+    const depth = float(r.depth).mul(scale).mul(float(1).sub(smoothstep(r.fade * 0.6, r.fade, positionWorld.sub(detailPos).length())));
     const result = uv.toVar();
     If(reliefSteps.greaterThan(0).and(depth.greaterThan(0)).and(toEye.y.greaterThan(0)), () => {
       // a metre down the ray moves it this far over the ground, in uv (away from the eye)

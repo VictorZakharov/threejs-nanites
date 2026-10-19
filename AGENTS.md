@@ -219,8 +219,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   tile is out of the ring by its 3D distance (by the ground distance alone, from high up every tile under the camera
   was drawn, every blade dropped: 20% of a phone's GPU time 8 km up). Blades: 4 segments, normals rounded across the width, colour per pixel
   (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
-  the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
-  ahead (the user).
+  the ground over a share `?grassgrow=` (0.6) of their keep chance: popping in whole, walking showed grass appearing
+  ahead (the user); at 0.3 they rose within a metre or two of walking, a band moving along ahead ("a redraw circle",
+  seen only in motion). `--sweep=detail` holds the camera and moves only `detailPos` (`src/planet.ts`), where the
+  grass, the litter's blend and the relief measure their fades from: what changes is a fade sliding along (use
+  `taa=0` and a short sweep, `--steps=6 --step=0.3`: the heatmap is the largest jump over all steps; `meadow` 53 ->
+  13 jumps, worst 6.7 -> 4.1/255; growing over the whole chance, 1, made the grass sparser everywhere).
   Tufts: a jittered 0.8 m grid of clump centres in world space (every ring agrees); a tuft's blades share a height
   and dryness, are pulled towards its centre and fan out from it, and where grass is sparse whole tufts are kept or
   dropped (`?grassclump=sparse,dense` gathering, 0,0 = evenly): evenly spread, the forest floor's few blades were lone
