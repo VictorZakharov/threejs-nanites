@@ -22,7 +22,7 @@ import {
   length,
 } from 'three/tsl';
 import type { ComputeNode, StorageBufferNode } from 'three/webgpu';
-import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, minU, minI, maxI } from './constants.ts';
+import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, SPLAT_BIT, minU, minI, maxI } from './constants.ts';
 import type { NaniteForest } from './forest.ts';
 import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
@@ -257,7 +257,13 @@ export class SoftRaster {
     if (!this.ran || this.on.value === 0) return;
     const r = renderer;
     this.viewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
-    computeBatch(r, [this.args, [this.clear, width * height], [this.depthPass, this.dispatchAttr], [this.idPass, this.dispatchAttr]]);
+    // (and the splatted impostors, splats.ts: every depth before any id)
+    const sp = this.forest.splats;
+    const splat = (pass: ComputeNode | null): [ComputeNode, THREE.IndirectStorageBufferAttribute][] => (pass && sp.on.value === 1 ? [[pass, sp.dispatchAttr]] : []);
+    computeBatch(r, [
+      this.args, ...(sp.args && sp.on.value === 1 ? [sp.args] : []), [this.clear, width * height],
+      [this.depthPass, this.dispatchAttr], ...splat(sp.depthPass), [this.idPass, this.dispatchAttr], ...splat(sp.idPass),
+    ]);
   }
 
   /** Called before culling: screen size, camera near plane; resets the list. */
@@ -306,7 +312,7 @@ export class SoftRaster {
     mat.vertexNode = vec4(positionGeometry.xy, 0, 1);
     mat.fog = false;
     mat.colorNode = Fn(() => {
-      Discard(id.equal(0).and(lost.not()).or(this.on.equal(0)));
+      Discard(id.equal(0).and(lost.not()).or(this.on.equal(0)).or(id.greaterThanEqual(uint(SPLAT_BIT)))); // (splats: splats.ts)
       return vec4(select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), dbg, albedo)))), 1);
     })();
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz);

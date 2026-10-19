@@ -41,19 +41,26 @@ interface ImpostorQuad {
   coverage: Float;
 }
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
-const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
-const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
+export const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
+export const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
-const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
+export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const GROW_MAX = Math.max(...GROW);
 // the share of sub-MIN_PX trees kept: drawn MIN_PX / w times wider and taller, a tree keeps its coverage when (w /
 // MIN_PX)^2 of them are drawn (?impkeep=width: w / MIN_PX, MIN_PX / w times the coverage)
 const KEEP_AREA = new URLSearchParams(location.search).get('impkeep') !== 'width';
-const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(MIN_PX).pow(2) : wPx.div(MIN_PX));
-const deg = Math.PI / 180;
+// Half the trees (hash > 0.5: the mirrored ones) have no impostor: they fade out at the switch and aren't listed. Their
+// quads were always drawn with zero width (the corner's x was built inside the mirroring's branch, and the position
+// read it unset), so the impostors' look and calibration (GROW, impGain, impcov) are those of the other half, and
+// listing them only cost vertex work (half of a phone's ~500k quads at 9 km). `?impall=1` draws them all, mirrored.
+const IMP_ALL = new URLSearchParams(location.search).get('impall') === '1';
+/** False for the trees that have no impostor (see IMP_ALL). */
+export const impostorShown = (i: Uint): Bool => (IMP_ALL ? bool(true) : hash(i).lessThanEqual(0.5));
+export const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(MIN_PX).pow(2) : wPx.div(MIN_PX));
+export const deg = Math.PI / 180;
 // the elevation tiles are evenly spaced from 0 (each blends with the next round the midpoint between them, +-7.5
 // degrees: the bands don't overlap, so at most two tiles have weight)
-const ELEV_STEP = ELEVATIONS[1] - ELEVATIONS[0];
+export const ELEV_STEP = ELEVATIONS[1] - ELEVATIONS[0];
 if (ELEVATIONS.some((e, k) => e !== k * ELEV_STEP)) throw new Error('ELEVATIONS must be evenly spaced from 0');
 // an impostor's quad, indexed: its vertex shader runs 4 times, not 6 (as the leaf cards, LEAF_INDEX in draw.ts); from
 // high up a phone draws ~500k of them, and its time followed their count, not the pixels
@@ -77,7 +84,7 @@ export const billboardMethods = {
     const fr = this.impFrame.element(uint(this._b(i).z));
     const pivot = a.xyz.add(vec3(0, fr.y.mul(s).mul(0.5), 0));
     const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
-    return wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx)));
+    return impostorShown(i).and(wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx))));
   },
 
   /**
@@ -121,8 +128,9 @@ export const billboardMethods = {
       const s = a.w;
       // corners of the quad (0,0) (1,0) (1,1) (0,1), two triangles by IMP_INDEX
       const vi = vertexIndex;
-      const cx = select(vi.equal(1).or(vi.equal(2)), float(1), float(0));
-      const cy = select(vi.equal(2).or(vi.equal(3)), float(1), float(0));
+      // (vars: built inside the mirroring's branch below, they were unset for the position on the mirrored quads)
+      const cx = select(vi.equal(1).or(vi.equal(2)), float(1), float(0)).toVar();
+      const cy = select(vi.equal(2).or(vi.equal(3)), float(1), float(0)).toVar();
       const h0 = frameH.element(type).mul(s);
       const pivot = a.xyz.add(vec3(0, h0.mul(0.5), 0));
       const dir = dirOf(pivot);

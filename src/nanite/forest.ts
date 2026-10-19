@@ -16,7 +16,8 @@ import * as THREE from 'three/webgpu';
 import { storage, uniform, uniformArray, bitcast, uint } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
-import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, LIST_CAP } from './constants.ts';
+import { Splats } from './splats.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT, LIST_CAP } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
@@ -72,6 +73,7 @@ export class NaniteForest {
   readonly mainCtr: Counters;
   readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number; LIST_CAP: number; PLANET_RADIUS: number };
   readonly sw: SoftRaster;
+  readonly splats: Splats;
   readonly main: View;
   readonly shadow: View;
   readonly group: THREE.Group;
@@ -100,6 +102,7 @@ export class NaniteForest {
     this.mainCtr = makeCounters();
     this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS }; // (for the harness probes)
     this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/nanite/softraster.js)
+    this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (src/nanite/splats.ts)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();
@@ -248,6 +251,7 @@ export class NaniteForest {
     // auto quality trims tau if it's still too much)
     this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1);
     this.sw.begin(this.renderer, camera, size.x, size.y);
+    this.splats.begin();
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)
     this._cull(this.main, camera);
     this.shadowActive = Boolean(shadowCamera);
@@ -287,6 +291,7 @@ export class NaniteForest {
       if (k === 1) out.phase2 = ctr[s + 2];
     });
     out.impostors = ctr[IMP_ARGS + 1];
+    if (view === this.main) out.splats = ctr[SPLAT];
     if (view === this.main) Object.assign(out, await this.sw.readStats(this.renderer));
     return out;
   }
