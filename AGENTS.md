@@ -226,7 +226,17 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   a yellow-green glow where the sun is behind the face we see (scaled down by canopy cover: the shadow map only
   darkens the surface light, so a glow would stay in the shade). The old root colour (dark green up to 3/4 of the
   blade) made every blade darker than the ground; with the ground's own colour (a debug test) blades matched it, so
-  the lighting was fine. Views `meadow`, `meadowclose` (a clearing ~350 m from the spawn). Same GPU time as before.
+  the lighting was fine. Views `meadow`, `meadowclose` (a clearing ~350 m from the spawn).
+  Density (the user's reference: a UE meadow, a carpet of thin blades): `?grassdense=` blades per m² x (the cells
+  shrink by its root), 4 on desktops, 1 on touch. The blades widen with the cell, so they get thinner too. Cost on the
+  dev GPU: x4 +0.3-0.5 ms, x6 +0.9, the same on the forest floor where nearly every blade is dropped: it's the
+  vertex invocations (a branch skipping the shaping for dropped blades saved nothing). Compacting the kept blades in
+  a compute pass (as the trees do) would remove that. Blades have 4 / 3 / 2 segments by ring (`segs`: the far ones
+  are a few pixels tall; -0.15 ms). Tufts gather only where grass is sparse (`flat`, before the slope): pulled
+  together, a dense meadow was tufts with bare ground between. Each blade has its own green, blue-green to
+  yellow-green. The floor's meadow colour is darkened up to half under the blades (`underGrass`, by the same road /
+  cover / patch terms, back to 1 by 85% of the outer ring's radius, off with the menu's switch): lit as open ground
+  it showed pale olive between them.
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). They took the instances from

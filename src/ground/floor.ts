@@ -16,6 +16,7 @@ import { reliefUv } from './relief.ts';
 import { cobbles, cobbleAverage, cobblePatches } from './cobbles.ts';
 import { roadDistanceNode } from '../road.ts';
 import { footprint } from '../nanite/shading.ts';
+import { underGrass } from '../grass.ts';
 import { meadowColour } from '../terrain.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
@@ -155,7 +156,7 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
   // the road and the plaza (src/road.ts): cobbles, the edge a little ragged
   const paved = pavedAt(p);
   const cob = cobbles(p);
-  mat.colorNode = mix(mix(meadow, floor, under), cob.colour, paved);
+  mat.colorNode = mix(mix(meadow.mul(underGrass(p, coverMap.r, dist)), floor, under), cob.colour, paved); // (in the blades' shade: src/grass.ts)
   // the maps' normals on the terrain's (v runs along +z: dh/dz = g)
   const ground = vec3(nm.x, 0, nm.y.negate()).mul(under.mul(0.8));
   const nW = normalWorld.add(mix(ground, vec3(cob.tilt.x, 0, cob.tilt.y), paved)).normalize();
