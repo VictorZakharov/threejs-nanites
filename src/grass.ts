@@ -37,6 +37,7 @@ const RINGS = [
   { cell: 0.09, radius: 16, segs: 4 },
   { cell: 0.2, radius: 40, segs: 3 },
   { cell: 0.45, radius: 90, segs: 2 },
+  { cell: 1, radius: 200, segs: 1 },
 ].map((r) => ({ ...r, cell: r.cell / Math.sqrt(DENSE) }));
 
 export interface GrassContext {
@@ -50,6 +51,9 @@ export interface GrassContext {
   renderer: THREE.WebGPURenderer; // (the keep passes)
 }
 
+/** Where the outermost ring's blades turn to the ground's colour (and the ground's darkening under them fades):
+ * from the ring inside's radius to 80% of its own (m). */
+const farSpan = (k: number): [number, number] => [RINGS[k - 1].radius * SCALE, RINGS[k].radius * SCALE * 0.8];
 const shown = uniform(SCALE > 0 ? 1 : 0); // the grass is drawn (the menu's switch)
 
 /**
@@ -59,9 +63,9 @@ const shown = uniform(SCALE > 0 ? 1 : 0); // the grass is drawn (the menu's swit
  */
 export function underGrass(p: Vec2, cover: Float, dist: Float): Float {
   if (!(SCALE > 0)) return float(1); // (no grass; smoothstep(0, 0, x) doesn't compile)
-  const reach = 90 * SCALE;
+  const [from, to] = farSpan(RINGS.length - 1);
   const blades = smoothstep(0.1, 0.9, roadDistanceNode(p)).mul(float(1).sub(cover.mul(0.6))).mul(smoothstep(0.05, 0.45, patchAt(p)));
-  return float(1).sub(blades.mul(float(1).sub(smoothstep(reach * 0.45, reach * 0.85, dist))).mul(shown).mul(0.5));
+  return float(1).sub(blades.mul(float(1).sub(smoothstep(from, to, dist))).mul(shown).mul(0.5));
 }
 
 /** One blade: (t along it 0..1, side -1..1). Triangle strip as indexed triangles. */
@@ -108,7 +112,7 @@ export function createGrass(ctx: GrassContext) {
     const inner = k === 0 ? 0 : RINGS[k - 1].radius * scale;
     const S = Math.ceil((Math.ceil((radius * 2) / cell) + 1) / TILES); // cells a side per tile
     const N = S * TILES;
-    const spec: KeepRing = { k, cell, radius, inner, nextCell: RINGS[k + 1]?.cell ?? null, S, tiles: TILES };
+    const spec: KeepRing = { k, cell, radius, inner, nextCell: RINGS[k + 1]?.cell ?? null, S, tiles: TILES, toGround: k === RINGS.length - 1 ? farSpan(k) : null };
     const cap = ringCapacity(spec);
     caps.push(cap);
     const keep = buildKeepPass(keepCtx, spec, cap);

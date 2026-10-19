@@ -201,8 +201,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   fade; M / the menu's switch / the touch screen's ♪ mute it, remembered in localStorage; paused while the tab is
   hidden. It's birdsong: it fades out with the height above the ground (`HEARD`: full to 40 m, silent and paused
   from 300 m; the user: "can't hear if too high"). Off under the harness unless `?music=1` (the harness's browser allows autoplay: `--probe=music`).
-- Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): three instanced rings of
-  blades round the viewer (cells 0.09 / 0.2 / 0.45 m out to 16 / 40 / 90 m), each a grid of world cells snapped to
+- Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): four rings of
+  blades round the viewer (cells 0.09 / 0.2 / 0.45 / 1 m out to 16 / 40 / 90 / 200 m, before `?grassdense=`), each a grid of world cells snapped to
   the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered
   fraction stays even. Blades stand on the terrain mesh's own vertex heights (a float texture, same triangle split as
   PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. Which blades
@@ -238,8 +238,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   compute. Blades have 4 / 3 / 2 segments by ring (`segs`: the far ones are a few pixels tall; -0.15 ms). Tufts gather only where grass is sparse (`flat`, before the slope): pulled
   together, a dense meadow was tufts with bare ground between. Each blade has its own green, blue-green to
   yellow-green. The floor's meadow colour is darkened up to half under the blades (`underGrass`, by the same road /
-  cover / patch terms, back to 1 by 85% of the outer ring's radius, off with the menu's switch): lit as open ground
-  it showed pale olive between them.
+  cover / patch terms, off with the menu's switch): lit as open ground it showed pale olive between them. The
+  outermost ring (1 segment: a triangle) fades it back to 1 from the third ring's radius to 80% of its own, and over
+  the same span its blades turn to the ground's own colour (`meadowColourAt`), unshaded, as they thin out: with the
+  grass ending at 90 m, the darker carpet with pale tips stopped at a line across the meadow (the user; `meadowair`:
+  the grass is ~18% darker near, the same as `grass=0` at ~200 m). The fourth ring costs ~+0.05 ms.
 - Bushes: ez-tree's Bush 1-3 presets are variants like the trees (cluster DAG, impostors, shadows, occlusion);
   `placeBushes` adds `?bushes=` per tree (1.5, 0.5 on touch) after the trees in the same instance buffers, thickest
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). They took the instances from

@@ -12,6 +12,7 @@ import {
 import { minU } from './nanite/constants.ts';
 import { curve, viewerPos } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
+import { meadowColourAt } from './terrain.ts';
 import { floatAsUint, packHalf, packUnorm4 } from './three-gaps.ts';
 import type { Float, Uint, Vec2 } from './types.ts';
 
@@ -61,6 +62,7 @@ export interface KeepRing {
   nextCell: number | null; // the next ring's cell (the morph's end)
   S: number; // cells a side per tile
   tiles: number; // tiles a side
+  toGround: [number, number] | null; // the outermost ring: its blades turn to the ground's colour over this span (m)
 }
 
 /** The most blades a ring can keep: its cells where the cross-fade and the morph leave a chance, all of it (x1.3). */
@@ -196,16 +198,24 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
         // an arc: tilted at the root (the tuft's outer blades most), bending further along it
         const tilt = mix(0.05, 0.4, clamp(dn, 0, 1).mul(clumpy)).add(rnd(9).mul(0.15));
         const bendK = mix(0.2, 0.85, rnd(5)); // (the tip at most ~80 degrees over: further, blades lay flat as pale streaks)
-        // sun through the blade, less under the canopy (in its shade, which the shadow map gives the surface light
-        // only, a glow would stay); the root's darkening: deepest in a dense tuft
-        const through = float(1).sub(cv.r.mul(0.85));
-        const rootDark = mix(0.75, 0.45, density.mul(mix(1, inTuft, clumpy)));
         // colour: lighter and a little yellow at the tip, patches and tufts of drier grass
         const dry = smoothstep(0.55, 0.9, mx_noise_float(xz.mul(0.11).add(17)).mul(0.5).add(0.5)).mul(0.6).add(rnd(7).mul(0.25)).add(cellHash(tuft.cell, 53).sub(0.5).mul(0.3)).clamp(0, 1);
         // each blade its own green, from blue-green to yellow-green (one green for all read as a flat carpet)
         const hue = rnd(8);
         const green = mix(mix(vec3(0.2, 0.36, 0.17), vec3(0.33, 0.48, 0.12), smoothstep(0, 0.5, hue)), vec3(0.5, 0.58, 0.13), smoothstep(0.5, 1, hue));
-        const tip = mix(green, vec3(0.58, 0.54, 0.25), dry).mul(mix(0.75, 1.15, rnd(10)));
+        let tip = mix(green, vec3(0.58, 0.54, 0.25), dry).mul(mix(0.75, 1.15, rnd(10)));
+        // sun through the blade, less under the canopy (in its shade, which the shadow map gives the surface light
+        // only, a glow would stay); the root's darkening: deepest in a dense tuft
+        let through: Float = float(1).sub(cv.r.mul(0.85));
+        let rootDark: Float = mix(0.75, 0.45, density.mul(mix(1, inTuft, clumpy)));
+        // the outermost ring's blades turn to the ground's own colour, unshaded, as they thin out, so the grass ends
+        // in the plain ground rather than at a line (paler tips and darker roots than the ground: the user)
+        if (r.toGround) {
+          const far = smoothstep(r.toGround[0], r.toGround[1], d);
+          tip = mix(tip, meadowColourAt(xz, g.slope), far);
+          through = through.mul(float(1).sub(far));
+          rootDark = mix(rootDark, 1, far);
+        }
         const slot = atomicAdd(ctr, uint(1)).toVar();
         If(slot.lessThan(uint(cap)), () => {
           const bits = floatAsUint;
