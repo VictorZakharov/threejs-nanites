@@ -136,8 +136,13 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const budget = Number(params.get('budget') ?? (touch0 ? 33 : 17)); // ms a frame
   const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: renderer.getPixelRatio() / maxPr, gpuMs: 0, busy: false };
   const tau = { value: 1 };
+  // what happened when, from the reveal (the report's startup timeline: what a flicker could be)
+  let shownAt = 0;
+  const events: string[] = [];
+  const ev = (msg: string): void => void (events.length < 200 && events.push(`${((performance.now() - shownAt) / 1000).toFixed(2)} s  ${msg}`));
   const setScale = (s: number): void => {
     auto.trials?.push(`${(performance.now() / 1000).toFixed(2)} s: ${auto.scale.toFixed(2)} -> ${s.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
+    ev(`resolution ${Math.round(auto.scale * 100)}% -> ${Math.round(s * 100)}% (median frame ${median.toFixed(1)} ms)`);
     auto.scale = s;
     renderer.setPixelRatio(maxPr * s);
   };
@@ -163,6 +168,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     if (trial) {
       const failed = median > trial.before * 0.9;
       if (failed) auto.trials?.push(`step down saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
+      if (failed) ev(`that step saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
       if (failed) (setScale(trial.from), (hold = 30));
       trial = null;
       if (failed) return;
@@ -188,6 +194,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const size = new THREE.Vector2();
   function frame(dt: number): void {
     if (renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
+      ev(`canvas resized ${renderer.domElement.clientWidth}x${renderer.domElement.clientHeight} -> ${window.innerWidth}x${window.innerHeight}`);
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
       camera.updateProjectionMatrix();
@@ -214,7 +221,9 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
     renderer.getDrawingBufferSize(size);
+    const smap = sun.shadow.mapSize.x;
     fitShadowMap(size.x * size.y);
+    if (sun.shadow.mapSize.x !== smap) ev(`shadow map ${smap} -> ${sun.shadow.mapSize.x}`);
     follow(camera, gy, demo.shadowShift);
     forest.update(camera, size.y, fogFar.value);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
@@ -239,6 +248,9 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   frame(0);
   ui.note('WebGL mode: first frame ready');
   await ui.reveal();
+  shownAt = performance.now();
+  ev(`shown: ${size.x}x${size.y}, resolution ${Math.round(auto.scale * 100)}%, shadow map ${sun.shadow.mapSize.x}`);
+  if (hud.perf) hud.perf.extra = () => ['startup (s from the reveal: resolution steps, resizes, slow frames)', ...events.map((e) => `  ${e}`)].join('\n');
   // the forest floor after the first frame, its shader compiled meanwhile (~1.8 s of the dev machine's on its own):
   // till then the plain ground from high up (?glfloor=0: for good)
   const tg = performance.now();
@@ -247,18 +259,28 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const floorIn = params.get('glfloor') === '0' ? Promise.resolve() : Promise.all([o.floorMaps.ready, renderer.compileAsync(proxy, camera, scene)]).then(() => {
     nearGround.material = floorMat;
     ui.note(`Forest floor in, ${Math.round(performance.now() - tg)} ms after the first frame`);
+    ev('forest floor in (the plain ground before)');
   });
-  if (harness) await floorIn;
+  // (?startloop=1 under the harness: the page's own first 10 s, the floor coming in meanwhile, as a person sees them)
+  const startLoop = harness && params.get('startloop') === '1';
+  if (harness && !startLoop) await floorIn;
   else floorIn.catch((e) => console.error(e));
   let prev = performance.now();
   const loop = (): void => {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000);
+    if (now - prev > 50 && now - shownAt < 60000) ev(`frame of ${Math.round(now - prev)} ms`);
     prev = now;
     frame(dt);
     steer(dt);
     hud.frame(now, dt);
   };
   if (!harness) renderer.setAnimationLoop(loop);
+  if (startLoop) {
+    auto.on = params.get('auto') !== '0';
+    renderer.setAnimationLoop(loop);
+    await Promise.all([floorIn, new Promise((r) => setTimeout(r, 10000))]);
+    renderer.setAnimationLoop(null);
+  }
   demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on);
   hud.update();
   demo.ready = true;
