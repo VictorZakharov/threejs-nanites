@@ -1,9 +1,9 @@
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, mix, positionWorld, smoothstep, texture, uniform, vec4, mrt, output as colourOutput } from 'three/tsl';
-import { createTerrain, heightAt, TERRAIN_SEGMENTS, meadowColour, terrainForAltitude, terrainDetail } from './terrain.ts';
+import { Fn, attribute, float, mix, smoothstep, vec4, mrt, output as colourOutput } from 'three/tsl';
+import { createTerrain, heightAt, TERRAIN_SEGMENTS, terrainForAltitude } from './terrain.ts';
 import { createGrass } from './grass.ts';
-import { loadFloorMaps, applyFloor, applyFarFloor } from './ground/floor.ts';
-import { createLitterMap } from './ground/litter-map.ts';
+import { loadFloorMaps } from './ground/floor.ts';
+import { setupGround } from './ground/setup.ts';
 import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
@@ -72,7 +72,7 @@ const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].
 const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
 const terrainReady = createTerrain(terrainSize);
 // (a failure surfaces where it's awaited; meanwhile no unhandled-rejection noise)
-for (const p of [...barkLayers, ...leafLayers, floorMaps, planting, growing, terrainReady]) p.catch(() => {});
+for (const p of [...barkLayers, ...leafLayers, floorMaps.ready, planting, growing, terrainReady]) p.catch(() => {});
 
 async function start() {
   await ui.update(0.02, 'Waking the GPU');
@@ -145,6 +145,13 @@ async function start() {
   const terrain = await terrainReady;
   scene.add(terrain);
   terrain.traverse((o) => (o.renderOrder = 1));
+  // the ground's shaders compile from here, the slowest (src/ground/setup.ts)
+  const { cover: density, litter, groundFar } = setupGround(terrain, floorMaps, forestRadius(TREE_COUNT), (far) => asReceivedShadow(makeFadeShadow(far)));
+  demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves, and each variant's kind of leaf)
+  demo.leafOf = VARIANTS.map((v) => v.leaf);
+  demo.litter = litter;
+  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
+  pre.add(terrain);
 
   // trees
   const trees = await growing;
@@ -163,6 +170,7 @@ async function start() {
   };
   const instances = await planting;
   lap(`Planted ${(instances.a.length / 4).toLocaleString()} trees, bushes and statues in workers, done ${Math.round(plantedMs)} ms in; waited`);
+  const covered = forestDensity(instances, density); // (in a worker, while the forest is built)
   const forest = new NaniteForest(renderer, trees, instances, {
     bark: barkTex,
     leaf: leafTex,
@@ -172,6 +180,7 @@ async function start() {
     leafDither: samples === 1 && LEAF_DITHER,
   });
   lap('Forest buffers and passes');
+  for (const t of trees) t.later?.tree.then((full) => forest.fillType(full)); // (Lucy, whenever she's downloaded)
   forest.u.tau.value = Number(params.get('tau') ?? 1);
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
@@ -185,29 +194,16 @@ async function start() {
     fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
   }));
   pre.add(forest.group); // (compiling while the ground and the impostors are made)
-  // ground: darkened by how much canopy stands over it
+  // and the culling's compute passes (a dry run; the instance passes' compile is the slowest after the ground's)
+  let passes = pre.addComputes(() => {
+    forest.update(camera, new THREE.Vector2(1920, 1080), 0, shadowsOn ? sun.shadow.camera : null);
+    forest.rasterize(camera, 1920, 1080);
+    const rt = forest.main.retest; // (the occlusion's retests: as slow to compile, and they don't need its depth yet)
+    if (rt?.treesPass && rt.clustersPass) renderer.compute([rt.treesPass, rt.clustersPass]);
+  });
   lap('Software rasterizer');
-  const density = forestDensity(instances);
-  lap('Canopy cover map');
-  demo.coverMap = density; // (harness: --probe=autumn reads the fallen leaves, and each variant's kind of leaf)
-  demo.leafOf = VARIANTS.map((v) => v.leaf);
-  const groundShade = uniform(Number(params.get('groundshade') ?? 0.7));
-  const coverMap = texture(density.texture, positionWorld.xz.div(density.extent * 2).add(0.5));
-  const cover = coverMap.r;
-  const groundFar = float(1).sub(cover.mul(groundShade));
-  for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = asReceivedShadow(makeFadeShadow(groundFar));
-  // the forest floor near the viewer: leaf litter under the canopy, parallax relief (src/ground/)
-  const nearGround = terrain.getObjectByName('terrain') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>;
-  const litter = createLitterMap(instances); // (which tree's leaves lie where near the viewer)
-  demo.litter = litter;
+  litter.plant(instances);
   lap('Litter map');
-  const floor = await floorMaps;
-  ui.note(`Floor maps in workers: soil and leaves ${floor.ms.join(' / ')} ms, done ${floor.doneMs} ms in`);
-  applyFloor(nearGround.material, floor, meadowColour(), coverMap, litter);
-  applyFarFloor((terrain.getObjectByName('terrain-high') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>).material, terrainDetail(terrain)); // (from high up)
-  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
-  pre.add(terrain); // (the floor's shader takes longest: 2-3 s on the dev machine)
-  lap('Forest floor');
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
@@ -217,6 +213,7 @@ async function start() {
   scene.add(grass.group);
   scene.add(forest.group);
   pre.add(grass.group);
+  passes += pre.addComputes(() => grass.update(camera));
   lap('Grass');
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
@@ -435,10 +432,13 @@ async function start() {
     ['software rasterizer', () => forest.rasterize(camera, size.x, size.y)],
     ['the first frame', () => frame(0)],
   ];
-  const passes = pre.addComputes(() => {
+  passes += pre.addComputes(() => {
     stages.slice(0, 3).forEach(([, run]) => run());
     grass.update(camera);
   });
+  await covered;
+  const floor = await floorMaps.ready;
+  ui.note(`Floor maps in workers: soil and leaves ${floor.ms.join(' / ')} ms, done ${floor.doneMs} ms in`);
   await ui.update(0.84, 'Compiling shaders', false);
   const slowest = await pre.done();
   if (pre.on) ui.note(`Compiled the materials and ${passes} compute passes in parallel (slowest: ${slowest}), waited (${Math.round(performance.now() - tc)} ms)`);

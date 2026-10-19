@@ -95,7 +95,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 
 - **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
-  methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
+  methods in modules by stage, attached as prototype mixins (`buffers.ts`, `culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
   plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
   loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
   startup's shader compiles) and `harness-api.ts` (`window.__demo`) are split out of it.
@@ -145,8 +145,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   materials take their layer and tint as uniforms (4 pipelines, not ~36), the atlas coverage runs in a worker with
   quickselect (sorting each level was 0.6 s in a browser), the road's distance map writes only near each piece of
   paving (0.7 s -> 40 ms, the same values). The loading log (on screen, `[loading]` in the console) times each step
-  from the navigation's start; the slowest compiles are named. What's left: #33 (the floor's shader compile,
-  the main thread) and #32 (Lucy's ~5 MB).
+  from the navigation's start; the slowest compiles and the last to finish are named. Then (#33, #32) 5.7 -> 4.1 s,
+  19.3 -> 16.8 s at a phone's pace: the ground's materials get their final shaders as soon as the terrain exists
+  (`ground/setup.ts`), compiled against their textures before they're filled (floor maps, cover map, litter map: made
+  empty at their size, filled in place: the same pipeline), from 1.7 s rather than 3.1; the compute passes compile
+  from the forest's creation (dry runs of the culling, the software rasterizer, the occlusion's retests, the grass);
+  the cover map is computed in a worker (`cover-worker.ts`); the chunks' runs use typed arrays; the statues no longer
+  hold the load up (Models above). three.js builds each shader in steps that yield to the main thread
+  (`buildAsync`), so every long main-thread task delays the compiles too: at a phone's pace they "took" 9-15 s.
+  What's left at a phone's pace: the GPU process compiling the biggest shaders (the floor's, the retest passes),
+  which the atlas read-back waits behind (~4 s), and three.js's node building (~3.5 s of main thread).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
@@ -160,7 +168,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   1M tris, DAG 15.7k clusters: 6.45 MB (positions 1.9, DAG triangles 4.1, clusters 0.5). Statues stand on the lowest
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
-  above, some missing (the user); views `plazatop`, `plazahigh`.
+  above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
+  Nothing waits for a model's download (Lucy is ~5 MB): `model-worker.ts` posts the file's header as soon as it has
+  arrived, the forest reserves the model's share of its buffers by it with no clusters (`BuiltTree.later`), and
+  `fillType` (`src/nanite/buffers.ts`) writes it in when it's decoded, uploads those ranges and refits the boxes of
+  the chunks holding the statues (her LOD spheres reach 8.4 m, her mesh's box 2.4). On a slow connection the statues
+  appear after the first frame; `?modeldelay=ms` delays her to test that.
   Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
   same code: re-run before bisecting a regression (and compare with the live site via `--url`).
 - The road (`src/road.ts`): a cobblestone road from the spawn point ~80 m to a plaza (radius 24 m) with a ring of

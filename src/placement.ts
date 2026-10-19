@@ -4,7 +4,8 @@ import * as THREE from 'three/webgpu';
 import { heightAt, mulberry32 } from './noise.ts';
 import { VARIANTS, isBush, isModel } from './trees.ts';
 import { roadDistance, PLAZA } from './road.ts';
-import { autumnOfPhase, fallOf, NEEDLES, AUTUMN } from './autumn.ts';
+import { AUTUMN } from './autumn.ts';
+import type { CoverJob } from './cover.ts';
 import { clearingAt, densityFor, forestTiles, tryBush, tryTree, type PlantConfig, type TilePlants } from './planting.ts';
 import type { PlantReply, PlantRequest } from './plant-worker.ts';
 
@@ -19,54 +20,43 @@ export const forestRadius = (count: number): number => Math.sqrt((count * TREE_S
 /**
  * Canopy cover (0..1, red) of the ground on a grid over the forest, for the far-field ground darkening; and the fallen
  * leaves under it (src/ground/floor.ts): green their amount (0..1: the trees' fallOf, weighted by crown), blue their
- * autumn level / 2 (src/autumn.ts); conifers drop a thick mat of needles (level 0).
+ * autumn level / 2 (src/autumn.ts); conifers drop a thick mat of needles (level 0). Empty until `forestDensity` fills
+ * it: the ground's shader compiles against it from the start (src/warmup.ts).
  */
-export function forestDensity({ a, b, radius }: TreeInstances): { texture: THREE.DataTexture; extent: number } {
-  const N = 1024, extent = radius * 1.8, cell = (extent * 2) / N;
-  const cov = new Float32Array(N * N), fall = new Float32Array(N * N), hue = new Float32Array(N * N);
-  const crown = Number(params.get('crown') ?? 100) / (cell * cell); // ~60 m^2 of shade per tree (scaled by tree size; low sun: long shadows)
-  for (let i = 0; i < a.length; i += 4) {
-    const v = VARIANTS[b[i + 2]];
-    if (isBush(v) || isModel(v)) continue; // (cover is the trees' canopy)
-    const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
-    if (x < 0 || z < 0 || x >= N || z >= N) continue;
-    const w = crown * a[i + 3] * a[i + 3], turn = autumnOfPhase(b[i + 3]);
-    const f = w * (v.leaf === 'pine' ? NEEDLES : fallOf(turn)); // (the grass thins under the needles too)
-    cov[z * N + x] += w;
-    fall[z * N + x] += f;
-    hue[z * N + x] += f * turn;
-  }
-  const [c, fl, h] = [cov, fall, hue].map((m) => blur(m, N));
-  const data = new Uint8Array(N * N * 4);
-  for (let i = 0; i < N * N; i++) {
-    data[i * 4] = Math.round(Math.min(1, c[i]) * 255);
-    data[i * 4 + 1] = c[i] > 1e-4 ? Math.round(Math.min(1, fl[i] / c[i]) * 255) : 0;
-    data[i * 4 + 2] = fl[i] > 1e-4 ? Math.round(Math.min(1, h[i] / fl[i] / 2) * 255) : 0;
-  }
-  const tex = new THREE.DataTexture(data, N, N);
+export interface CoverMap {
+  texture: THREE.DataTexture;
+  extent: number; // m from the middle to the edge
+}
+
+const COVER_RES = 1024;
+
+/** The cover map's texture over a forest of `radius`, empty (see CoverMap). */
+export function createCoverMap(radius: number): CoverMap {
+  const tex = new THREE.DataTexture(new Uint8Array(COVER_RES * COVER_RES * 4), COVER_RES, COVER_RES);
   tex.magFilter = THREE.LinearFilter;
   tex.minFilter = THREE.LinearFilter;
   tex.needsUpdate = true;
-  return { texture: tex, extent };
+  return { texture: tex, extent: radius * 1.8 };
 }
 
-/** Two box blurs each way (~ a few tens of metres). */
-function blur(m: Float32Array<ArrayBuffer>, N: number): Float32Array<ArrayBuffer> {
-  let src = m, dst = new Float32Array(N * N);
-  for (let pass = 0; pass < 4; pass++) {
-    const horiz = pass % 2 === 0;
-    for (let z = 0; z < N; z++)
-      for (let x = 0; x < N; x++) {
-        let sum = 0;
-        for (let k = -2; k <= 2; k++) {
-          const xx = horiz ? Math.min(N - 1, Math.max(0, x + k)) : x, zz = horiz ? z : Math.min(N - 1, Math.max(0, z + k));
-          sum += src[zz * N + xx];
-        }
-        dst[z * N + x] = sum / 5;
-      }
-    [src, dst] = [dst, src];
-  }
-  return src;
+/** Fills the cover map from the trees (cover.ts, in a worker); resolves when it's filled. */
+export function forestDensity({ a, b, trees }: TreeInstances, map: CoverMap): Promise<void> {
+  const job: CoverJob = {
+    a: a.slice(0, trees * 4), b: b.slice(0, trees * 4), // (the trees come first; copies: the forest keeps its own)
+    kinds: VARIANTS.map((v) => (isBush(v) || isModel(v) ? 0 : v.leaf === 'pine' ? 2 : 1)),
+    N: COVER_RES, extent: map.extent, crown: Number(params.get('crown') ?? 100), // (~60 m² of shade per tree)
+  };
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./cover-worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<Uint8Array>) => {
+      w.terminate();
+      (map.texture.image.data as Uint8Array).set(e.data);
+      map.texture.needsUpdate = true;
+      resolve();
+    };
+    w.onerror = (e) => reject(new Error(e.message));
+    w.postMessage(job, [job.a.buffer, job.b.buffer]);
+  });
 }
 
 /** Per tree: `a` = (x, y, z, scale), `b` = (cos, sin of the rotation, type, wind phase + autumn: src/autumn.ts); `radius` of the forest. */

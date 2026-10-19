@@ -312,7 +312,7 @@ export const cullingMethods = {
           }
         });
       });
-    })().compute(this.chunks.count * CHUNK, [WG]);
+    })().compute(this.chunks.count * CHUNK, [WG]).setName(`${name} instances`);
 
     const retest = v.retest;
     if (retest) {
@@ -336,7 +336,7 @@ export const cullingMethods = {
             })
             .Else(() => setB.emit(i, ti, s, dCam, r));
         });
-      })().compute(this.instanceCount, [WG]);
+      })().compute(this.instanceCount, [WG]).setName('retest trees');
       // ... and the clusters that failed phase 1 (of trees that passed)
       retest.clustersPass = Fn(() => {
         const k = instanceIndex;
@@ -350,7 +350,7 @@ export const cullingMethods = {
           const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
           If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w, cs.y.add(cs.w), s, this._sway(b.z)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });
-      })().compute(LIST_CAP, [WG]);
+      })().compute(LIST_CAP, [WG]).setName('retest clusters');
     }
     return { ...v, sets, instances, impReset };
   },

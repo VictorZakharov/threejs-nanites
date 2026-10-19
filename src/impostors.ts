@@ -140,6 +140,9 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
   renderer.autoClear = false;
 
   trees.forEach((t, i) => {
+    // models are never impostors (switchPx): their tiles stay empty (Lucy's took ~0.45 s of a phone's main thread for
+    // her 1M triangles' cut, and she may not have arrived yet: BuiltTree.later)
+    if (t.variant.model) return void frames.push({ w: 1, h: 2 });
     // (frame size from the full-detail tree: the same tile whichever cut is baked)
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
