@@ -121,7 +121,9 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
     return max(texture(maps.height, q).grad(dx, dy).r, lf.r.mul(lies(lf)));
   };
   const uv0 = p.div(TILE);
-  const fallen = inMap.mul(smoothstep(0.08, 0.3, amount)); // (under a lone tree too)
+  // (under a lone tree too: by the litter map's own amount; with `amount`, which takes in the cover map's average over
+  // the map's fading edge, open ground showed a brown band along the square's edge, moving with it: the user)
+  const fallen = inMap.mul(smoothstep(0.08, 0.3, cell.g));
   const under = max(smoothstep(0.3, 0.75, coverMap.r), fallen).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
   const dx = uv0.dFdx().mul(footprint()), dy = uv0.dFdy().mul(footprint()); // (for the output's pixels)

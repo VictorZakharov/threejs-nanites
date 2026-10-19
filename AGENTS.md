@@ -258,7 +258,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   colour (the user). Past the square the cover map's averages. `relief.ts` is the parallax occlusion in TSL (up to
   32 steps, then 5 bisections; sampling max(floor, leaf) heights; 4 cm deep, fades by 40 m; `reliefSteps` uniform:
   `?relief=0`, off on touch, a menu switch). Litter under dense canopy or any tree's fall, within ~200 m; the meadow
-  keeps its plain colour. Gotchas in three r186's WGSL: an array texture's layer must be an `int(...).toVar()` (a
+  keeps its plain colour. A lone tree's litter goes by the litter map's amount alone: mixed with the cover map's over the
+  map's fading edge, open ground had a brown band along the square, moving with it (the user; `meadowair` view). Gotchas in three r186's WGSL: an array texture's layer must be an `int(...).toVar()` (a
   float index fails to compile), use `.level()` not `.grad()` on it, and the needle layer's tile scale must be a
   `.toVar()` (computed inline it sampled one uniform colour). `?litterkind=0..3` forces one kind (debug). Views
   `floor`, `litterclose`, `needlesclose`, `autumn*`; `--probe=litter` reads the map round the camera.
