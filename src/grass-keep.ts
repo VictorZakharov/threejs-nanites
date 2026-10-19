@@ -14,7 +14,7 @@ import { curve, detailPos } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import { meadowColourAt } from './terrain.ts';
 import { floatAsUint, packHalf, packUnorm4 } from './three-gaps.ts';
-import type { Float, Uint, Vec2 } from './types.ts';
+import type { Bool, Float, Uint, Vec2 } from './types.ts';
 
 const params = new URLSearchParams(location.search);
 /** A blade grows in over this share of its keep chance (`?grassgrow=`, 0 = pops): popping in whole, walking forward
@@ -33,6 +33,31 @@ export const patchAt = (p: Vec2): Float => mx_noise_float(p.mul(0.045)).mul(0.5)
 /** 0..1 from a whole-cell index and a salt. */
 const cellHash = (c: Vec2, salt: number): Float =>
   hash(uint(int(c.x).add(1 << 20)).mul(73856093).bitXor(uint(int(c.y).add(1 << 20)).mul(19349663)).add(salt));
+
+/**
+ * The rings share their blades: ring k's cells are 2^k of the first ring's, and the blade of a ring-k cell is the
+ * blade of one of its four ring-(k-1) cells (picked by a hash: `childOf`), down to a cell of the first ring, whose
+ * hash makes the blade (position, height, colour...). So ring k-1, thinning out towards ring k, keeps exactly the
+ * blades ring k has, and where they hand over each blade is drawn by one ring or the other, the same blade: with
+ * blades of their own the rings' hand-overs were bands where one set sank and another rose, sliding along as you
+ * walked (the user: "a line, only visible when moving").
+ */
+const childOf = (c: Vec2, level: number): Vec2 => {
+  const h = cellHash(c, 977 + level * 131).mul(3.999).floor();
+  return vec2(h.mod(2), h.div(2).floor());
+};
+/** The first ring's cell holding the blade of ring k's cell `ci`. */
+function leafOf(ci: Vec2, k: number): Vec2 {
+  let c = ci;
+  for (let j = k; j > 0; j--) c = c.mul(2).add(childOf(c, j));
+  return c;
+}
+/** Whether ring k's cell `c` holds the blade of its ring-(k+1) cell (kept to the end of the thinning). */
+const isRep = (c: Vec2, k: number) => {
+  const p = c.div(2).floor();
+  const rc = p.mul(2).add(childOf(p, k + 1));
+  return rc.x.equal(c.x).and(rc.y.equal(c.y));
+};
 
 /** The tuft a point belongs to: the nearest of the 4 jittered clump centres round it (its cell, centre, distance). */
 function clumpOf(p: Vec2): { cell: Vec2; centre: Vec2; d: Float } {
@@ -148,9 +173,10 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
     If(instanceIndex.lessThan(count), () => {
       const local = instanceIndex.mod(uint(S * S));
       const ci = vec2(float(local.mod(uint(S))), float(local.div(uint(S)))).add(tiles.element(instanceIndex.div(uint(S * S))).xy).add(origin);
-      const seed = uint(int(ci.x).add(1 << 20)).mul(73856093).bitXor(uint(int(ci.y).add(1 << 20)).mul(19349663)).add(k * 7919);
+      const leaf = leafOf(ci, k).toVar(); // (the blade's own cell, in the first ring: see childOf)
+      const seed = uint(int(leaf.x).add(1 << 22)).mul(73856093).bitXor(uint(int(leaf.y).add(1 << 22)).mul(19349663));
       const rnd = (j: number): Float => hash(seed.add(j * 101));
-      const at = ci.add(vec2(rnd(0), rnd(1))).mul(cell);
+      const at = leaf.add(vec2(rnd(0), rnd(1))).mul(cell / 2 ** k);
       const patch = patchAt(at);
       // (thinner under the canopy, and where the fallen leaves lie thick: under the red trees most)
       const cv = coverAt(at);
@@ -166,9 +192,11 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
       const xz = mix(at, tuft.centre, clumpy.mul(0.3)).toVar();
       const g = ground(xz);
       const d = vec3(xz.x, g.y, xz.y).sub(detailPos).length(); // (3D: flying up, the grass thins out evenly)
-      // ring cross-fade: fade in over the inner ring's last 20%, out over this ring's last 20% (the outermost to 0)
+      // the hand-over, over the inner ring's last 20%: each blade there is drawn by one ring or the other (by its own
+      // chance `swap`); the outermost ring fades out to nothing over its own last 20%
       const fadeIn = k === 0 ? float(1) : smoothstep(inner * 0.8, inner, d);
       const fadeOut = float(1).sub(smoothstep(radius * 0.8, radius, d));
+      const swap = rnd(11);
       const density = flat.mul(float(1).sub(smoothstep(0.45, 0.8, g.slope))).toVar();
       // the same share of blades, gathered: where it's sparse a share of whole tufts (each kept by its own chance),
       // full ones; in a tuft kept more near its centre, none past its edge (x1.7: the mean of `inTuft` over a cell
@@ -177,14 +205,18 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
       const inTuft = float(1).sub(smoothstep(0.35, 1.05, dn));
       const tuftShare = density.mul(3).clamp(1e-3, 1);
       const tufted = select(cellHash(tuft.cell, 61).lessThan(tuftShare), density.div(tuftShare).mul(inTuft).mul(1.7), float(0));
-      // morph towards the next ring across this one: fewer, wider blades, so where they hand over (the last 20%) both
-      // look alike (a straight switch was a line in the grass that moved along with the camera: the user)
-      const m = r.nextCell ? mix(1, r.nextCell / cell, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
-      const keep = fadeIn.mul(fadeOut).mul(mix(density, tufted, clumpy)).div(m.mul(m)).toVar();
+      // thinning towards the next ring across this one, to its blades only (1 / m^2 of them, wider by m), so where they
+      // hand over (the last 20%) both have the same blades
+      const m = r.nextCell ? mix(1, 2, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
+      const thin = r.nextCell ? select(isRep(ci, k), float(1), float(4).div(m.mul(m)).sub(1).div(3).clamp(0, 1)) : fadeOut;
+      const keep = mix(density, tufted, clumpy).mul(thin).toVar();
+      let drawn: Bool = rnd(2).lessThan(keep);
+      if (k > 0) drawn = drawn.and(swap.greaterThanEqual(float(1).sub(fadeIn)));
+      if (r.nextCell) drawn = drawn.and(swap.lessThan(fadeOut));
       const base = vec3(xz.x, g.y.sub(0.04), xz.y).toVar();
       // (and those behind the camera: decided per blade, at the root)
       const behind = view.mul(vec4(curve(base), 1)).z.greaterThan(1);
-      If(rnd(2).lessThan(keep).and(behind.not()), () => {
+      If(drawn.and(behind.not()), () => {
         // how far it's grown: from nothing where it's just kept to full size a share GROW of the chance further in, so
         // the blades that come and go with the distance rise out of the ground and sink back instead of popping
         const grown = GROW > 0 ? clamp(keep.sub(rnd(2)).div(keep.mul(GROW).max(1e-4)), 0, 1) : float(1);

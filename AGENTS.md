@@ -202,7 +202,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   hidden. It's birdsong: it fades out with the height above the ground (`HEARD`: full to 40 m, silent and paused
   from 300 m; the user: "can't hear if too high"). Off under the harness unless `?music=1` (the harness's browser allows autoplay: `--probe=music`).
 - Grass (`src/grass.ts`, `?grass=` ring scale, 0.5 on touch, 0 = off; a menu switch): four rings of
-  blades round the viewer (cells 0.09 / 0.2 / 0.45 / 1 m out to 16 / 40 / 90 / 200 m, before `?grassdense=`), each a grid of world cells snapped to
+  blades round the viewer (cells 0.09 / 0.18 / 0.36 / 0.72 m out to 16 / 40 / 90 / 200 m, before `?grassdense=`), each a grid of world cells snapped to
   the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered
   fraction stays even. Blades stand on the terrain mesh's own vertex heights (a float texture, same triangle split as
   PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. Which blades
@@ -214,7 +214,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   their root: the vertex invocations cost, kept or not (`--probe=grass`: ~100-120k kept of ~660k tested on `meadow`).
   Double-sided Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades).
   Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
-  that moved with the camera (the user). Each ring's grid is 8 x 8 tiles (`?grasstiles=`) and `update()` lists only
+  that moved with the camera (the user). The rings share their blades: each ring's cells are twice the last's, a
+  ring's cell takes the blade of one of its four finer cells (`childOf`, down to a first-ring cell whose hash makes
+  the blade), and the thinning keeps exactly those, so over the hand-over band each blade is drawn by one ring or the
+  other (its own chance `swap`), the same blade. With blades of their own (cells 0.2 / 0.45 / 1) the bands were where
+  one set sank and another rose: a line seen only in motion (the user, 4 m up: `meadowlow`, `--sweep=detail` 18 -> 1
+  jumps; the image's mean colour within 1/255; ~1.6-1.9x the blades in the outer rings, +0.04 ms compute, up to
+  ~+0.3 render from 25 m up). Each ring's grid is 8 x 8 tiles (`?grasstiles=`) and `update()` lists only
   the tiles in the view frustum and the ring's annulus for the keep pass (a uniform array of their first cells); a
   tile is out of the ring by its 3D distance (by the ground distance alone, from high up every tile under the camera
   was drawn, every blade dropped: 20% of a phone's GPU time 8 km up). Blades: 4 segments, normals rounded across the width, colour per pixel

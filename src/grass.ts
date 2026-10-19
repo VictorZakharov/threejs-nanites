@@ -35,10 +35,10 @@ const SCALE = Number(params.get('grass') ?? (TOUCH ? 0.5 : 1)); // ring radii, x
 const DENSE = Number(params.get('grassdense') ?? (TOUCH ? 1 : 6));
 const RINGS = [
   { cell: 0.09, radius: 16, segs: 4 },
-  { cell: 0.2, radius: 40, segs: 3 },
-  { cell: 0.45, radius: 90, segs: 2 },
-  { cell: 1, radius: 200, segs: 1 },
-].map((r) => ({ ...r, cell: r.cell / Math.sqrt(DENSE) }));
+  { cell: 0.18, radius: 40, segs: 3 },
+  { cell: 0.36, radius: 90, segs: 2 },
+  { cell: 0.72, radius: 200, segs: 1 },
+].map((r) => ({ ...r, cell: r.cell / Math.sqrt(DENSE) })); // (each ring's cells twice the last's: they share blades, src/grass-keep.ts)
 
 export interface GrassContext {
   terrain: THREE.Mesh; // the detailed terrain square (its vertex heights)
