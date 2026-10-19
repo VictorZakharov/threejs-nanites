@@ -8,7 +8,7 @@ import { buildAllTrees, VARIANTS } from './trees.ts';
 import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
 import { makeLeafAlpha, LEAF_DITHER, mipBias } from './nanite/shading.ts';
-import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
+import { bakeImpostors, createAtlas, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
 import { viewerPos, detailPos, detailShift } from './planet.ts';
 import { createClouds, CLOUD_BASE } from './clouds.ts';
 import { FlyControls } from './controls.ts';
@@ -23,7 +23,6 @@ import { createMenu } from './menu.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
 import type { AutoQuality } from './hud.ts';
-import type { ImpostorAtlas } from './impostors.ts';
 import type { Float, Vec3 } from './types.ts';
 
 declare global {
@@ -200,7 +199,35 @@ async function start() {
     forest.rasterize(camera, 1920, 1080);
     const rt = forest.main.retest; // (the occlusion's retests: as slow to compile, and they don't need its depth yet)
     if (rt?.treesPass && rt.clustersPass) renderer.compute([rt.treesPass, rt.clustersPass]);
+    const B = forest.main.sets[1]; // (phase 2's cluster pass)
+    renderer.compute([B.clampDispatch, B.clusters, B.clampDraw]);
   });
+  // the impostors (quads, splats, shadow quads): built and compiled now, against the atlas before it's baked
+  // (createAtlas: the bake and the coverage fill it in place)
+  const atlas = createAtlas(VARIANTS.length);
+  const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
+  impostorMesh.receiveShadow = true;
+  // an impostor looks the map up on its sun side (the neighbours' shadows), its own crown's shade is the average
+  const impFade = makeFadeShadow(treeFarShadow);
+  (impostorMesh.material as THREE.NodeMaterial).receivedShadowNode = asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))));
+  demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
+  demo.renderer = renderer;
+  impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
+  if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
+  forest.group.add(impostorMesh);
+  // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
+  const splatMesh = forest.splats.build(atlas, {
+    shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
+    fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
+    fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
+  });
+  forest.group.add(splatMesh);
+  const impostorShadow = forest.buildImpostorShadowMesh(atlas);
+  impostorShadow.visible = impostorMesh.visible;
+  forest.group.add(impostorShadow);
+  pre.add(impostorMesh, splatMesh, impostorShadow);
+  const sp = forest.splats;
+  passes += pre.addComputes(() => [sp.args, sp.depthPass, sp.idPass].forEach((p) => p && renderer.compute(p)));
   lap('Software rasterizer');
   litter.plant(instances);
   lap('Litter map');
@@ -219,7 +246,7 @@ async function start() {
   await ui.update(0.82, 'Baking far-field impostors and the sky');
   pre.apart(() => cubeCam.update(renderer, skyCapture));
   const tb = performance.now();
-  const baked = pre.apart(() => bakeImpostors(renderer, trees, {
+  pre.apart(() => bakeImpostors(renderer, atlas, trees, {
     bark: barkTex,
     leaf: leafTex,
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
@@ -227,29 +254,9 @@ async function start() {
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
   }, Number(params.get('bakepx') ?? forest.u.impostorPx.value))); // (the default switch size, before ?imppx=)
   const bakeMs = performance.now() - tb;
-  const atlas: ImpostorAtlas = { ...baked, coverage: await impostorCoverage(renderer, baked, IMPOSTOR_CUT) };
-  const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
-  impostorMesh.receiveShadow = true;
-  // an impostor looks the map up on its sun side (the neighbours' shadows), its own crown's shade is the average
-  const impFade = makeFadeShadow(treeFarShadow);
-  (impostorMesh.material as THREE.NodeMaterial).receivedShadowNode = asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))));
-  demo.atlas = atlas; // (for probes: the atlas can be read back and dumped)
-  demo.renderer = renderer;
-  impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
-  if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
-  forest.group.add(impostorMesh);
-  // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
-  const splatMesh = forest.splats.build(atlas, {
-    shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
-    fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
-    fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
-  });
-  forest.group.add(splatMesh);
-  if (!impostorMesh.visible) forest.splats.enabled.value = 0;
-  const impostorShadow = forest.buildImpostorShadowMesh(atlas);
-  impostorShadow.visible = impostorMesh.visible;
-  forest.group.add(impostorShadow);
-  pre.add(impostorMesh, splatMesh, impostorShadow);
+  await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
+  forest.impostorsBaked(atlas);
+  forest.splats.enabled.value = forest.splats.wanted && impostorMesh.visible ? 1 : 0;
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads (bake ${Math.round(bakeMs)} ms, read back ${Math.round(atlas.coverage.ms?.readback ?? 0)} ms, coverage ${Math.round(atlas.coverage.ms?.work ?? 0)} ms)`);
 
   // camera + controls

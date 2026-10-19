@@ -100,9 +100,7 @@ export const billboardMethods = {
   _impostorQuad(this: NaniteForest, atlas: ImpostorAtlas, list: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
     const u = this.u;
     const n = atlas.frames.length;
-    const frameW = uniformArray<'float'>(atlas.frames.map((f) => f.w), 'float');
-    atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, 0, 0)); // (for _impostorKept)
-    const frameH = uniformArray<'float'>(atlas.frames.map((f) => f.h), 'float');
+    const { frameW, frameH } = atlas; // (filled by the bake)
     const growArr = uniformArray<'float'>(GROW, 'float');
     const v = {
       vUv: varying(vec2(0), 'vImpUv'),
@@ -192,8 +190,7 @@ export const billboardMethods = {
       return q.vUv.add(vec2(col, row)).div(vec2(cols, rows));
     });
     const t = uv.map((c) => texture(atlas.texture, c).bias(mipBias));
-    const { scales, levels } = atlas.coverage;
-    const scaleArr = uniformArray<'float'>(Array.from(scales), 'float');
+    const { levels } = atlas.coverage, scaleArr = atlas.scales; // (filled by impostorCoverage)
     const texel = q.vUv.mul(vec2(TILE_W, TILE_H));
     const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))).add(mipBias), 0, levels - 1.001);
     const scaleOf = (tile: Uint): Float => {
@@ -208,7 +205,12 @@ export const billboardMethods = {
     return { ...v, position, uv, t, tile, a, elev, alpha, coverage };
   },
 
-  /** atlas: { texture, frames: [{w, h}], renderTarget, coverage } from bakeImpostors + impostorCoverage: per tree type a side tile and a top-down tile. */
+  /** The baked frame sizes, for the instance pass (_impostorKept: until then no impostor is thinned out). */
+  impostorsBaked(this: NaniteForest, atlas: ImpostorAtlas): void {
+    atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, 0, 0));
+  },
+
+  /** atlas: createAtlas's (bakeImpostors and impostorCoverage fill it): per tree type a tile per elevation. */
   /** `gains`: per tree type, { side: [r, g, b], top: [r, g, b] } colour gains (VARIANTS[i].impGain). */
   buildImpostorMesh(this: NaniteForest, atlas: ImpostorAtlas, gains: TreeVariant['impGain'][]): THREE.Mesh {
     const u = this.u;

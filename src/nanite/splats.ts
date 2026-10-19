@@ -72,7 +72,7 @@ export class Splats {
   readonly forest: NaniteForest;
   /** On this frame (see begin). */
   readonly on = uniform(0, 'uint');
-  /** Switched on (`?splat=0` off, the profile's switch; 0 until the atlas is baked, see build). */
+  /** Switched on (`?splat=0` off, the profile's switch; 0 until the atlas is baked: main.ts). */
   readonly enabled = { value: 0 };
   readonly wanted = params.get('splat') !== '0';
   /**
@@ -150,7 +150,7 @@ export class Splats {
     return log2(max(max(length(dx), length(dy)), 1e-6)).add(mipBias);
   }
 
-  /** Builds the passes and the resolve once the atlas is baked (main.ts); `shadow`: the impostors' shadow node. */
+  /** Builds the passes and the resolve (before the atlas is baked: it's filled in place); `shadow`: the impostors' shadow node. */
   build(atlas: ImpostorAtlas, shading: Shading & { shadow(pos: Vec3): unknown }): THREE.Mesh {
     const f = this.forest, n = f.instanceCount;
     const ctr = f.mainCtr;
@@ -200,7 +200,6 @@ export class Splats {
     })().compute(n, [WG]).setName('splats');
     this.depthPass = pass('depth');
     this.idPass = pass('id');
-    this.enabled.value = this.wanted ? 1 : 0;
     return this._buildResolve(atlas, samples, shading);
   }
 
@@ -212,8 +211,7 @@ export class Splats {
   _atlasSampler(atlas: ImpostorAtlas) {
     const nTypes = atlas.frames.length;
     const { cols, rows } = atlasLayout(nTypes);
-    const { scales, levels } = atlas.coverage;
-    const scaleArr = uniformArray<'float'>(Array.from(scales), 'float');
+    const { levels } = atlas.coverage, scaleArr = atlas.scales; // (filled by impostorCoverage)
     return (sh: Shape, q: Quad, t: Vec2, lod: Float) => {
       const vUv = vec2(select(q.flip, t.x.oneMinus(), t.x), t.y.oneMinus()); // (within the tile; stored flipped)
       const ks = [sh.j, sh.j.add(1)], wts = [sh.blend.oneMinus(), sh.blend];

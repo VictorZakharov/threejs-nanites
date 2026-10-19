@@ -33,3 +33,4 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `music` | background music (`--query=music=1`): nothing fetched before a gesture, a click starts it, M mutes and unmutes it (on, paused, time, volume at each step) |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |
 | `grass` | the grass keep passes (src/grass-keep.ts), per ring: cells tested this frame (tiles in view), blades kept and drawn, the list's size (`kept` should stay well under `cap`) |
+| `nodebuild` | each visible material's compile (a clone, for the canvas's target): the whole time and the main thread's share (three.js's node builder; the rest is the GPU process), slowest first: what a load waits on in `Compiled the materials` |
