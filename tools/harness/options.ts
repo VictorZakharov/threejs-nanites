@@ -34,6 +34,7 @@ measuring
                      that would match them (see harness/typematch.ts)
   --typematch=calibrate   adjust the impostor gains in the page until they match (views looking down steeply
                      calibrate the top-down gains, others the side gains), print values for src/trees.ts
+  --typematch=cover  the same for each type's impostor coverage scale (impCov: pixels covered), before the gains
   --flicker          a still camera must render identical frames (use --query=wind=0)
   --eval="expr"      evaluate an expression in the page once after loading;  --eval-file=path  the same from a file
 
@@ -78,7 +79,7 @@ export function parseOptions(argv: string[]) {
     turn: args.turn ? Number(args.turn) : 0,
     rise: args.rise ? Number(args.rise) : 0,
     rect: args.rect ? String(args.rect).split(',').map(Number) : null,
-    typematch: args.typematch ? (args.typematch === 'calibrate' ? 'calibrate' : 'measure') : null,
+    typematch: args.typematch ? (args.typematch === 'calibrate' || args.typematch === 'cover' ? args.typematch : 'measure') : null,
     timeout: args.timeout === undefined ? null : Number(args.timeout), // (null: expectedSeconds, see below)
     steps: args.steps ? Number(args.steps) : null,
     step: args.step !== undefined ? Number(args.step) : null,

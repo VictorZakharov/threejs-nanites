@@ -6,7 +6,6 @@ import {
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
-import { impostorShown } from './billboards.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
   FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
@@ -296,7 +295,7 @@ export const cullingMethods = {
         const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
         const far = px.lessThan(swPx);
         const retest = v.retest;
-        if (!retest) If(visible.and(far).and(impostorShown(i)), () => impAppend(i)); // (impostor shadow casters; see impostorShown)
+        if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
         else {
           // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
           // phase 2 won't run (occlusion off, no HZB yet)

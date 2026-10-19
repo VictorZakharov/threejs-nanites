@@ -311,7 +311,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   along the clearings' and the forest's edges; the canopy cover map counts trees only (`isBush`). They took the instances from
   1M to 2.5M, which mattered while the impostor draw covered every instance (see the impostor list below). Nine variants overflow one atlas row (9216 px > WebGPU's guaranteed
   8192): `atlasLayout` wraps the tiles into rows (bake, coverage readback and billboard UVs share it). Debug type
-  colours are ten hues 36 degrees apart (typematch classifies within 18). Gains are linear: a measured sRGB ratio r
+  colours (debug 4) are ten hues 36 degrees apart, drawn without fog, tone mapping, ground, grass or god rays
+  (`type-masks.ts`: each of those moved or faked hues: ACES turned pines into aspens, sunlit ground passed for Oak Medium);
+  typematch takes the hue in linear light and classifies within 18. Gains are linear: a measured sRGB ratio r
   needs about r^2.
 - Forest floor (`src/ground/`, after last-stand): `floor-maps.ts` is last-stand's procedural floor without its leaves
   (soil, twigs, pebbles; 5 m tile; heights everywhere in cm / `HEIGHT_CM`); `floor-leaves.ts` the fallen leaves, a
@@ -345,7 +347,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   impostors (masked to green texels there: the atlas has bark). Fallen leaves: `forestDensity` also writes the leaves'
   amount (green 0.2, yellow 0.6, red 1, conifers `NEEDLES` 1.3 x crown) and level into the cover map's G / B (used
   past the litter map; grass thins where leaves lie thick). Views `autumnred` / `autumnyellow` / `autumngreen`, `--probe=autumn`.
-  Calibrate impostor gains with `autumn=0`.
+  Calibrate impostor gains with `autumn=0`. From 9 km all geometry (`imppx=0`, `phone9k`) shows much less red and
+  yellow than the impostors; at 1.1 km (`d1100`) both show the same stands, so it's the far geometry (sub-pixel,
+  software-rasterized) that loses them, and what's drawn up there is the impostors and splats (issue #11).
 - Clearings (`clearingAt` in `planting.ts`): domain-warped fbm thresholded at its sampled 90% quantile (10% of the
   land). They were a sum of sines: from the air a lattice of same-sized gaps (the user: "repetitive"; `aerial` view).
 - Leaf alpha is coverage-preserving: `coverageScales()` finds, per mip level and texture layer, the alpha scale that
@@ -369,9 +373,23 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   top tile's dark splats (the user: "piles of poop"), and from high up the whole screen was one flat top view
   ("flat like google maps"); with the in-between tiles, off-centre trees lean outwards like real ones. A
   cylindrical billboard is edge-on from above and leaves a bald patch under the camera. Each tile's quad is
-  enlarged (`GROW`, `?grow=a,b,c,d`) to match the coarse cluster LODs it replaces, the shadow quads too; calibrate
-  `?imppx=100000` (all impostors) against `?imppx=0` (all geometry) by mean colour on the `slope` and
-  `topdown700` views. Alpha is coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
+  enlarged (`GROW`, `?grow=a,b,c,d`: 1, 1.15, 1.45, 1.5) to match the coarse cluster LODs it replaces, the shadow
+  quads too. Alpha is coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
+- Impostor coverage per type (`impCov` in `VARIANTS`: side, top, mixed by elevation; `impostorCov` in
+  `billboards.ts`): the dithered alpha is scaled so a type's impostors cover as many pixels as its real trees. Seen
+  from afar the real crowns are see-through (a frame draws a sparse dither of sub-pixel leaves), the baked tiles
+  nearly solid inside about the same outline: from above an Oak Large impostor covered ~2.5x its geometry's pixels,
+  so its top scale is 0.17 (Aspen's 1.07). Shrinking the quads instead (a per-type grow) made trees shrink at the
+  switch. Fitted with `--typematch` (its `geo/imp px` line; reboots with `?impcovside=...&impcovtop=...`, a value
+  per variant; `--typematch=cover` adjusts them live), top on `d1100`, side on `slope`/`fogline`: the types are
+  coupled (thinning the oaks uncovers the ashes behind), within ~20% per type. The shadow quads take half of it
+  (`?impshadowcov=` 0.5: solid they darkened the ground ~5/255, fully scaled it was ~5 too light; the geometry's
+  casters are coarser LODs) as a dithered keep test of the cut-out (the filtered alpha of a quad a few texels wide
+  in the map is the tile's average: no shadows). Far below the switch (quads under 8 px wide, all of it from 4,
+  `?impdrop=`) the scale becomes the share of trees drawn, solid, each fading out over 0.2 of its hash: those
+  aren't listed (only -5..10% of the quads: from the side the scales are near 1). Mean colour vs `imppx=0`, default
+  switch (1080p, wind 0): `d1100` +0.6/+0.1/-0.2, `d550` -0.5/-0.9/-1.0, `topdown700` -1.1/-1.5/-1.3, `slope`
+  -0.3/-0.2/+0.1, `fogline` within 0.4, `phone9k` 0.5; all impostors (`imppx=100000`) within ~2.2.
 - Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
@@ -387,9 +405,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   an evenly shaded forest seen from 1.8 km.
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
   `lighting.ts`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
-  (`forestDensity`, `?groundshade=`, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
+  (`forestDensity`, `?groundshade=` 0.82, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line
   where the map ends. Calibrate with `?farall=1` (far shading everywhere) vs the real map on `topdown700`, comparing
-  mean image colour.  From high up the map is skipped: past `FAR_TEXEL` (`?fartexel=`, 5 m) texels it can't draw one
+  mean image colour (0.7 matched the half-drawn impostors' shadows; now within 0.3 there, `slope` +0.6). Keep
+  `treeshade` (0.35): the impostors' own shade is it, and their gains were calibrated with it.  From high up the map is skipped: past `FAR_TEXEL` (`?fartexel=`, 5 m) texels it can't draw one
   crown's shadow, so the average blends in from half that texel size (by altitude: ~0.9-1.8 km on desktop, 0.2-0.4 km
   on a phone's 512 map) and the shadow pass and its culling stop (`shadowFarOnly`; a phone 8 km up spent ~30% of its
   GPU time on ~800k impostor shadow quads in 23 m texels). The coarse map lets light through: the average is up to
@@ -401,8 +420,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   out with Discard and alpha 1 so MSAA gives true coverage), and the impostor material is Lambert with the same
   lights, fog and shadow fade as the real leaves. Render-target textures are stored flipped (v = 1 - y).
   Colour is matched per tree type and view (side / top) by `impGain` in `VARIANTS` (`src/trees.ts`), calibrated
-  with `npm run harness -- --typematch=calibrate --views=d550,fogline --query=wind=0` (masks each type with
-  `debug=4`, compares real trees with impostors, adjusts the gains live, prints new values). One gain for all
+  after `impCov` with `npm run harness -- --typematch=calibrate --views=d1100,fogline --query="wind=0&autumn=0"`
+  (masks each type with `debug=4`, compares real trees with impostors, adjusts the gains live, prints new values).
+  The masks and colour shots are single frames at the same phase of the dither and jitter (`PERIOD`), jitter off,
+  TAA's history dropped: averaged, a see-through crown's pixel was mostly the ground behind it, which no gain
+  changes (the gains ran off to 0.1), and edge pixels blending two types read as a third. One gain for all
   types left pines as near-black stars from above. The tiles are baked from the DAG cut each tree has at the
   switch size (`dagCut`, `?bakepx=`, 0 = full detail).
 - Geometry and impostor cross-fade with a screen-space dither between 1x and `FADE_HI` x the impostor pixel size.
@@ -425,14 +447,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   a fixed cost no quality setting touched (the user's Mac at 4 fps; 4070 Ti ground view 6.6 -> 4.1 ms at tau 8).
   An earlier note said appending was slower (900k threads on one atomic, ~5 ms): phase 2 appends only the visible
   few thousand, and the retest list was already appending every impostor in view.
-- Half the trees have no impostor (`impostorShown` in `billboards.ts`: hash > 0.5, the ones that were to be
-  mirrored): they fade out at the switch and aren't listed, in the view or the shadow map. Their quads were always
-  drawn with zero width (TSL built the corner's x inside the mirroring's `select` branch, and the position read it
-  unset: look for a var assigned in one branch only in the WGSL when a node first used inside a `select`/`If` is
-  used again outside it; `.toVar()` it first), so every impostor calibration (`GROW`, `impGain`, `impcov`) was done
-  with that half missing, and listing them only cost vertex work: 504k -> 253k quads at `phone9k`, same image.
-  `?impall=1` draws them all, mirrored (the forest from ~0.5 km reads ~4/255 darker than `imppx=0`: recalibrate
-  before turning it on). Found by rendering one tree alone in both paths (the splats below drew it, the quads didn't).
+- Until issue #30 half the trees (hash > 0.5, the mirrored ones) had no impostor: their quads were drawn with zero
+  width (TSL built the corner's x inside the mirroring's `select` branch, and the position read it unset: look for a
+  var assigned in one branch only in the WGSL when a node first used inside a `select`/`If` is used again outside
+  it; `.toVar()` it first), so they faded out at the switch and every calibration was done without them. Found by
+  rendering one tree alone in both paths (the splats below drew it, the quads didn't). All drawn and recalibrated
+  (`impCov`, `impGain`, `groundshade`; `GROW` stayed): before, the forest read up to 2.8/255 off all geometry
+  (`d1100` +1.6/-2.8/-2.6, `topdown700` -0.7/-2.7/-2.1) with the mid-distance stands visibly gappy. Twice the quads
+  cost (render GPU, 1080p, dev GPU, production builds): `overview` +0.8..1.3, `slope` +1.05..1.3, `fogline` +0.8..1,
+  `topdown` +0.6, `d550`/`topdown700` +0.3, `canopy` +0.3 ms, ground views and `orbit` (splats) +0; at the phone's
+  size +0.2..0.5. Motion: `--sweep=lod` fogline 946 -> 914 jumps, slope 54 -> 41; `--dolly` the same.
 - Tiny impostors are splatted in compute (`src/nanite/splats.ts`, Nanite's way with tiny triangles): from
   `?splatalt=` (2 km) above the ground the instance pass lists an impostor under `?splatpx=` (3) px wide in the
   impostor list from its top down (another buffer would be a 9th in the instance pass), and one thread per splat

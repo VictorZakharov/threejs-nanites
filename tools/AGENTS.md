@@ -30,7 +30,7 @@ is about using it well.
 | `harness/views.ts` | named viewpoints; add one when a problem needs looking at again |
 | `harness/browser.ts` | temp folder, Vite server, browser launch, page console capture |
 | `harness/session.ts` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
-| `harness/typematch.ts` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
+| `harness/typematch.ts` | `--typematch[=calibrate or cover]`: impostor vs real-tree pixels and colour per tree type (debug=4 masks, single aligned frames), calibrates `impGain` / `impCov` |
 | `harness/status.ts` | the current step, for the watchdog |
 | `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/load.ts` | `--load=N`: cold boots, the loading log's timeline (median), the downloads, `--profile` of the main thread |

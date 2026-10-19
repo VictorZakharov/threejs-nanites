@@ -13,6 +13,8 @@ export interface TreeVariant {
   model?: string;
   /** Impostor colour gains for side and top-down views. */
   impGain: { side: RGB; top: RGB };
+  /** Impostor coverage scale for side and top-down views (impostorCov in src/nanite/billboards.ts). */
+  impCov: [number, number];
 }
 /** One variant's source meshes (metres) and its bounding radius around the trunk axis. */
 export interface TreeSource {
@@ -44,19 +46,19 @@ function boundRadius(h: ModelHeader, height: number): number {
 // Tree variants: ez-tree preset, seed, target height (m), and its textures. impGain: the impostor colour gains
 // (side and top-down views), measured against the real trees with `npm run harness -- --typematch`.
 export const VARIANTS: TreeVariant[] = [
-  { preset: 'Oak Large', seed: 1234, height: 22, bark: 'oak', leaf: 'oak', impGain: { side: [0.85, 0.74, 0.97], top: [0.78, 0.66, 0.83] } },
-  { preset: 'Oak Medium', seed: 77, height: 15, bark: 'oak', leaf: 'oak', impGain: { side: [0.7, 0.61, 0.88], top: [0.69, 0.68, 0.55] } },
-  { preset: 'Ash Large', seed: 4242, height: 24, bark: 'birch', leaf: 'ash', impGain: { side: [0.96, 0.78, 1.27], top: [0.97, 0.76, 1.5] } },
-  { preset: 'Aspen Medium', seed: 9001, height: 18, bark: 'birch', leaf: 'aspen', impGain: { side: [0.67, 0.42, 0.49], top: [0.66, 0.47, 0.31] } },
-  { preset: 'Pine Large', seed: 31337, height: 26, bark: 'pine', leaf: 'pine', impGain: { side: [0.98, 0.75, 1.08], top: [0.85, 0.58, 0.63] } },
-  { preset: 'Pine Medium', seed: 555, height: 17, bark: 'pine', leaf: 'pine', impGain: { side: [0.92, 0.66, 0.91], top: [0.62, 0.4, 0.33] } },
+  { preset: 'Oak Large', seed: 1234, height: 22, bark: 'oak', leaf: 'oak', impGain: { side: [0.68, 0.58, 0.79], top: [0.9, 0.84, 0.85] }, impCov: [0.96, 0.17] },
+  { preset: 'Oak Medium', seed: 77, height: 15, bark: 'oak', leaf: 'oak', impGain: { side: [0.73, 0.66, 0.89], top: [0.89, 0.8, 0.81] }, impCov: [0.97, 0.51] },
+  { preset: 'Ash Large', seed: 4242, height: 24, bark: 'birch', leaf: 'ash', impGain: { side: [0.87, 0.72, 1.12], top: [0.93, 0.93, 0.63] }, impCov: [0.87, 0.355] },
+  { preset: 'Aspen Medium', seed: 9001, height: 18, bark: 'birch', leaf: 'aspen', impGain: { side: [0.81, 0.73, 1.39], top: [0.84, 0.99, 1.73] }, impCov: [1, 1.07] },
+  { preset: 'Pine Large', seed: 31337, height: 26, bark: 'pine', leaf: 'pine', impGain: { side: [0.99, 0.76, 1.3], top: [1.01, 0.92, 1.12] }, impCov: [0.85, 0.37] },
+  { preset: 'Pine Medium', seed: 555, height: 17, bark: 'pine', leaf: 'pine', impGain: { side: [1.6, 1.05, 2.81], top: [0.79, 0.71, 0.57] }, impCov: [1.11, 0.47] },
   // undergrowth (placeBushes): ez-tree's bush presets
-  { preset: 'Bush 1', seed: 11, height: 1.8, bark: 'oak', leaf: 'ash', impGain: { side: [1.34, 0.96, 1.63], top: [0.67, 0.56, 0.96] } },
-  { preset: 'Bush 2', seed: 23, height: 2.3, bark: 'oak', leaf: 'oak', impGain: { side: [1.25, 0.85, 1.57], top: [0.6, 0.47, 0.59] } },
-  { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] } },
+  { preset: 'Bush 1', seed: 11, height: 1.8, bark: 'oak', leaf: 'ash', impGain: { side: [1.34, 0.96, 1.63], top: [0.67, 0.56, 0.96] }, impCov: [0.4, 0.36] },
+  { preset: 'Bush 2', seed: 23, height: 2.3, bark: 'oak', leaf: 'oak', impGain: { side: [1.25, 0.85, 1.57], top: [0.6, 0.47, 0.59] }, impCov: [1, 0.57] },
+  { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] }, impCov: [0.6, 0.45] },
   // a model through the same pipeline (placeStatues): Stanford's Lucy scan, decimated to 1M triangles
   // (tools/nanite-model.ts; credit: Stanford Computer Graphics Laboratory, non-commercial use)
-  { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', impGain: { side: [1, 1, 1], top: [1, 1, 1] } },
+  { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', impGain: { side: [1, 1, 1], top: [1, 1, 1] }, impCov: [1, 1] },
 ];
 
 /** Bushes are variants too (same cluster LOD, impostors and shadows); the tree scatter leaves them out. */

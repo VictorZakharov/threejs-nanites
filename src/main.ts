@@ -35,6 +35,7 @@ import { createHud } from './hud.ts';
 import { createWaypoint } from './waypoint.ts';
 import { createCompass } from './compass.ts';
 import { GodRays } from './godrays.ts';
+import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
 import { Precompile, warmUp } from './warmup.ts';
@@ -255,7 +256,10 @@ async function start() {
   }, Number(params.get('bakepx') ?? forest.u.impostorPx.value))); // (the default switch size, before ?imppx=)
   const bakeMs = performance.now() - tb;
   await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
-  forest.impostorsBaked(atlas);
+  // (?impcovside= / ?impcovtop=: a factor per variant instead of VARIANTS' impCov, to calibrate)
+  const covParam = (k: 0 | 1, name: string) => params.get(name)?.split(',').map(Number) ?? VARIANTS.map((v) => v.impCov[k]);
+  const [covSide, covTop] = [covParam(0, 'impcovside'), covParam(1, 'impcovtop')];
+  forest.impostorsBaked(atlas, VARIANTS.map((_, k): [number, number] => [covSide[k], covTop[k]]));
   forest.splats.enabled.value = forest.splats.wanted && impostorMesh.visible ? 1 : 0;
   ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads (bake ${Math.round(bakeMs)} ms, read back ${Math.round(atlas.coverage.ms?.readback ?? 0)} ms, coverage ${Math.round(atlas.coverage.ms?.work ?? 0)} ms)`);
 
@@ -304,6 +308,7 @@ async function start() {
   const rays = new GodRays(renderer, sceneRT.depthTexture, sunDir, { enabled: params.get('rays') !== '0' });
   // temporal anti-aliasing (src/taa.js): the output shows its resolved history
   const taa = new TAA(renderer, sceneRT, samples, { enabled: params.get('taa') !== '0', extra: rays.at });
+  const typeMasks = typeMaskMode({ renderer, hide: [terrain, grass.group], rays, fogNear, fogFar });
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
   const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
   forest.setDepthSource(sceneRT.depthTexture, samples);
@@ -358,6 +363,7 @@ async function start() {
     forest.u.occlusion.value = forest.occlusionOn && altitude < OCC_ALTITUDE * (forest.u.occlusion.value ? 1.3 : 1) ? 1 : 0;
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
+    typeMasks(forest.u.debug.value === 4); // (debug 4: src/type-masks.ts)
     forest.u.maxDist.value = fogFar.value;
 
     fitShadowMap(size.x * size.y); // (before follow: it snaps the map to its texels)
@@ -424,7 +430,7 @@ async function start() {
 
   // ---------------------------------------------------------------- harness API
   installHarnessApi(demo, {
-    renderer, sceneRT, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, setScale, updateHud,
+    renderer, sceneRT, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, setScale, updateHud, taa,
     shadowsOn: () => shadowsOn,
     setBenchMs: (m) => hud.setBenchMs(m),
   });

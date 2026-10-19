@@ -77,7 +77,7 @@ export const bufferMethods = {
     this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo);
     this.instA = instances.a;
     this.instB = instances.b;
-    this.impFrameValues = typeInfo.map(() => new THREE.Vector4(1e9, 0, 0, 0));
+    this.impFrameValues = typeInfo.map(() => new THREE.Vector4(1e9, 0, 1, 1));
     this.impFrame = uniformArray<'vec4'>(this.impFrameValues, 'vec4');
     this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
 

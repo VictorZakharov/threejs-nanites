@@ -15,7 +15,7 @@ import type { NaniteForest } from './forest.ts';
 import type { View } from './types.ts';
 import type { ImpostorAtlas } from '../impostors.ts';
 import type { TreeVariant } from '../trees.ts';
-import type { Bool, Float, Uint, Vec2, Vec3 } from '../types.ts';
+import type { Bool, Float, Uint, Vec2, Vec3, Vec4 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { autumnOf, autumnColour } from '../autumn.ts';
 
@@ -27,6 +27,7 @@ interface ImpostorQuad {
   vTint: Float;
   vAutumn: Float;
   vFade: Float;
+  vCov: Float;
   vRight: Vec3;
   vUp: Vec3;
   vDir: Vec3;
@@ -43,19 +44,39 @@ interface ImpostorQuad {
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 export const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
 export const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
+// how much of a type's coverage scale (impCov) its shadow quads take: 0 solid, 1 all of it; the real crowns' shadow
+// casters are coarser LODs (SHADOW_TAU_MUL), less see-through than the crowns seen from afar (?impshadowcov=)
+const IMP_SHADOW_COV = Number(new URLSearchParams(location.search).get('impshadowcov') ?? 0.5);
 // per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
 export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
 const GROW_MAX = Math.max(...GROW);
+/**
+ * Tree type `fr`'s coverage scale seen from `elev` degrees up: its side and top factors (`impCov` in VARIANTS, in
+ * its impFrame's z, w), mixed by the elevation like impGain. The real crowns are see-through from afar (sub-pixel
+ * leaves: a frame draws a sparse dither of them), the baked tiles nearly solid inside the same outline: from above
+ * an Oak Large impostor covered ~2.5x the pixels of its geometry. Shrinking the quads instead made the trees shrink
+ * at the switch.
+ */
+export const impostorCov = (fr: Vec4, elev: Float): Float => mix(fr.z, fr.w, clamp(elev.div(90), 0, 1));
+// Far below the switch (quads under DROP[0] px wide, all of it from DROP[1]) a type's coverage scale becomes the share
+// of its trees drawn, solid, instead (`?impdrop=hi,lo`, 0 = off): a few pixels wide that looks the same, and those
+// quads aren't listed (a phone pays by their count). Each tree fades out over DROP_FADE of the share, no pops.
+const DROP = (new URLSearchParams(location.search).get('impdrop') ?? '8,4').split(',').map(Number);
+const DROP_FADE = 0.2;
+/**
+ * Tree `inst`'s share drawn (`k`, 0: not at all) and the coverage scale it's drawn with (`cov`, k included), from its
+ * type's coverage scale `cov` and its quad's width `wPx` (before the MIN_PX enlargement).
+ */
+export const impostorShare = (inst: Uint, cov: Float, wPx: Float): { k: Float; cov: Float } => {
+  if (!(DROP[0] > 0)) return { k: float(1), cov };
+  const p = mix(float(1), min(cov, 1), smoothstep(DROP[0], DROP[1], wPx)).toVar(); // (the share kept)
+  const h = hash(inst.add(23)).mul(1 - DROP_FADE).add(DROP_FADE / 2);
+  const k = clamp(p.sub(h).div(DROP_FADE).add(0.5), 0, 1).toVar();
+  return { k, cov: cov.div(p).mul(k) };
+};
 // the share of sub-MIN_PX trees kept: drawn MIN_PX / w times wider and taller, a tree keeps its coverage when (w /
 // MIN_PX)^2 of them are drawn (?impkeep=width: w / MIN_PX, MIN_PX / w times the coverage)
 const KEEP_AREA = new URLSearchParams(location.search).get('impkeep') !== 'width';
-// Half the trees (hash > 0.5: the mirrored ones) have no impostor: they fade out at the switch and aren't listed. Their
-// quads were always drawn with zero width (the corner's x was built inside the mirroring's branch, and the position
-// read it unset), so the impostors' look and calibration (GROW, impGain, impcov) are those of the other half, and
-// listing them only cost vertex work (half of a phone's ~500k quads at 9 km). `?impall=1` draws them all, mirrored.
-const IMP_ALL = new URLSearchParams(location.search).get('impall') === '1';
-/** False for the trees that have no impostor (see IMP_ALL). */
-export const impostorShown = (i: Uint): Bool => (IMP_ALL ? bool(true) : hash(i).lessThanEqual(0.5));
 export const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(MIN_PX).pow(2) : wPx.div(MIN_PX));
 export const deg = Math.PI / 180;
 // the elevation tiles are evenly spaced from 0 (each blends with the next round the midpoint between them, +-7.5
@@ -83,8 +104,11 @@ export const billboardMethods = {
     const a = this._a(i), s = a.w;
     const fr = this.impFrame.element(uint(this._b(i).z));
     const pivot = a.xyz.add(vec3(0, fr.y.mul(s).mul(0.5), 0));
-    const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
-    return impostorShown(i).and(wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx))));
+    const toCam = u.camPos.sub(pivot);
+    const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(toCam), 0.1));
+    const elev = asin(clamp(toCam.normalize().y, -1, 1)).div(deg);
+    const shared = impostorShare(i, impostorCov(fr, elev), wPx).k.greaterThan(0); // (the widest: the most kept)
+    return shared.and(wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx))));
   },
 
   /**
@@ -109,6 +133,7 @@ export const billboardMethods = {
       vTint: varying(float(1), 'vImpTint'),
       vAutumn: varying(float(0), 'vImpAutumn'), // (src/autumn.ts)
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
+      vCov: varying(float(1), 'vImpCov'), // the coverage scale (impostorCov; on screen impostorShare's)
       vRight: varying(vec3(1, 0, 0), 'vImpRight'), // billboard basis (right incl. mirroring), for the normals
       vUp: varying(vec3(0, 1, 0), 'vImpUp'),
       vDir: varying(vec3(0, 0, 1), 'vImpDir'),
@@ -144,11 +169,15 @@ export const billboardMethods = {
       // (the shadow casters too: the geometry's shadow comes from the same fat coarse LODs)
       const ju = uint(j);
       const grow = mix(growArr.element(ju), growArr.element(ju.add(1)), blend).toVar();
+      q.vCov.assign(impostorCov(this.impFrame.element(type), elev)); // (the shadow casters' too: by the sun's elevation)
       if (screen) {
         // sub-pixel trees shimmer (they hit or miss pixel centres as the camera moves): never draw a quad narrower
         // than MIN_PX; keep the forest's coverage by dropping a matching share of the trees instead (per tree, so
         // there's no flicker, only a rare tree fading out as you climb)
         const wPx = frameW.element(type).mul(s).mul(grow).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
+        const share = impostorShare(inst, q.vCov, wPx);
+        q.vCov.assign(share.cov);
+        on.assign(share.k.greaterThan(0));
         If(wPx.lessThan(MIN_PX), () => {
           on.assign(on.and(hash(inst.add(7)).lessThan(keepShare(wPx))));
           grow.mulAssign(float(MIN_PX).div(max(wPx, 1e-3)));
@@ -205,9 +234,12 @@ export const billboardMethods = {
     return { ...v, position, uv, t, tile, a, elev, alpha, coverage };
   },
 
-  /** The baked frame sizes, for the instance pass (_impostorKept: until then no impostor is thinned out). */
-  impostorsBaked(this: NaniteForest, atlas: ImpostorAtlas): void {
-    atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, 0, 0));
+  /**
+   * The baked frame sizes, for the instance pass (_impostorKept: until then no impostor is thinned out), and each
+   * type's side / top coverage scale (VARIANTS' impCov; live: harness --typematch=cover adjusts them).
+   */
+  impostorsBaked(this: NaniteForest, atlas: ImpostorAtlas, covs: TreeVariant['impCov'][]): void {
+    atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, covs[k][0], covs[k][1]));
   },
 
   /** atlas: createAtlas's (bakeImpostors and impostorCoverage fill it): per tree type a tile per elevation. */
@@ -246,7 +278,10 @@ export const billboardMethods = {
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
-    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha;
+    // (the cut-out keeps a pixel by the coverage scale against the dither: scaling its sharpened alpha, ~1 inside,
+    // dropped whole trees under the cut)
+    const kept = q.vCov.greaterThan(ditherAlt(screenCoordinate.xy));
+    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).mul(q.vCov).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : select(kept, q.alpha, float(0));
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));
@@ -267,8 +302,13 @@ export const billboardMethods = {
   buildImpostorShadowMesh(this: NaniteForest, atlas: ImpostorAtlas): THREE.Mesh {
     const list = storage(this.shadow.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, () => this.u.sunDir, false);
-    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
-    mat.colorNode = vec4(1, 1, 1, q.alpha);
+    // (the cut-out, kept with the type's coverage scale against the moving dither: as see-through as the real crowns'
+    // shadows; solid, they darkened the ground under the impostors. Not the filtered alpha as the camera's quads: a
+    // few texels wide in the map, the quad samples a coarse mip, the tile's average, and the shadows nearly vanished)
+    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
+    const solid = select(q.alpha.greaterThanEqual(IMPOSTOR_CUT), float(1), float(0));
+    const cut = select(mix(float(1), q.vCov, IMP_SHADOW_COV).greaterThan(ditherAlt(screenCoordinate.xy)), solid, float(0));
+    mat.colorNode = vec4(1, 1, 1, cut);
     mat.positionNode = q.position;
     const mesh = new THREE.Mesh(this._impostorGeometry(this.shadow), mat);
     mesh.frustumCulled = false;

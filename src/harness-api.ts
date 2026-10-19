@@ -5,6 +5,7 @@ import { detailShift } from './planet.ts';
 import type { FlyControls } from './controls.ts';
 import type { AutoQuality } from './hud.ts';
 import type { NaniteForest } from './nanite/forest.ts';
+import type { TAA } from './taa.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
 import type { CoverMap } from './placement.ts';
@@ -28,6 +29,7 @@ export interface HarnessContext {
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
   forest: NaniteForest;
+  taa: TAA; // (the harness's type masks switch it off: blended edges read as other types' hues)
   controls: FlyControls;
   adapter: GPUAdapter;
   instances: TreeInstances;
@@ -78,9 +80,9 @@ export interface DemoExtras {
 }
 
 function harnessApi(demo: DemoState, ctx: HarnessContext) {
-  const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT } = ctx;
+  const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
   return {
-  renderer, scene, camera, forest, controls, instances, sceneRT,
+  renderer, scene, camera, forest, controls, instances, sceneRT, taa,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
     size: `${size.x}x${size.y}`, // (the scene's; the canvas's below)
@@ -117,6 +119,11 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
     controls.velocity.set(0, 0, 0);
     // right-mouse zoom factor (1 = none), applied at once instead of easing in
     controls.zoomTarget = controls.zoom = v.zoom ?? 1;
+  },
+  /** One frame, nothing else (renderOnce draws two, the HUD between): --typematch picks the frame it shoots. */
+  async renderFrame() {
+    frame(1 / 60);
+    await gpuBackend(renderer).device.queue.onSubmittedWorkDone();
   },
   async renderOnce(benchResult?: { medianMs: number }) {
     if (benchResult) ctx.setBenchMs(benchResult.medianMs);
