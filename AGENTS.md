@@ -164,7 +164,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
-  after the orbit). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Zooming in starts
+  after the orbit). At full detail (tau 1) under 55% of the budget it raises the resolution past the base pixel ratio
+  (1.5) in x1.15 steps, up to the output's (`maxScale` in `resolution.ts`: the screen's, at most 3; 1 on a 1x screen
+  or with upscaling off), and over the budget that extra goes first, before tau: a dense screen at 1.5 of its 3 was the
+  scene's pixels upscaled 2x (issue #3). A step is x1.32 the pixels, so under 55% it lands under 1.1 and doesn't swing
+  back. `--probe=auto --dpr=2 --query=autobudget=20`: scale 1.33 (3200x1800, native); at the phone's size on the dev
+  GPU 2 (1152x2496). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Zooming in starts
   from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
   is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
   last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",

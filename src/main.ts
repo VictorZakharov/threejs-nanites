@@ -250,7 +250,7 @@ async function start() {
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, params.get('autozoom') === '0' ? null : controls);
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
