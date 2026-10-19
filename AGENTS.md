@@ -136,7 +136,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   TAA, god rays, grass and the GPU profile as optional: left out, their switches and keys aren't shown; the quality
   presets set the resolution and the near radii, x 1 / sqrt(tau)). Missing: grass, statues, wind, TAA and
   upscaling, god rays, occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
-  is the pixel ratio by frame time (`budget` 17 / 33 ms). Each program compiles on the main thread in WebGL: one bark
+  is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
+  step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames
+  stepped it down and back up twice, resizes the user saw as flickers in Firefox. `--probe=webglloop --query=webgl=1`
+  runs the page's loop and lists the steps and the frames over 50 ms. Each program compiles on the main thread in WebGL: one bark
   and one leaf material for every type (the layer by a select chain on the instance's type, +0.25 before the floor:
   interpolated, 3 arrived as 2.9999 and speckled the trunks). `?webgl=1` runs it on a WebGPU browser (the harness
   presses Continue itself; `?gate=1` stops at the warning: `--load=1 --query="nogpu=1&gate=1"` shows its time, the

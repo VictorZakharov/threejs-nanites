@@ -5,6 +5,7 @@ import * as THREE from 'three/webgpu';
 import { heightAt } from '../terrain.ts';
 import type { FlyControls } from '../controls.ts';
 import type { DemoState, HarnessView } from '../harness-api.ts';
+import type { AutoQuality } from '../hud.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { createWebGLForest } from './forest.ts';
 
@@ -57,4 +58,25 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
       return { frameMs: med, medianMs: med, gpuRenderMs: 0, gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
     },
   });
+}
+
+/**
+ * The page's own loop for `ms` (auto quality `on`): every resolution step (auto.trials: when, from, to, the eased
+ * frame time) and the frames over 50 ms (when, how long): what a person sees in the first seconds (flicker, hitches).
+ */
+export async function runLoop(renderer: THREE.WebGPURenderer, auto: AutoQuality, loop: () => void, ms: number, on: boolean) {
+  auto.on = on;
+  auto.trials = [];
+  const long: string[] = [], t0 = performance.now();
+  let last = t0, frames = 0;
+  await new Promise<void>((done) => renderer.setAnimationLoop(() => {
+    const t = performance.now();
+    loop();
+    const now = performance.now();
+    if (now - last > 50) long.push(`${((now - t0) / 1000).toFixed(2)} s: ${Math.round(now - last)} ms (${Math.round(now - t)} in the loop)`);
+    last = now;
+    frames++;
+    if (now - t0 >= ms) (renderer.setAnimationLoop(null), done());
+  }));
+  return { frames, fps: +((frames * 1000) / (performance.now() - t0)).toFixed(1), scale: auto.scale, steps: auto.trials, long };
 }

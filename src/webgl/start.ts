@@ -22,6 +22,7 @@ import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
 import { installWebGLHarness } from './harness.ts';
 import { createWebGLHud } from './hud.ts';
+import { runLoop } from './harness.ts';
 import { createMenu } from '../menu.ts';
 import { createWaypoint } from '../waypoint.ts';
 import { createCompass } from '../compass.ts';
@@ -136,17 +137,40 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: renderer.getPixelRatio() / maxPr, gpuMs: 0, busy: false };
   const tau = { value: 1 };
   const setScale = (s: number): void => {
+    auto.trials?.push(`${(performance.now() / 1000).toFixed(2)} s: ${auto.scale.toFixed(2)} -> ${s.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
     auto.scale = s;
     renderer.setPixelRatio(maxPr * s);
   };
-  let ema = budget, settle = 0, detail = tau.value;
+  // By the median frame of each second, not an eased mean: one slow frame (a shader compile, the floor coming in, the
+  // GPU catching up as the loop starts: 250-350 ms) pushed the mean over the budget, and the resolution stepped
+  // down and back up twice in the first seconds, each a resize the user saw as a flicker. Nothing in the first 3 s
+  // or 2 s after a step (a resize is a slow frame itself); up only if the larger size should stay under 85%.
+  // A step down is a trial: if it didn't make frames 10% faster (the frame time was the CPU's or the display's, not
+  // the pixels'), it goes back and the resolution holds for 30 s (as auto-quality.ts on WebGPU).
+  let detail = tau.value, hold = 3, median = 0, span = 0, times: number[] = [];
+  let trial: { from: number; before: number } | null = null;
   const steer = (dt: number): void => {
     if (tau.value !== detail) forest.setDetail((detail = tau.value)); // (the menu, or the [ ] keys)
-    ema += (dt * 1000 - ema) * 0.1;
-    auto.frameMs = ema;
-    if (!auto.on || (settle -= dt) > 0) return;
-    const s = auto.scale, next = ema > budget * 1.15 ? Math.max(0.5, s * 0.85) : ema < budget * 0.7 ? Math.min(1, s * 1.1) : s;
-    if (Math.abs(next - s) > 0.01) (setScale(next), (settle = 1));
+    if ((hold -= dt) > 0) return void ((times = []), (span = 0)); // (the frames held off don't count)
+    times.push(dt * 1000);
+    if ((span += dt) < 1) return;
+    median = [...times].sort((x, y) => x - y)[times.length >> 1];
+    auto.frameMs = median;
+    times = [];
+    span = 0;
+    if (!auto.on) return void (trial = null);
+    const s = auto.scale;
+    if (trial) {
+      const failed = median > trial.before * 0.9;
+      if (failed) auto.trials?.push(`step down saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
+      if (failed) (setScale(trial.from), (hold = 30));
+      trial = null;
+      if (failed) return;
+    }
+    const down = median > budget * 1.15 ? Math.max(0.5, s * 0.85) : s;
+    const up = Math.min(1, s * 1.1), upCost = median * (up / s) ** 2; // (the cost goes with the pixels)
+    const next = down < s ? down : median < budget * 0.7 && upCost < budget * 0.85 ? up : s;
+    if (Math.abs(next - s) > 0.01) (next < s && (trial = { from: s, before: median }), setScale(next), (hold = 2));
   };
   // shadows off: no pass and no light lost (switching the shadow map off would recompile every shader)
   let shadowsOn = renderer.shadowMap.enabled;
@@ -227,13 +251,15 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   if (harness) await floorIn;
   else floorIn.catch((e) => console.error(e));
   let prev = performance.now();
-  if (!harness) renderer.setAnimationLoop(() => {
+  const loop = (): void => {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     frame(dt);
     steer(dt);
     hud.frame(now, dt);
-  });
+  };
+  if (!harness) renderer.setAnimationLoop(loop);
+  demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on);
   hud.update();
   demo.ready = true;
 }
