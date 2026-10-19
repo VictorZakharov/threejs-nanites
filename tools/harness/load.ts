@@ -12,7 +12,7 @@ import { at } from './status.ts';
 import type { Options } from './options.ts';
 
 interface Resource { name: string; transfer: number; body: number; start: number; end: number }
-interface LoadRun { log: { t: number; msg: string }[]; res: Resource[]; html: number; failed: boolean }
+interface LoadRun { log: { t: number; msg: string }[]; res: Resource[]; html: number; failed: boolean; error?: string }
 
 /** Applies --cpu (slowdown, Chrome DevTools' emulation) to the page. */
 async function throttle(page: Page, opts: Options): Promise<void> {
@@ -82,7 +82,9 @@ async function oneBoot(url: string, query: string, opts: Options, outDir: string
       const t = req.timing();
       done.push(req.sizes().then((sz) => sz.responseBodySize, () => 0).then((body) => ({ name: req.url(), body, endEpoch: t.startTime + t.responseEnd })));
     });
-    await boot(page, url, query, opts, outDir);
+    // (a page that stops with an error, e.g. ?nogpu=1, still gets its timeline, downloads and a screenshot)
+    const error = await boot(page, url, query, opts, outDir).then(() => undefined, (e: unknown) => (e instanceof Error ? e.message : String(e)));
+    if (error) await page.screenshot({ path: join(outDir, 'load-error.png') });
     if (cdp) printProfile((await cdp.send('Profiler.stop')).profile as unknown as Profile, outDir);
     const r = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
@@ -95,7 +97,7 @@ async function oneBoot(url: string, query: string, opts: Options, outDir: string
     const res = (await Promise.all(done))
       .filter((e) => e.endEpoch >= r.origin && !e.name.startsWith('data:') && !seen.has(e.name) && seen.add(e.name))
       .map((e) => ({ name: e.name, transfer: 0, body: e.body, start: 0, end: e.endEpoch - r.origin }));
-    return { ...r, res, failed: failed() };
+    return { ...r, res, failed: failed(), error };
   } finally {
     // (closing can hang, as at the harness's end: 5 s, then on regardless)
     await Promise.race([browser.close(), new Promise((r) => setTimeout(r, 5000))]);
@@ -146,5 +148,8 @@ export async function measureLoads(url: string, query: string, opts: Options, ou
   const total = res.reduce((s, r) => s + r.kB, 0);
   console.log(`  ${'total'.padEnd(40)} ${String(total).padStart(7)} kB`);
   if (runs.some((r) => r.failed)) console.log('  (a page error during a boot: see above)');
+  const stopped = runs.find((r) => r.error);
+  if (stopped) console.log(`
+the page stopped: ${stopped.error} (screenshot: tools/out/load-error.png)`);
   return { steps, downloads: res, totalkB: total };
 }

@@ -71,7 +71,8 @@ npm run harness -- --dist=tools/tmp/dist-prof --load=1 --profile        # where 
   pace, roughly. Boots swing by ~0.5 s on the desktop and more at `--cpu=4` (the workers compete for the cores):
   compare medians of 3. `--profile` saves the main thread's CPU profile of the first boot
   (`tools/out/load.cpuprofile`, opens in DevTools) and prints the top functions by self time: build without
-  minifying for names (`npx vite build --minify false --outDir tools/tmp/dist-prof`).
+  minifying for names (`npx vite build --minify false --outDir tools/tmp/dist-prof`). A boot the page stops with an
+  error (`--query=nogpu=1`) still prints its timeline and downloads, and saves `load-error.png`.
 
 - Compare like with like: `--ab` reloads the page per variant in one run, so views, size and GPU state match.
   `--sweep`/`--dolly` run per variant too (heatmaps tagged `@<k>`).

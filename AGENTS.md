@@ -122,6 +122,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   worker finishes first. It was one main-thread loop over ~7M candidates: 6.8 s of the user's load (half of it
   `roadDistance` looping over the road's segments for every candidate: it has a bounding-box early-out now). Its
   pure dependencies are split out for the workers: `noise.ts` (fbm, `heightAt`), `road-path.ts`, `autumn-cpu.ts`.
+- No WebGPU (issue #39): `main.ts` checks `navigator.gpu` before anything starts (`beginLoading()` starts the workers
+  and downloads) and says so on the loading screen with the browsers that work; Firefox on Android grew every tree
+  first. The adapter is requested at once, alongside the workers: awaiting it first held them back ~0.3 s; a null
+  adapter fails as soon as it resolves. `?nogpu=1` acts as if there were no WebGPU; `--load=1 --query=nogpu=1`
+  shows the message's time, that only the page's own files were fetched, and `tools/out/load-error.png`.
 - Loading (issue #6; measure with `--load`, `tools/AGENTS.md`): 17.4 -> 6.4 s to the first frame on the dev machine
   (production build, medians of 3 cold boots), 43 -> 20 s at a phone's size and pace (`--cpu=4`); the script 3.3 ->
   0.34 MB gzipped. Everything that needs no GPU starts in workers at the top of `main.ts`, before the GPU is asked

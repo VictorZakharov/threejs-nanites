@@ -55,30 +55,42 @@ const demo: DemoState = (window.__demo = { ready: false, error: null, shadowShif
 const ui = new LoadingScreen();
 demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 
+// ---------------------------------------------------------------- WebGPU first
+// Nothing starts without it: since the loading work moved to module top, Firefox on Android grew all the trees
+// (~2.4 s of a phone's work) before it said there's no WebGPU (issue #39). The adapter is asked for at once, alongside
+// the workers (awaiting it first would hold them back); a null adapter is rare (a blocklisted GPU) and fails then.
+// (?nogpu=1: as if the browser had no navigator.gpu)
+const gpu = params.get('nogpu') === '1' ? undefined : navigator.gpu;
+const WEBGPU_HINT = 'Nanite Forest needs WebGPU. It runs in Chrome or Edge on desktop and Android, and in Safari or desktop Firefox where they have WebGPU; Firefox on Android doesn’t have it yet.';
+const adapterReady = gpu?.requestAdapter({ powerPreference: 'high-performance' });
+
 // ---------------------------------------------------------------- setup
-// Everything that needs no GPU starts in workers at once, before the GPU is even asked for: the bark and leaf texture
+// Everything that needs no GPU starts in workers at once, before the GPU is even ready: the bark and leaf texture
 // arrays' layers (src/texture-worker.ts), the forest floor's maps (src/ground/), the planting (src/planting.ts), the
 // trees grown with their cluster DAGs (src/trees.ts) and Lucy's download.
 const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
 const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
-const barkLayers = barkTypes.map((t) => loadLayer(t === 'stone' ? 'stone' : `./textures/${t}_color_1k.jpg`, 1024));
-const leafLayers = leafTypes.map((t) => loadLayer(`./textures/${t}_color.png`, 1024, true));
-const t0 = performance.now();
-const floorMaps = loadFloorMaps();
-let plantedMs = 0;
-const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
-const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
 // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog (its grids: terrain-worker.ts)
 const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
-const terrainReady = createTerrain(terrainSize);
-// (a failure surfaces where it's awaited; meanwhile no unhandled-rejection noise)
-for (const p of [...barkLayers, ...leafLayers, floorMaps.ready, planting, growing, terrainReady]) p.catch(() => {});
+const t0 = performance.now();
+let plantedMs = 0;
+function beginLoading() {
+  const barkLayers = barkTypes.map((t) => loadLayer(t === 'stone' ? 'stone' : `./textures/${t}_color_1k.jpg`, 1024));
+  const leafLayers = leafTypes.map((t) => loadLayer(`./textures/${t}_color.png`, 1024, true));
+  const floorMaps = loadFloorMaps();
+  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
+  const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
+  const terrainReady = createTerrain(terrainSize);
+  // (a failure surfaces where it's awaited; meanwhile no unhandled-rejection noise)
+  for (const p of [...barkLayers, ...leafLayers, floorMaps.ready, planting, growing, terrainReady]) p.catch(() => {});
+  return { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady };
+}
 
-async function start() {
+async function start(adapterReady: Promise<GPUAdapter | null>) {
+  const { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady } = beginLoading();
   await ui.update(0.02, 'Waking the GPU');
-  if (!navigator.gpu) throw new Error('WebGPU is not available in this browser (try Chrome or Edge).');
-  const adapter = await navigator.gpu.requestAdapter({ powerPreference: 'high-performance' });
-  if (!adapter) throw new Error('No WebGPU adapter.');
+  const adapter = await adapterReady;
+  if (!adapter) return noWebGPU('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).');
   const lim = adapter.limits;
   if (lim.maxStorageBuffersPerShaderStage < 10) throw new Error('GPU supports too few storage buffers per stage.');
   const renderer = new THREE.WebGPURenderer({
@@ -487,7 +499,14 @@ async function start() {
   demo.ready = true;
 }
 
-start().catch((e) => {
+/** Says there's no WebGPU, on the loading screen (the harness reads demo.error). */
+function noWebGPU(message: string): void {
+  demo.error = message;
+  ui.fail(new Error(message), WEBGPU_HINT, 'No WebGPU');
+}
+
+if (!adapterReady) noWebGPU('WebGPU is not available in this browser.');
+else start(adapterReady).catch((e) => {
   console.error(e);
   demo.error = String(e instanceof Error ? (e.stack ?? e) : e);
   ui.fail(e);

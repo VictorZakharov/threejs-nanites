@@ -16,6 +16,7 @@ export class LoadingScreen {
   readonly log: HTMLElement;
   readonly errorPanel: HTMLElement;
   readonly errorDetail: HTMLElement;
+  readonly errorHint: HTMLElement;
   /** The log's lines with their times (ms since the navigation started): the harness's `--load` reads them. */
   readonly entries: { t: number; msg: string }[] = [];
   estimate: number | null = null;
@@ -29,6 +30,7 @@ export class LoadingScreen {
     this.log = find(this.root, '[data-loading-log]');
     this.errorPanel = find(this.root, '[data-loading-error]');
     this.errorDetail = find(this.root, '[data-loading-error-detail]');
+    this.errorHint = find(this.root, '[data-loading-error-hint]');
   }
 
   /** Logs a line without moving the bar. */
@@ -84,12 +86,14 @@ export class LoadingScreen {
     document.body.classList.add('is-ready');
   }
 
-  fail(error: unknown): void {
+  /** Shows the error panel; `hint` replaces its line under the message, `status` the status line's. */
+  fail(error: unknown, hint?: string, status = 'Startup failed'): void {
     this._cancelEstimate();
     const message = error instanceof Error ? error.message : String(error);
     this.root.classList.add('has-error');
-    this.status.textContent = 'Startup failed';
+    this.status.textContent = status;
     this.progress.textContent = 'FAILED';
+    if (hint) this.errorHint.textContent = hint;
     this.note(`FAILED · ${message}`);
     this.errorDetail.textContent = message;
     this.errorPanel.hidden = false;
