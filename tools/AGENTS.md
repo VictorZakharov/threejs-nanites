@@ -16,6 +16,8 @@ is about using it well.
 - **Runs are bounded.** A basic run takes ~20 s; the watchdog stops a run that exceeds its expected time
   (`--timeout`, default scaled by views x variants x steps) and names the step it was in. The `secs` column is
   each view's benchmark wall time; boots are timed too. Keep runs small: few views, few variants.
+- **Slow boots?** Vite doesn't watch `tools/tmp` or `tools/out` (`vite.config.ts`): profiles left by hung runs there
+  (some undeletable, ~100k files) held up the dev server's first requests for minutes (`page.goto` timeouts).
 - **One harness at a time.** Two runs share the GPU and both report nonsense timings. GPU timings also swing when
   the user has the demo open: trust numbers that repeat.
 

@@ -1,6 +1,7 @@
 // window.__demo: what the headless harness (tools/harness.ts) drives the demo with: views, frames, timings.
 import * as THREE from 'three/webgpu';
 import { heightAt } from './terrain.ts';
+import { detailShift } from './planet.ts';
 import type { FlyControls } from './controls.ts';
 import type { AutoQuality } from './hud.ts';
 import type { NaniteForest } from './nanite/forest.ts';
@@ -8,6 +9,7 @@ import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
 import type { forestDensity } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
+import type { createGrass } from './grass.ts';
 import type { ImpostorAtlas } from './impostors.ts';
 import type { createHud } from './hud.ts';
 import type { Music } from './music.ts';
@@ -66,6 +68,7 @@ export interface DemoExtras {
   coverMap: ReturnType<typeof forestDensity>; // (the canopy cover / fallen leaves map, --probe=autumn)
   leafOf: string[]; // (each variant's kind of leaf)
   litter: ReturnType<typeof createLitterMap>;
+  grass: ReturnType<typeof createGrass>;
   atlas: ImpostorAtlas;
   hud: ReturnType<typeof createHud>;
   music: Music;
@@ -123,11 +126,12 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   },
   stats: () => forest.readStats(),
   /** Harness sweeps: move one thing that normally follows the camera, keep the view fixed ('none': reset). */
-  setShift(what: 'lod' | 'shadowlod' | 'shadow' | 'none', x: number, z: number) {
+  setShift(what: 'lod' | 'shadowlod' | 'shadow' | 'detail' | 'none', x: number, z: number) {
+    detailShift.set(0, 0, 0);
     forest.main.lodShift.set(0, 0, 0);
     forest.shadow.lodShift.set(0, 0, 0);
     demo.shadowShift.set(0, 0, 0);
-    if (what !== 'none') ({ lod: forest.main.lodShift, shadowlod: forest.shadow.lodShift, shadow: demo.shadowShift })[what].set(x, 0, z);
+    if (what !== 'none') ({ lod: forest.main.lodShift, shadowlod: forest.shadow.lodShift, shadow: demo.shadowShift, detail: detailShift })[what].set(x, 0, z);
   },
   /** Times a shadow toggle off and on (each followed by a rendered frame). */
   async shadowToggleMs() {

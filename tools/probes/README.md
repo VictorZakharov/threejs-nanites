@@ -32,3 +32,4 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `lodcut` | the DAG cut per tree type by its height on screen (10..400 px, at the page's tau), on the CPU: bark and leaf triangles and clusters, the deepest level, and each level's median error |
 | `music` | background music (`--query=music=1`): nothing fetched before a gesture, a click starts it, M mutes and unmutes it (on, paused, time, volume at each step) |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |
+| `grass` | the grass keep passes (src/grass-keep.ts), per ring: cells tested this frame (tiles in view), blades kept and drawn, the list's size (`kept` should stay well under `cap`) |

@@ -17,7 +17,7 @@ function heading(view: HarnessView): [number, number] {
 
 /**
  * Sweeps: the camera stays put while one thing that normally follows it moves forward in steps (`what`: lod = the
- * LOD reference point, shadowlod = the shadow casters' LOD reference, shadow = the shadow map's centre). Anything
+ * LOD reference point, shadowlod = the shadow casters' LOD reference, shadow = the shadow map's centre, detail = where the grass, litter and relief measure their fades from). Anything
  * that changes on screen is popping caused by that alone. Counts tiles whose brightness jumps more than 3/255
  * from one step to the next; heatmap of the largest jump per tile in sweep-<what>-<view>.png
  * (with --ab: sweep-<what>-<view>@<k>.png).
@@ -29,7 +29,7 @@ export async function sweeps(page: Page, opts: Options, outDir: string, tag = ''
   for (const name of opts.views) {
     await page.evaluate((v) => window.__demo.setView(v), { ...VIEWS[name], zoom: opts.zoom ?? VIEWS[name].zoom ?? 1 });
     const [fx, fz] = heading(VIEWS[name]);
-    for (const what of (opts.sweep ?? []) as ('lod' | 'shadowlod' | 'shadow')[]) {
+    for (const what of (opts.sweep ?? []) as ('lod' | 'shadowlod' | 'shadow' | 'detail')[]) {
       let prev: Tiles | null = null, base: Tiles | null = null, jumps = 0, sum = 0;
       let maxJump: Float32Array | null = null;
       for (let k = 0; k < steps; k++) {

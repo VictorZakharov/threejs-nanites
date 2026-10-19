@@ -5,7 +5,7 @@
 // thick mat of rust-brown sprays. Out in the open the ground keeps its grass colour. Moss is tinted in world space.
 import * as THREE from 'three/webgpu';
 import {
-  texture, positionWorld, cameraPosition, float, vec2, vec3, vec4, mix, smoothstep, mx_noise_float, normalWorld,
+  texture, positionWorld, float, vec2, vec3, vec4, mix, smoothstep, mx_noise_float, normalWorld,
   cameraViewMatrix, select, dot, max, clamp, textureLoad, ivec2, int, sqrt, fract, log2, length,
 } from 'three/tsl';
 import type { Float, Vec2, Vec3, Vec4 } from '../types.ts';
@@ -17,6 +17,7 @@ import { cobbles, cobbleAverage, cobblePatches } from './cobbles.ts';
 import { roadDistanceNode } from '../road.ts';
 import { footprint } from '../nanite/shading.ts';
 import { underGrass } from '../grass.ts';
+import { detailPos } from '../planet.ts';
 import { meadowColour } from '../terrain.ts';
 
 const TILE = FLOOR_TILE; // m a tile (1024 px: ~5 mm a texel)
@@ -93,7 +94,7 @@ export function applyFarFloor(mat: THREE.MeshStandardNodeMaterial, detail: { slo
  */
 export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps, meadow: Vec3, coverMap: Vec4, litter: LitterInput): void {
   const p = positionWorld.xz;
-  const dist = positionWorld.sub(cameraPosition).length();
+  const dist = positionWorld.sub(detailPos).length(); // (the fades: src/planet.ts)
   // the tree above (looked up a little off, so the crowns' edges in the half-metre texels are ragged, not square)
   const jit = vec2(mx_noise_float(p.mul(0.8)), mx_noise_float(p.mul(0.8).add(31))).mul(0.7);
   const luv = p.add(jit).sub(litter.center).div(LITTER_SIZE).add(0.5);
@@ -121,7 +122,9 @@ export function applyFloor(mat: THREE.MeshStandardNodeMaterial, maps: FloorMaps,
     return max(texture(maps.height, q).grad(dx, dy).r, lf.r.mul(lies(lf)));
   };
   const uv0 = p.div(TILE);
-  const fallen = inMap.mul(smoothstep(0.08, 0.3, amount)); // (under a lone tree too)
+  // (under a lone tree too: by the litter map's own amount; with `amount`, which takes in the cover map's average over
+  // the map's fading edge, open ground showed a brown band along the square's edge, moving with it: the user)
+  const fallen = inMap.mul(smoothstep(0.08, 0.3, cell.g));
   const under = max(smoothstep(0.3, 0.75, coverMap.r), fallen).mul(float(1).sub(smoothstep(80, 200, dist)));
   const uv = reliefUv(maps.height, uv0, RELIEF, sample, under); // (relief only in the litter)
   const dx = uv0.dFdx().mul(footprint()), dy = uv0.dFdy().mul(footprint()); // (for the output's pixels)

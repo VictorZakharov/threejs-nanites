@@ -1,6 +1,6 @@
 import * as THREE from 'three/webgpu';
 import { attribute, mix, vec3, vec4, positionWorld, positionLocal, float, mx_noise_float, smoothstep, texture, cameraViewMatrix } from 'three/tsl';
-import type { Float } from './types.ts';
+import type { Float, Vec2, Vec3 } from './types.ts';
 import { curve } from './planet.ts';
 import { fbm, heightAt } from './noise.ts';
 
@@ -35,8 +35,13 @@ function terrainGeometry(size: number, seg: number, lowerInside = 0): THREE.Plan
  * `slope`: the vertex's (or, on the coarse grids from high up, the detailed grid's, see `detail`).
  */
 export function meadowColour(slope: Float = attribute('slope', 'float')) {
-  const n1 = mx_noise_float(positionWorld.xz.mul(0.05)).mul(0.5).add(0.5);
-  const n2 = mx_noise_float(positionWorld.xz.mul(0.6)).mul(0.5).add(0.5);
+  return meadowColourAt(positionWorld.xz, slope);
+}
+
+/** The meadow colour at world xz `p` (also the far grass blades' colour, src/grass-keep.ts). */
+export function meadowColourAt(p: Vec2, slope: Float): Vec3 {
+  const n1 = mx_noise_float(p.mul(0.05)).mul(0.5).add(0.5);
+  const n2 = mx_noise_float(p.mul(0.6)).mul(0.5).add(0.5);
   const grassA = vec3(0.16, 0.22, 0.07);
   const grassB = vec3(0.24, 0.27, 0.1);
   const dirt = vec3(0.27, 0.22, 0.16);

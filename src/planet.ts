@@ -10,6 +10,10 @@ export const PLANET_RADIUS = Number(new URLSearchParams(location.search).get('pl
 
 /** The viewer's world position: set each frame from the main camera (not the shadow camera). */
 export const viewerPos = uniform(new THREE.Vector3());
+/** Where the ground's detail (grass, litter, relief) measures its fades from: the viewer, plus `detailShift` (the
+ * harness's `--sweep=detail` moves only this, so anything that changes on screen is a fade sliding along). */
+export const detailPos = uniform(new THREE.Vector3());
+export const detailShift = new THREE.Vector3();
 const invTwoR = uniform(1 / (2 * PLANET_RADIUS));
 
 /** Curvature drop (m) at horizontal distance from the viewer. */

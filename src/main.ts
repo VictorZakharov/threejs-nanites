@@ -9,7 +9,7 @@ import { NaniteForest } from './nanite/forest.ts';
 import { PHASE2_LAYER } from './nanite/constants.ts';
 import { makeLeafAlpha, LEAF_DITHER, mipBias } from './nanite/shading.ts';
 import { bakeImpostors, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
-import { viewerPos } from './planet.ts';
+import { viewerPos, detailPos, detailShift } from './planet.ts';
 import { createClouds, CLOUD_BASE } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
@@ -181,8 +181,9 @@ async function start() {
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
-    cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir,
+    cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer,
   });
+  demo.grass = grass;
   scene.add(grass.group);
   scene.add(forest.group);
   lap('Grass');
@@ -299,6 +300,7 @@ async function start() {
     camera.position.x = THREE.MathUtils.clamp(camera.position.x, -lim, lim);
     camera.position.z = THREE.MathUtils.clamp(camera.position.z, -lim, lim);
     viewerPos.value.copy(camera.position);
+    detailPos.value.copy(camera.position).add(detailShift);
     clouds.update(time, camera);
     grass.update(camera);
     litter.update(camera.position, camera.position.y - heightAt(camera.position.x, camera.position.z));

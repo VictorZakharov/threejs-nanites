@@ -1,9 +1,9 @@
 // Where @types/three (0.186) lags three.js's runtime API: the casts live here, each with what it papers over, so
 // they're easy to drop when the typings catch up. Nothing here changes behaviour.
 import type * as THREE from 'three/webgpu';
-import type { floatBitsToUint } from 'three/tsl';
+import { floatBitsToUint, uintBitsToFloat, packHalf2x16, packUnorm4x8, unpackHalf2x16, unpackUnorm4x8 } from 'three/tsl';
 import type { Node } from 'three/webgpu';
-import type { Uint } from './types.ts';
+import type { Float, Uint, Vec2, Vec4 } from './types.ts';
 
 /** MeshLambertNodeMaterial has an emissive input (it's lit like the standard material), not in the typings. */
 export function setEmissive(mat: THREE.MeshLambertNodeMaterial, node: Node): void {
@@ -34,3 +34,11 @@ export function computeBatch(r: THREE.WebGPURenderer, list: (THREE.ComputeNode |
   });
   r.compute(nodes);
 }
+
+/** The pack/unpack and uint-to-float bitcast nodes are typed as untyped nodes (their WGSL types: u32, vec2f, vec4f, f32). */
+export const packHalf = (v: Vec2): Uint => packHalf2x16(v) as unknown as Uint;
+export const packUnorm4 = (v: Vec4): Uint => packUnorm4x8(v) as unknown as Uint;
+export const unpackHalf = (u: Uint): Vec2 => unpackHalf2x16(u) as unknown as Vec2;
+export const unpackUnorm4 = (u: Uint): Vec4 => unpackUnorm4x8(u) as unknown as Vec4;
+export const uintAsFloat = (u: Uint): Float => uintBitsToFloat(u) as unknown as Float;
+export const floatAsUint = (f: Float): Uint => floatBitsToUint(f) as unknown as Uint;

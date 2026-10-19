@@ -19,8 +19,8 @@ measuring
                      is saved as tools/out/<probe>-<view>.png); see tools/probes/README.md
   --ab="q1|q2"       every view under each query (on top of --query): numbers, screenshots <view>@<k>.png and
                      mean colours (all pixels / tree pixels) per variant
-  --sweep=lod,shadowlod,shadow   hold the view, move only the LOD reference / shadow-caster LOD reference /
-                     shadow-map centre (--steps=30 --step=3 m); counts brightness jumps, heatmap sweep-<what>-<view>.png
+  --sweep=lod,shadowlod,shadow,detail   hold the view, move only the LOD reference / shadow-caster LOD reference /
+                     shadow-map centre / the ground detail's reference (--steps=30 --step=3 m); counts brightness jumps, heatmap sweep-<what>-<view>.png
   --dolly            move the camera in small steps (--steps=40 --step=0.5 m); counts tiles that flicker,
                      heatmap dolly-<view>.png
   --turn=DEG         --dolly: also turn the camera this many degrees (yaw) per step (mouse look; --step=0 to only turn)
