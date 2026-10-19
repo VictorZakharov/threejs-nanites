@@ -23,8 +23,12 @@ npm run harness    # headless benchmark + screenshots, see below
 - **`main` has only merge commits:** PRs are merged with `gh pr merge N --merge` (squash and rebase merges are
   off; a ruleset blocks direct pushes, force pushes and deletion of `main`). A merge deploys production
   (`deploy-pages.yml`): https://victorzakharov.github.io/threejs-nanites/ ; check it with `--url` afterwards.
-- **PR branches have linear history:** only rebases. Bring a branch up to date with `git fetch` and
-  `git rebase origin/main`, then `git push --force-with-lease`; never merge `main` into it.
+- **PR branches have linear history:** only rebases. Start a branch from `origin/main`'s tip (its latest merge
+  commit is fine) and bring it up to date with `git fetch` and `git rebase origin/main`, then
+  `git push --force-with-lease`; never merge `main` into it. The `Linear history` check
+  (`.github/workflows/linear-history.yml`, required by the `main` ruleset) fails a PR with merge commits that aren't on
+  `main` already. GitHub's own "require linear history" rule on PR branches refused every new branch cut from
+  `main`'s tip (it counts `main`'s merges too), so it was dropped for the check (2026-10-19).
 - The repo is public (MIT; since 2026-10-11): pull requests from forks get previews too. Pages is served from the
   aggregated `gh-pages` branch (production at the root, previews under `pr-preview/`); don't delete that branch or
   switch Pages away from the workflow setup.

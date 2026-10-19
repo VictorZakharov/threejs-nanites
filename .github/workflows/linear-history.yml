@@ -1,0 +1,40 @@
+name: Linear history
+
+# A pull request's own commits must be a straight line: no merge commits that
+# aren't on main already (bring a branch up to date by rebasing, never by
+# merging main into it). Commits main already has, its merge commits included,
+# don't count, so a branch cut from main's latest merge passes. GitHub's own
+# "require linear history" rule looked at every commit a pushed branch holds,
+# main's merges too, and refused new branches cut from main's tip.
+# The `main` ruleset requires this check.
+
+on:
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  linear:
+    name: No merge commits in the PR
+    runs-on: ubuntu-24.04
+    timeout-minutes: 2
+    steps:
+      - name: Check out pull request
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+          fetch-depth: 0
+      - name: List merge commits not on main
+        env:
+          BASE: ${{ github.event.pull_request.base.ref }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          merges=$(git rev-list --merges "origin/$BASE..$HEAD_SHA")
+          if [ -n "$merges" ]; then
+            echo "::error::This pull request has merge commits; rebase it on $BASE instead (git fetch && git rebase origin/$BASE):"
+            git log --oneline --no-walk $merges
+            exit 1
+          fi
+          echo "No merge commits: $(git rev-list --count "origin/$BASE..$HEAD_SHA") commit(s) in a line on $BASE."
