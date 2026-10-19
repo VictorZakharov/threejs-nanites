@@ -17,6 +17,7 @@ export class LoadingScreen {
   readonly errorPanel: HTMLElement;
   readonly errorDetail: HTMLElement;
   readonly errorHint: HTMLElement;
+  readonly continueButton: HTMLButtonElement;
   /** The log's lines with their times (ms since the navigation started): the harness's `--load` reads them. */
   readonly entries: { t: number; msg: string }[] = [];
   estimate: number | null = null;
@@ -31,6 +32,7 @@ export class LoadingScreen {
     this.errorPanel = find(this.root, '[data-loading-error]');
     this.errorDetail = find(this.root, '[data-loading-error-detail]');
     this.errorHint = find(this.root, '[data-loading-error-hint]');
+    this.continueButton = find<HTMLButtonElement>(this.root, '[data-loading-continue]');
   }
 
   /** Logs a line without moving the bar. */
@@ -97,6 +99,27 @@ export class LoadingScreen {
     this.note(`FAILED · ${message}`);
     this.errorDetail.textContent = message;
     this.errorPanel.hidden = false;
+  }
+
+  /**
+   * A warning in the error panel's place with a button (`label`); resolves when it's pressed (at once with `auto`),
+   * and the screen goes on loading.
+   */
+  async ask(message: string, hint: string, label: string, auto = false): Promise<void> {
+    this.root.classList.add('is-asking');
+    this.status.textContent = 'No WebGPU';
+    this.progress.textContent = '';
+    this.note(message);
+    this.errorDetail.textContent = message;
+    this.errorHint.textContent = hint;
+    this.continueButton.textContent = label;
+    this.continueButton.hidden = false;
+    this.errorPanel.hidden = false;
+    if (!auto) await new Promise<void>((r) => this.continueButton.addEventListener('click', () => r(), { once: true }));
+    this.root.classList.remove('is-asking');
+    this.errorPanel.hidden = true;
+    this.continueButton.hidden = true;
+    this.note(`${label}`);
   }
 
   _cancelEstimate(): void {

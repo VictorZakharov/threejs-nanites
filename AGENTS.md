@@ -122,11 +122,22 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   worker finishes first. It was one main-thread loop over ~7M candidates: 6.8 s of the user's load (half of it
   `roadDistance` looping over the road's segments for every candidate: it has a bounding-box early-out now). Its
   pure dependencies are split out for the workers: `noise.ts` (fbm, `heightAt`), `road-path.ts`, `autumn-cpu.ts`.
-- No WebGPU (issue #39): `main.ts` checks `navigator.gpu` before anything starts (`beginLoading()` starts the workers
-  and downloads) and says so on the loading screen with the browsers that work; Firefox on Android grew every tree
-  first. The adapter is requested at once, alongside the workers: awaiting it first held them back ~0.3 s; a null
-  adapter fails as soon as it resolves. `?nogpu=1` acts as if there were no WebGPU; `--load=1 --query=nogpu=1`
-  shows the message's time, that only the page's own files were fetched, and `tools/out/load-error.png`.
+- No WebGPU (issue #39; Firefox on Android): `main.ts` checks `navigator.gpu` before anything starts (`beginLoading()`
+  starts the workers and downloads; it used to grow every tree first) and shows a warning with a Continue button on
+  the loading screen (`ui.ask`); Continue runs the reduced WebGL 2 mode, `src/webgl/` (`startWebGL`: three's
+  WebGPURenderer with `forceWebGL`), from the same loading work. A null adapter gets the same warning when it's
+  known (the adapter is requested alongside the workers: awaiting it first held them back ~0.3 s). The mode has the
+  terrain, sky, fog, clouds, sun shadows and the forest floor (after the first frame, its shader compiled meanwhile:
+  1.8 s on its own); its forest (`webgl/forest.ts`) is near trees as instanced meshes at two fixed DAG cuts (by
+  distance, rescanned on the CPU from a 64 m grid when the camera moves; 60 / 220 m, touch 35 / 110, `?glnear=`)
+  and the baked impostors as instanced quads in 1 km cells, culled and thinned on the CPU (a cell draws the share
+  of its shuffled trees that `MIN_PX` keeps at its nearest edge). Missing there: grass, statues, wind, TAA and
+  upscaling, god rays, occlusion, the software rasterizer, splats, the HUD, menu and performance panel; auto quality
+  is the pixel ratio by frame time (`budget` 17 / 33 ms). Each program compiles on the main thread in WebGL: one bark
+  and one leaf material for every type (the layer by a select chain on the instance's type, +0.25 before the floor:
+  interpolated, 3 arrived as 2.9999 and speckled the trunks). `?webgl=1` runs it on a WebGPU browser (the harness
+  presses Continue itself; `?gate=1` stops at the warning: `--load=1 --query="nogpu=1&gate=1"` shows its time, the
+  downloads before it and `tools/out/load-error.png`); `?nogpu=1` as if there were no WebGPU.
 - Loading (issue #6; measure with `--load`, `tools/AGENTS.md`): 17.4 -> 6.4 s to the first frame on the dev machine
   (production build, medians of 3 cold boots), 43 -> 20 s at a phone's size and pace (`--cpu=4`); the script 3.3 ->
   0.34 MB gzipped. Everything that needs no GPU starts in workers at the top of `main.ts`, before the GPU is asked

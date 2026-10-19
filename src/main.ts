@@ -56,12 +56,12 @@ const ui = new LoadingScreen();
 demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 
 // ---------------------------------------------------------------- WebGPU first
-// Nothing starts without it: since the loading work moved to module top, Firefox on Android grew all the trees
-// (~2.4 s of a phone's work) before it said there's no WebGPU (issue #39). The adapter is asked for at once, alongside
-// the workers (awaiting it first would hold them back); a null adapter is rare (a blocklisted GPU) and fails then.
-// (?nogpu=1: as if the browser had no navigator.gpu)
-const gpu = params.get('nogpu') === '1' ? undefined : navigator.gpu;
-const WEBGPU_HINT = 'Nanite Forest needs WebGPU. It runs in Chrome or Edge on desktop and Android, and in Safari or desktop Firefox where they have WebGPU; Firefox on Android doesn’t have it yet.';
+// Without it (Firefox on Android), nothing starts until the warning's Continue: then a reduced WebGL 2 mode
+// (src/webgl/), the same world without the GPU-driven forest (issue #39; it used to grow every tree first, ~2.4 s of a
+// phone's work, and then say there's no WebGPU). The adapter is asked for at once, alongside the workers (awaiting it
+// first held them back ~0.3 s); a null adapter (a blocklisted GPU) gets the warning when it's known.
+// (?nogpu=1: as if the browser had no navigator.gpu; ?webgl=1: the WebGL mode where there is one)
+const gpu = params.get('nogpu') === '1' || params.get('webgl') === '1' ? undefined : navigator.gpu;
 const adapterReady = gpu?.requestAdapter({ powerPreference: 'high-performance' });
 
 // ---------------------------------------------------------------- setup
@@ -86,11 +86,14 @@ function beginLoading() {
   return { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady };
 }
 
+type Loading = ReturnType<typeof beginLoading>;
+
 async function start(adapterReady: Promise<GPUAdapter | null>) {
-  const { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady } = beginLoading();
+  const loading = beginLoading();
+  const { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady } = loading;
   await ui.update(0.02, 'Waking the GPU');
   const adapter = await adapterReady;
-  if (!adapter) return noWebGPU('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).');
+  if (!adapter) return webgl('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).', loading);
   const lim = adapter.limits;
   if (lim.maxStorageBuffersPerShaderStage < 10) throw new Error('GPU supports too few storage buffers per stage.');
   const renderer = new THREE.WebGPURenderer({
@@ -499,15 +502,19 @@ async function start(adapterReady: Promise<GPUAdapter | null>) {
   demo.ready = true;
 }
 
-/** Says there's no WebGPU, on the loading screen (the harness reads demo.error). */
-function noWebGPU(message: string): void {
-  demo.error = message;
-  ui.fail(new Error(message), WEBGPU_HINT, 'No WebGPU');
+/** No WebGPU: the warning, then (on Continue) the reduced WebGL mode, with the loading already started if it was. */
+async function webgl(reason: string, loading?: Loading): Promise<void> {
+  const { WEBGL_HINT, startWebGL } = await import('./webgl/start.ts');
+  // (the harness presses Continue itself; with ?gate=1 it stops there: --load then shows what ran before it)
+  const asked = ui.ask(reason, WEBGL_HINT, 'Continue in WebGL mode', HARNESS && params.get('gate') !== '1');
+  if (HARNESS && params.get('gate') === '1') demo.error = 'stopped at the WebGL warning (?gate=1)';
+  await asked;
+  await startWebGL({ ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, ...(loading ?? beginLoading()) });
 }
 
-if (!adapterReady) noWebGPU('WebGPU is not available in this browser.');
-else start(adapterReady).catch((e) => {
+const fail = (e: unknown): void => {
   console.error(e);
   demo.error = String(e instanceof Error ? (e.stack ?? e) : e);
   ui.fail(e);
-});
+};
+(adapterReady ? start(adapterReady) : webgl('WebGPU is not available in this browser.')).catch(fail);

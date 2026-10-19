@@ -117,6 +117,12 @@
       .loading__error[hidden] { display: none; }
       .loading__error code { display: block; color: #f3b497; font: 0.7rem/1.45 ui-monospace, Consolas, monospace; overflow-wrap: anywhere; white-space: pre-wrap; }
       .loading__error span { display: block; margin-top: 8px; color: rgb(220 233 228 / 68%); font-size: 0.68rem; }
+      /* (no WebGPU: the reduced WebGL mode's warning, src/webgl/) */
+      .loading.is-asking h1, .loading.is-asking small { color: #f2e6b8; }
+      .loading.is-asking .loading__error { border-color: rgb(242 230 184 / 28%); }
+      .loading.is-asking .loading__error code { color: #f2e6b8; }
+      .loading__error button { display: block; margin: 12px 0 0 auto; padding: 8px 16px; color: #fff3c8; font: 600 0.7rem ui-monospace, Consolas, monospace; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; background: linear-gradient(rgb(110 96 40 / 70%), rgb(50 42 14 / 70%)); border: 1px solid rgb(242 230 184 / 55%); border-radius: 3px; touch-action: manipulation; }
+      .loading__error button[hidden] { display: none; }
       body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       /* ---- the waypoint to the plaza (src/waypoint.ts): placed by transform at the target, the marker centred on it */
       #waypoint { position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none; will-change: transform; transition: opacity 0.3s; color: #f2e6b8; }
@@ -280,6 +286,7 @@
       <div class="loading__error" data-loading-error hidden>
         <code data-loading-error-detail></code>
         <span data-loading-error-hint>This demo needs WebGPU: a recent Chrome or Edge on desktop works best.</span>
+        <button type="button" data-loading-continue hidden>Continue</button>
       </div>
     </section>
     <div id="corner"></div>
