@@ -8,6 +8,7 @@ import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
 import type { forestDensity } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
+import type { createGrass } from './grass.ts';
 import type { ImpostorAtlas } from './impostors.ts';
 import type { createHud } from './hud.ts';
 import type { Music } from './music.ts';
@@ -66,6 +67,7 @@ export interface DemoExtras {
   coverMap: ReturnType<typeof forestDensity>; // (the canopy cover / fallen leaves map, --probe=autumn)
   leafOf: string[]; // (each variant's kind of leaf)
   litter: ReturnType<typeof createLitterMap>;
+  grass: ReturnType<typeof createGrass>;
   atlas: ImpostorAtlas;
   hud: ReturnType<typeof createHud>;
   music: Music;

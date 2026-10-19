@@ -205,16 +205,19 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   blades round the viewer (cells 0.09 / 0.2 / 0.45 m out to 16 / 40 / 90 m), each a grid of world cells snapped to
   the camera, so blades don't swim. Rings cross-fade by 3D distance and blades widen with the cell, so the covered
   fraction stays even. Blades stand on the terrain mesh's own vertex heights (a float texture, same triangle split as
-  PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. A dropped
-  blade collapses onto its root (collapsing per vertex, or to the origin, drew streaks across the screen). Double-sided
-  Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades).
+  PlaneGeometry), density from canopy cover, slope and patch noise; wind writes TAA motion like the trees. Which blades
+  are drawn is decided in compute (`src/grass-keep.ts`): a thread per cell of the ring's tiles in view runs the keep
+  test (density, tufts, the cross-fade and morph, behind the camera) and appends the kept blades to the ring's list
+  (2 uvec4s: root, then height / width / lean / bend / flutter / sun-through in halves and the colour in unorm8s); the
+  ring is one indirect draw (`setIndirect`, its instance count from the pass's atomic counter, clamped to the list's
+  size, `ringCapacity`). It was all in the vertex shader, every cell's blade drawn, the dropped ones collapsed onto
+  their root: the vertex invocations cost, kept or not (`--probe=grass`: ~100-120k kept of ~660k tested on `meadow`).
+  Double-sided Lambert needs `normalViewGeometry` (the default flips the normal on back faces: dark blades).
   Each ring morphs towards the next across its width (fewer, wider blades): a plain hand-over was a line in the grass
-  that moved with the camera (the user). Each ring's grid is drawn as 8 x 8 tiles (`?grasstiles=`; `tileOff` is a
-  per-object uniform) and `update()` draws only the tiles in the view frustum and the ring's annulus: one draw of the
-  whole square ran every blade's vertex shader behind the camera too; a tile is out of the ring by its 3D distance (by
-  the ground distance alone, from high up every tile under the camera was drawn, every blade dropped: 20% of a phone's
-  GPU time 8 km up) (`plazane` 0.57 -> 0.21 ms, same image; ~0.6 ms
-  more CPU for the draws). Blades: 4 segments, normals rounded across the width, colour per pixel
+  that moved with the camera (the user). Each ring's grid is 8 x 8 tiles (`?grasstiles=`) and `update()` lists only
+  the tiles in the view frustum and the ring's annulus for the keep pass (a uniform array of their first cells); a
+  tile is out of the ring by its 3D distance (by the ground distance alone, from high up every tile under the camera
+  was drawn, every blade dropped: 20% of a phone's GPU time 8 km up). Blades: 4 segments, normals rounded across the width, colour per pixel
   (root to tip, midrib, edges, dry tip): `grassclose` view. Blades that come and go with the distance grow out of
   the ground over a share `?grassgrow=` (0.3) of their keep chance: popping in whole, walking showed grass appearing
   ahead (the user).
@@ -228,11 +231,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   blade) made every blade darker than the ground; with the ground's own colour (a debug test) blades matched it, so
   the lighting was fine. Views `meadow`, `meadowclose` (a clearing ~350 m from the spawn).
   Density (the user's reference: a UE meadow, a carpet of thin blades): `?grassdense=` blades per m² x (the cells
-  shrink by its root), 4 on desktops, 1 on touch. The blades widen with the cell, so they get thinner too. Cost on the
-  dev GPU: x4 +0.3-0.5 ms, x6 +0.9, the same on the forest floor where nearly every blade is dropped: it's the
-  vertex invocations (a branch skipping the shaping for dropped blades saved nothing). Compacting the kept blades in
-  a compute pass (as the trees do) would remove that. Blades have 4 / 3 / 2 segments by ring (`segs`: the far ones
-  are a few pixels tall; -0.15 ms). Tufts gather only where grass is sparse (`flat`, before the slope): pulled
+  shrink by its root), 6 on desktops, 1 on touch. The blades widen with the cell, so they get thinner too. Cost on the
+  dev GPU (render over `grass=0`, 1080p, `meadow`/`meadowclose`/`grassclose`/`ground`): drawing every cell, x1 +0.2-0.3
+  ms, x4 +0.5-0.75, x6 +0.8-1.1, as much on the forest floor where nearly every blade is dropped (a branch skipping
+  the shaping for dropped blades saved nothing); with the keep pass x4 and x6 are ~+0.05 render and +0.03-0.06
+  compute. Blades have 4 / 3 / 2 segments by ring (`segs`: the far ones are a few pixels tall; -0.15 ms). Tufts gather only where grass is sparse (`flat`, before the slope): pulled
   together, a dense meadow was tufts with bare ground between. Each blade has its own green, blue-green to
   yellow-green. The floor's meadow colour is darkened up to half under the blades (`underGrass`, by the same road /
   cover / patch terms, back to 1 by 85% of the outer ring's radius, off with the menu's switch): lit as open ground

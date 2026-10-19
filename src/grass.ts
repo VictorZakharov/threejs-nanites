@@ -1,43 +1,38 @@
-// Grass: blades drawn around the viewer in three rings, each an instanced mesh over a grid of world-space cells that
-// follows the camera (snapped to whole cells, so a blade stays where it is while you fly). Each ring has coarser
-// cells and wider blades than the one inside it and they cross-fade by distance, so the covered fraction of the
-// ground stays even; the outer ring thins out into the ground's own colour. Everything is in the vertex shader:
-// position and size from a hash of the cell, height from the terrain's own vertex heights (same triangles as the
-// terrain mesh, so blades stand exactly on it), density from the canopy cover, the slope and patch noise, wind.
-// Blades gather in tufts (a jittered grid of clump centres in world space, so every ring agrees): a tuft's blades
-// share a height and a dryness and fan out from its centre, and where grass is sparse it's whole tufts that are left,
-// not lone blades evenly spread (on the forest floor those read as scattered green spikes). Blades bend along an arc,
-// turn a little towards the viewer when seen edge-on and glow where the sun is behind them (it shines through).
-// Each ring's grid is drawn as TILES x TILES tiles, and only the tiles in view and in the ring are drawn: the whole
-// square ran every blade's vertex shader, behind the camera and inside the inner ring too (0.6 ms on High).
+// Grass: blades drawn around the viewer in three rings, each over a grid of world-space cells that follows the
+// camera (snapped to whole cells, so a blade stays where it is while you fly). Each ring has coarser cells and wider
+// blades than the one inside it and they cross-fade by distance, so the covered fraction of the ground stays even;
+// the outer ring thins out into the ground's own colour. A compute pass per ring (src/grass-keep.ts) decides each
+// cell's blade: position and size from a hash of the cell, height from the terrain's own vertex heights (same
+// triangles as the terrain mesh, so blades stand exactly on it), density from the canopy cover, the slope and patch
+// noise; it lists the kept blades, and the ring is one indirect draw of them (the vertex shader shapes the blade and
+// adds the wind). Blades gather in tufts (a jittered grid of clump centres in world space, so every ring agrees): a
+// tuft's blades share a height and a dryness and fan out from its centre, and where grass is sparse it's whole tufts
+// that are left, not lone blades evenly spread (on the forest floor those read as scattered green spikes). Blades
+// bend along an arc, turn a little towards the viewer when seen edge-on and glow where the sun is behind them.
+// Each ring's grid is split into TILES x TILES tiles, and only the cells of the tiles in view and in the ring are
+// tested (on the CPU, per frame).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, instanceIndex, attribute, uniform, float, vec2, vec3, vec4, int, ivec2, uint, hash, sin, cos, mix, clamp,
-  smoothstep, textureLoad, texture, varying, normalLocal, mx_noise_float, cameraProjectionMatrix, cameraViewMatrix,
-  mrt, select, sqrt, normalViewGeometry, abs, sign,
+  Fn, instanceIndex, attribute, uniform, float, vec2, vec3, vec4, sin, cos, mix, clamp, smoothstep, varying,
+  normalLocal, cameraProjectionMatrix, cameraViewMatrix, mrt, normalViewGeometry, abs, sign, storage,
 } from 'three/tsl';
 import { curve, viewerPos } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
+import { BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, type KeepRing } from './grass-keep.ts';
+import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
 import type { Float, Vec2, Vec3 } from './types.ts';
 import type { ForestUniforms } from './nanite/types.ts';
 
 const params = new URLSearchParams(location.search);
-/** A blade grows in over this share of its keep chance (`?grassgrow=`, 0 = pops): popping in whole, walking forward
- * showed grass appearing ahead (the user). */
-const GROW = Number(params.get('grassgrow') ?? 0.3);
 const TILES = Number(params.get('grasstiles') ?? 8); // tiles a side per ring
-const CLUMP = 0.8; // m: the tufts' grid (one jittered centre per cell)
-/** How much the blades gather into tufts where grass is sparse / dense (`?grassclump=sparse,dense`, 0,0 = evenly). */
-const [CLUMP_SPARSE, CLUMP_DENSE] = (params.get('grassclump') ?? '0.85,0').split(',').map(Number);
 
 /** The rings: cell size (m), outer radius (m) and segments per blade (2 x segs + 1 vertices, 2 x segs - 1 triangles:
  * the far rings' blades are a few pixels tall and need no curve, and most blades are there); each fades in over the
  * last 20% of the ring inside it. */
 const TOUCH = matchMedia('(pointer: coarse)').matches;
 const SCALE = Number(params.get('grass') ?? (TOUCH ? 0.5 : 1)); // ring radii, x (0 = no grass)
-/** Blades per square metre, x (`?grassdense=`; the cells shrink by its root): 4 on desktops (~+0.5 ms on the dev GPU;
- * 6 looked fuller for ~+0.9: every blade in the rings costs, kept or not), 1 on touch screens. */
-const DENSE = Number(params.get('grassdense') ?? (TOUCH ? 1 : 4));
+/** Blades per square metre, x (`?grassdense=`; the cells shrink by its root): 6 on desktops, 1 on touch screens. */
+const DENSE = Number(params.get('grassdense') ?? (TOUCH ? 1 : 6));
 const RINGS = [
   { cell: 0.09, radius: 16, segs: 4 },
   { cell: 0.2, radius: 40, segs: 3 },
@@ -52,10 +47,9 @@ export interface GrassContext {
   u: ForestUniforms; // time, prevTime, wind
   receivedShadow: unknown; // the ground's receivedShadowNode (map shadow fading into the far-field shade)
   sunDir: THREE.Vector3; // towards the sun
+  renderer: THREE.WebGPURenderer; // (the keep passes)
 }
 
-/** Patches of thicker and thinner grass (0..1). */
-const patchAt = (p: Vec2): Float => mx_noise_float(p.mul(0.045)).mul(0.5).add(0.5);
 const shown = uniform(SCALE > 0 ? 1 : 0); // the grass is drawn (the menu's switch)
 
 /**
@@ -70,29 +64,9 @@ export function underGrass(p: Vec2, cover: Float, dist: Float): Float {
   return float(1).sub(blades.mul(float(1).sub(smoothstep(reach * 0.45, reach * 0.85, dist))).mul(shown).mul(0.5));
 }
 
-/** 0..1 from a whole-cell index and a salt. */
-const cellHash = (c: Vec2, salt: number): Float =>
-  hash(uint(int(c.x).add(1 << 20)).mul(73856093).bitXor(uint(int(c.y).add(1 << 20)).mul(19349663)).add(salt));
-
-/** The tuft a point belongs to: the nearest of the 4 jittered clump centres round it (its cell, centre, distance). */
-function clumpOf(p: Vec2): { cell: Vec2; centre: Vec2; d: Float } {
-  const g = p.div(CLUMP).sub(0.5).floor();
-  let cell: Vec2 = g, centre: Vec2 = g.add(0.5).mul(CLUMP), d: Float = float(1e9);
-  for (const [i, j] of [[0, 0], [1, 0], [0, 1], [1, 1]]) {
-    const c = g.add(vec2(i, j));
-    const o = c.add(vec2(cellHash(c, 11), cellHash(c, 23)).mul(0.8).add(0.1)).mul(CLUMP);
-    const dd = p.sub(o).length();
-    const closer = dd.lessThan(d);
-    cell = select(closer, c, cell);
-    centre = select(closer, o, centre);
-    d = d.min(dd);
-  }
-  return { cell, centre, d };
-}
-
 /** One blade: (t along it 0..1, side -1..1). Triangle strip as indexed triangles. */
-function bladeGeometry(instances: number, SEGS: number): THREE.InstancedBufferGeometry {
-  const geo = new THREE.InstancedBufferGeometry();
+function bladeGeometry(SEGS: number): THREE.BufferGeometry {
+  const geo = new THREE.BufferGeometry();
   const bv: number[] = [], idx: number[] = [];
   for (let s = 0; s < SEGS; s++) bv.push(s / SEGS, -1, s / SEGS, 1);
   bv.push(1, 0);
@@ -104,7 +78,6 @@ function bladeGeometry(instances: number, SEGS: number): THREE.InstancedBufferGe
   geo.setAttribute('bv', new THREE.Float32BufferAttribute(bv, 2));
   geo.setAttribute('position', new THREE.Float32BufferAttribute(new Float32Array(bv.length * 1.5), 3)); // (unused)
   geo.setIndex(idx);
-  geo.instanceCount = instances;
   return geo;
 }
 
@@ -112,7 +85,7 @@ export function createGrass(ctx: GrassContext) {
   const scale = SCALE;
   const group = new THREE.Group();
   group.name = 'grass';
-  if (!(scale > 0)) return { group, update() {} };
+  if (!(scale > 0)) return { group, update() {}, async stats() { return []; } };
 
   // terrain heights as a float texture: the terrain mesh's vertices, read back exactly
   const n = ctx.segments + 1;
@@ -122,94 +95,41 @@ export function createGrass(ctx: GrassContext) {
   const heightTex = new THREE.DataTexture(heights, n, n, THREE.RedFormat, THREE.FloatType);
   heightTex.needsUpdate = true;
   const step = ctx.size / ctx.segments;
-
-  /** Ground height and slope (|gradient|) at world xz: the terrain mesh's triangles (PlaneGeometry's split). */
-  const ground = (p: Vec2): { y: Float; slope: Float } => {
-    const g = p.add(ctx.size / 2).div(step);
-    const i = clamp(g.floor(), 0, n - 2), f = g.sub(i);
-    const at = (dx: number, dz: number): Float => textureLoad(heightTex, ivec2(int(i.x).add(dx), int(i.y).add(dz))).x;
-    const a = at(0, 0), b = at(0, 1), c = at(1, 1), d = at(1, 0);
-    const upper = f.x.add(f.y).greaterThan(1);
-    // (a, b, d) below the b-d diagonal, (b, c, d) above it
-    const y = select(upper, c.add(b.sub(c).mul(float(1).sub(f.x))).add(d.sub(c).mul(float(1).sub(f.y))), a.add(d.sub(a).mul(f.x)).add(b.sub(a).mul(f.y)));
-    const gx = select(upper, c.sub(b), d.sub(a)), gz = select(upper, c.sub(d), b.sub(a));
-    return { y, slope: sqrt(gx.mul(gx).add(gz.mul(gz))).div(step) };
-  };
-
-  const coverAt = (p: Vec2) => texture(ctx.cover.texture, p.div(ctx.cover.extent * 2).add(0.5)); // (r cover, g fallen leaves)
+  const counters = makeGrassCounters(RINGS.map((r) => (r.segs * 2 - 1) * 3));
+  const keepCtx = { heights: heightTex, size: ctx.size, segments: ctx.segments, cover: ctx.cover, scale, counters };
   const u = ctx.u;
   const windDir = vec3(0.83, 0, 0.55);
   const sunDir = uniform(ctx.sunDir);
 
-  const rings: { origin: { value: THREE.Vector2 }; cell: number; N: number; S: number; inner: number; radius: number; tiles: THREE.Mesh[] }[] = [];
+  const rings: (KeepRing & { N: number; keep: ReturnType<typeof buildKeepPass>; mesh: THREE.Mesh; listed: number })[] = [];
+  const caps: number[] = [];
   RINGS.forEach((ring, k) => {
     const cell = ring.cell, radius = ring.radius * scale;
     const inner = k === 0 ? 0 : RINGS[k - 1].radius * scale;
     const S = Math.ceil((Math.ceil((radius * 2) / cell) + 1) / TILES); // cells a side per tile
     const N = S * TILES;
-    const origin = uniform(new THREE.Vector2()); // the grid's corner cell (whole cells)
-    const tileOff = uniform(new THREE.Vector2()).onObjectUpdate(({ object }) => object?.userData.tileOff as THREE.Vector2); // (cells)
+    const spec: KeepRing = { k, cell, radius, inner, nextCell: RINGS[k + 1]?.cell ?? null, S, tiles: TILES };
+    const cap = ringCapacity(spec);
+    caps.push(cap);
+    const keep = buildKeepPass(keepCtx, spec, cap);
 
     const vColour = varying(vec3(0), 'vGrassColour'); // the blade's tip colour
     const vBlade = varying(vec2(0), 'vGrassBlade'); // (along 0..1, across -1..1)
     const vLight = varying(vec2(0), 'vGrassLight'); // (sun through the blade, the root's darkening)
     const vClip = varying(vec4(0, 0, 0, 1), 'vGrassClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vGrassPrevClip');
 
+    // the blade the keep pass listed (src/grass-keep.ts)
+    const list = storage(keep.listAttr, 'uvec4', cap * BLADE).toReadOnly();
     const position = Fn(() => {
       const bv = attribute<'vec2'>('bv', 'vec2');
       const t = bv.x, side = bv.y;
-      const ci = vec2(float(instanceIndex.mod(uint(S))), float(instanceIndex.div(uint(S)))).add(tileOff).add(origin);
-      const seed = uint(int(ci.x).add(1 << 20)).mul(73856093).bitXor(uint(int(ci.y).add(1 << 20)).mul(19349663)).add(k * 7919);
-      const r = (j: number): Float => hash(seed.add(j * 101));
-      const at = ci.add(vec2(r(0), r(1))).mul(cell);
-      const patch = patchAt(at);
-      // (thinner under the canopy, and where the fallen leaves lie thick: under the red trees most)
-      const cv = coverAt(at);
-      // (none on the road and the plaza: src/road.ts)
-      const flat = smoothstep(0.1, 0.9, roadDistanceNode(at)).mul(float(1).sub(cv.r.mul(0.6))).mul(float(1).sub(cv.g.mul(1.4).min(1).mul(cv.r).mul(0.85))).mul(smoothstep(0.05, 0.45, patch));
-      // the tuft: how much blades gather into it (where grass is sparse; dense, it's an even carpet: pulled together,
-      // a meadow was tufts with bare ground between), faded out by ~35 m, where a ring's cells get as big as tufts (by
-      // the distance along the ground: from high up there's nothing left to see anyway); its blades are pulled a
-      // little towards its centre
-      const tuft = clumpOf(at);
-      const near = float(1).sub(smoothstep(18 * scale, 34 * scale, at.sub(viewerPos.xz).length()));
-      const clumpy = mix(CLUMP_SPARSE, CLUMP_DENSE, smoothstep(0.1, 0.6, flat)).mul(near);
-      const xz = mix(at, tuft.centre, clumpy.mul(0.3));
-      const g = ground(xz);
-      const d = vec3(xz.x, g.y, xz.y).sub(viewerPos).length(); // (3D: flying up, the grass thins out evenly)
-      // ring cross-fade: fade in over the inner ring's last 20%, out over this ring's last 20% (the outermost to 0)
-      const fadeIn = k === 0 ? float(1) : smoothstep(inner * 0.8, inner, d);
-      const fadeOut = float(1).sub(smoothstep(radius * 0.8, radius, d));
-      const density = flat.mul(float(1).sub(smoothstep(0.45, 0.8, g.slope)));
-      // the same share of blades, gathered: where it's sparse a share of whole tufts (each kept by its own chance),
-      // full ones; in a tuft kept more near its centre, none past its edge (x1.7: the mean of `inTuft` over a cell
-      // is ~0.6)
-      const dn = tuft.d.div(mix(0.3, 0.5, cellHash(tuft.cell, 37)).mul(CLUMP));
-      const inTuft = float(1).sub(smoothstep(0.35, 1.05, dn));
-      const tuftShare = density.mul(3).clamp(1e-3, 1);
-      const tufted = select(cellHash(tuft.cell, 61).lessThan(tuftShare), density.div(tuftShare).mul(inTuft).mul(1.7), float(0));
-      // morph towards the next ring across this one: fewer, wider blades, so where they hand over (the last 20%) both
-      // look alike (a straight switch was a line in the grass that moved along with the camera: the user)
-      const next = RINGS[k + 1];
-      const m = next ? mix(1, next.cell / ring.cell, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
-      const keep = fadeIn.mul(fadeOut).mul(mix(density, tufted, clumpy)).div(m.mul(m));
-      const alive = r(2).lessThan(keep);
-      // how far it's grown: from nothing where it's just kept to full size a share GROW of the chance further in, so
-      // the blades that come and go with the distance rise out of the ground and sink back instead of popping
-      const grown = GROW > 0 ? clamp(keep.sub(r(2)).div(keep.mul(GROW).max(1e-4)), 0, 1) : float(1);
-      // dropped blades (and those behind the camera: decided per blade, at the root) collapse onto their root (a
-      // branch skipping the rest for them saved nothing: the cost is the vertex invocations)
-      const base = vec3(xz.x, g.y.sub(0.04), xz.y);
-      const root = curve(base);
-      const behind = cameraViewMatrix.mul(vec4(root, 1)).z.greaterThan(1);
-      // the blade: height (the tuft's and its own), width (wider in the outer rings: same covered fraction)
-      const lush = smoothstep(0.3, 0.8, patch);
-      const height = mix(0.22, 0.65, r(3)).mul(mix(0.6, 1.25, lush)).mul(mix(0.75, 1.25, cellHash(tuft.cell, 41))).mul(grown);
-      const width = float(cell * 0.5).mul(m).mul(sqrt(grown)).mul(float(1).sub(t.pow(2.5))); // parallel, then the tip
-      // leaning away from the tuft's centre (a fan), its own way where there's no tuft
-      const yaw = r(4).mul(6.2832);
-      const out = at.sub(tuft.centre);
-      const lean2 = mix(vec2(sin(yaw).negate(), cos(yaw)), out.div(out.length().max(1e-4)), clumpy.mul(smoothstep(0.02, 0.1, out.length()))).normalize();
+      const b0 = list.element(instanceIndex.mul(BLADE)), b1 = list.element(instanceIndex.mul(BLADE).add(1));
+      const base = vec3(uintAsFloat(b0.x), uintAsFloat(b0.y), uintAsFloat(b0.z)).toVar();
+      const hw = unpackHalf(b0.w), lean2 = unpackHalf(b1.x), arc = unpackHalf(b1.y), misc = unpackHalf(b1.z);
+      const look = unpackUnorm4(b1.w);
+      const xz = base.xz;
+      const height = hw.x;
+      const width = hw.y.mul(float(1).sub(t.pow(2.5))); // parallel, then the tip
       const lean = vec3(lean2.x, 0, lean2.y);
       // seen edge-on, a blade turns up to ~25 degrees towards the viewer (per blade; edge-on it's a thin line)
       const toCam = viewerPos.xz.sub(xz).normalize();
@@ -217,15 +137,14 @@ export function createGrass(ctx: GrassContext) {
       const facing = vec2(toCam.y.negate(), toCam.x);
       const turned = mix(across0, facing.mul(sign(facing.dot(across0))), float(1).sub(abs(toCam.dot(lean2))).mul(0.45)).normalize();
       const across = vec3(turned.x, 0, turned.y);
-      // an arc: tilted at the root (the tuft's outer blades most), bending further along it
-      const tilt = mix(0.05, 0.4, clamp(dn, 0, 1).mul(clumpy)).add(r(9).mul(0.15));
-      const bendK = mix(0.2, 0.85, r(5)); // (the tip at most ~80 degrees over: further, blades lay flat as pale streaks)
+      // an arc: tilted at the root, bending further along it
+      const tilt = arc.x, bendK = arc.y;
       const mid = tilt.add(bendK.mul(t).mul(0.5)), ang = tilt.add(bendK.mul(t));
       const local = across.mul(side.mul(width).mul(0.5)).add(lean.mul(t.mul(height).mul(sin(mid)))).add(vec3(0, t.mul(height).mul(cos(mid)), 0));
       // wind: gusts rolling across the field plus a flutter per blade, bending with the square of t
       const windAt = (time: Float): Vec3 => {
         const roll = sin(time.mul(1.6).sub(xz.x.mul(0.21)).sub(xz.y.mul(0.14))).mul(0.5).add(0.5);
-        const flutter = sin(time.mul(5.3).add(r(6).mul(6.28))).mul(0.25);
+        const flutter = sin(time.mul(5.3).add(misc.x.mul(6.28))).mul(0.25);
         return windDir.mul(t.mul(t).mul(height).mul(u.wind).mul(roll.mul(0.55).add(flutter.mul(0.3)).add(0.1)));
       };
       const world = curve(base.add(local).add(windAt(u.time)));
@@ -235,23 +154,14 @@ export function createGrass(ctx: GrassContext) {
       const face = vec3(0, 1, 0).mul(sin(ang)).sub(lean.mul(cos(ang)));
       normalLocal.assign(mix(face, vec3(0, 1, 0), 0.6).add(across.mul(side.mul(0.5))).normalize());
       vBlade.assign(vec2(t, side));
-      // sun through the blade: the face we see turned away from the sun; less under the canopy (in its shade, which
-      // the shadow map gives the surface light only, a glow would stay)
+      // sun through the blade: the face we see turned away from the sun (less under the canopy: misc.y)
       const seen = face.mul(sign(face.dot(viewerPos.sub(base.add(local)))));
-      const through = clamp(seen.dot(sunDir).negate(), 0, 1).mul(float(1).sub(cv.r.mul(0.85)));
-      // the root's darkening: deepest in a dense tuft
-      vLight.assign(vec2(through, mix(0.75, 0.45, density.mul(mix(1, inTuft, clumpy)))));
-      // colour: lighter and a little yellow at the tip, patches and tufts of drier grass
-      const dry = smoothstep(0.55, 0.9, mx_noise_float(xz.mul(0.11).add(17)).mul(0.5).add(0.5)).mul(0.6).add(r(7).mul(0.25)).add(cellHash(tuft.cell, 53).sub(0.5).mul(0.3)).clamp(0, 1);
-      // each blade its own green, from blue-green to yellow-green (one green for all read as a flat carpet)
-      const hue = r(8);
-      const green = mix(mix(vec3(0.2, 0.36, 0.17), vec3(0.33, 0.48, 0.12), smoothstep(0, 0.5, hue)), vec3(0.5, 0.58, 0.13), smoothstep(0.5, 1, hue));
-      const tip = mix(green, vec3(0.58, 0.54, 0.25), dry);
-      vColour.assign(tip.mul(mix(0.75, 1.15, r(10))));
+      vLight.assign(vec2(clamp(seen.dot(sunDir).negate(), 0, 1).mul(misc.y), look.w));
+      vColour.assign(look.xyz);
       const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
       vClip.assign(viewProj.mul(vec4(world, 1)));
       vPrevClip.assign(viewProj.mul(vec4(prevWorld, 1)));
-      return select(alive.and(behind.not()), world, root);
+      return world;
     })();
 
     const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide });
@@ -270,19 +180,16 @@ export function createGrass(ctx: GrassContext) {
     mat.receivedShadowNode = ctx.receivedShadow as typeof mat.receivedShadowNode;
     const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
     mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
-    const geo = bladeGeometry(S * S, ring.segs), tiles: THREE.Mesh[] = [];
-    for (let ty = 0; ty < TILES; ty++)
-      for (let tx = 0; tx < TILES; tx++) {
-        const mesh = new THREE.Mesh(geo, mat);
-        mesh.frustumCulled = false; // (update() decides)
-        mesh.receiveShadow = true;
-        mesh.name = `grass-${k}-${tx}-${ty}`;
-        mesh.userData.tileOff = new THREE.Vector2(tx * S, ty * S);
-        tiles.push(mesh);
-        group.add(mesh);
-      }
-    rings.push({ origin, cell, N, S, inner, radius, tiles });
+    const geo = bladeGeometry(ring.segs);
+    geo.setIndirect(counters.attr, k * ARGS * 4); // (byte offset: the keep pass counts the blades)
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.frustumCulled = false; // (the keep pass culls)
+    mesh.receiveShadow = true;
+    mesh.name = `grass-${k}`;
+    group.add(mesh);
+    rings.push({ ...spec, N, keep, mesh, listed: 0 });
   });
+  const { reset, clampCount } = countersPasses(counters, caps);
 
   /** Lowest and highest terrain vertex over the square [x0, x0 + w] x [z0, z0 + w]. */
   const heightRange = (x0: number, z0: number, w: number): [number, number] => {
@@ -303,29 +210,41 @@ export function createGrass(ctx: GrassContext) {
     /** Moves each ring's grid to the viewer (whole cells) and picks the tiles to draw. */
     update(camera: THREE.Camera): void {
       shown.value = group.visible ? 1 : 0;
+      if (!group.visible) return;
       camera.updateMatrixWorld();
       frustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
       const c = camera.position;
       for (const r of rings) {
         const ox = Math.floor(c.x / r.cell) - (r.N >> 1), oz = Math.floor(c.z / r.cell) - (r.N >> 1);
-        r.origin.value.set(ox, oz);
+        r.keep.origin.value.set(ox, oz);
+        r.keep.view.value.copy(camera.matrixWorldInverse);
         const w = r.S * r.cell;
-        for (const m of r.tiles) {
-          const off = m.userData.tileOff as THREE.Vector2;
-          const x0 = (ox + off.x) * r.cell, z0 = (oz + off.y) * r.cell;
-          // every blade is dropped past the radius and inside 80% of the inner ring's (by 3D distance, see `keep`;
-          // by the distance along the ground alone, from high up every tile under the camera was drawn, all of it
-          // dropped: 20% of a phone's GPU time 8 km up)
-          const [lo, hi] = heightRange(x0, z0, w);
-          const near = Math.hypot(Math.max(x0 - c.x, 0, c.x - x0 - w), Math.max(z0 - c.z, 0, c.z - z0 - w), Math.max(0, c.y - hi - 1, lo - c.y));
-          if (near >= r.radius) { m.visible = false; continue; }
-          const far = Math.hypot(Math.max(c.x - x0, x0 + w - c.x), Math.max(c.z - z0, z0 + w - c.z), Math.max(c.y - lo, hi + 1 - c.y));
-          if (far <= r.inner * 0.8) { m.visible = false; continue; }
-          box.min.set(x0 - 0.5, lo - 0.3, z0 - 0.5); // (a blade leans and bends up to ~0.3 m off its cell)
-          box.max.set(x0 + w + 0.5, hi + 1, z0 + w + 0.5);
-          m.visible = frustum.intersectsBox(box);
-        }
+        let listed = 0;
+        for (let ty = 0; ty < TILES; ty++)
+          for (let tx = 0; tx < TILES; tx++) {
+            const x0 = (ox + tx * r.S) * r.cell, z0 = (oz + ty * r.S) * r.cell;
+            // every blade is dropped past the radius and inside 80% of the inner ring's (by 3D distance, see `keep`;
+            // by the distance along the ground alone, from high up every tile under the camera was tested, all of it
+            // dropped: 20% of a phone's GPU time 8 km up, when every tested blade was drawn)
+            const [lo, hi] = heightRange(x0, z0, w);
+            const near = Math.hypot(Math.max(x0 - c.x, 0, c.x - x0 - w), Math.max(z0 - c.z, 0, c.z - z0 - w), Math.max(0, c.y - hi - 1, lo - c.y));
+            if (near >= r.radius) continue;
+            const far = Math.hypot(Math.max(c.x - x0, x0 + w - c.x), Math.max(c.z - z0, z0 + w - c.z), Math.max(c.y - lo, hi + 1 - c.y));
+            if (far <= r.inner * 0.8) continue;
+            box.min.set(x0 - 0.5, lo - 0.3, z0 - 0.5); // (a blade leans and bends up to ~0.3 m off its cell)
+            box.max.set(x0 + w + 0.5, hi + 1, z0 + w + 0.5);
+            if (frustum.intersectsBox(box)) r.keep.tileValues[listed++].set(tx * r.S, ty * r.S, 0, 0);
+          }
+        r.listed = listed;
+        r.keep.count.value = listed * r.S * r.S;
+        r.mesh.visible = listed > 0;
       }
+      computeBatch(ctx.renderer, [reset, ...rings.filter((r) => r.listed > 0).map((r): [THREE.ComputeNode, number] => [r.keep.pass, r.listed * r.S * r.S]), clampCount]);
+    },
+    /** Each ring's blades kept last frame, and its list's size (reads the GPU's counters back). */
+    async stats() {
+      const a = new Uint32Array(await ctx.renderer.getArrayBufferAsync(counters.attr));
+      return rings.map((r, k) => ({ ring: k, cells: r.listed * r.S * r.S, kept: a[k * ARGS + 1], cap: caps[k] }));
     },
   };
 }
