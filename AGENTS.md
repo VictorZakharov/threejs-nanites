@@ -97,14 +97,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
   plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
-  loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
-  (`window.__demo`) are split out of it.
+  loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
+  startup's shader compiles) and `harness-api.ts` (`window.__demo`) are split out of it.
 
-- `src/trees.ts` generates ez-tree variants (main thread: ez-tree loads textures through the DOM), scaled to metres.
+- `src/trees.ts` lists the variants; `tree-grow.ts` grows one with ez-tree, scaled to metres, in its DAG worker (see
+  Loading below for how ez-tree is bundled).
 - `src/dag-build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools): bark via
   meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
   (`dag-leaves.ts`) by keeping half the cards and growing them until they cover what the group did
-  (`dag-coverage.ts`: the cards through their texture's alpha mask, `alphaMask` in `textures.ts`, counted on a grid
+  (`dag-coverage.ts`: the cards through their texture's alpha mask, `maskOf` in `texture-pixels.ts`, counted on a grid
   from 4 directions; ~1.3 per level); shared pieces in `dag-util.ts`. Growing by √2 (keeping the area) covered far
   more than the tree (its leaves overlap, the fewer bigger cards much less): each coarser level closed the gaps, and
   at tau 8 the forest was a bright even carpet (the user's zoom: "washed"). Now tau 1..8 look alike (`zoommid`:
@@ -121,12 +122,36 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   worker finishes first. It was one main-thread loop over ~7M candidates: 6.8 s of the user's load (half of it
   `roadDistance` looping over the road's segments for every candidate: it has a bounding-box early-out now). Its
   pure dependencies are split out for the workers: `noise.ts` (fbm, `heightAt`), `road-path.ts`, `autumn-cpu.ts`.
-  The loading log times each step (`lap` in `main.ts`).
+- Loading (issue #6; measure with `--load`, `tools/AGENTS.md`): 17.4 -> 6.4 s to the first frame on the dev machine
+  (production build, medians of 3 cold boots), 43 -> 20 s at a phone's size and pace (`--cpu=4`); the script 3.3 ->
+  0.34 MB gzipped. Everything that needs no GPU starts in workers at the top of `main.ts`, before the GPU is asked
+  for: the texture arrays' layers (`texture-worker.ts`: fetch, decode, draw at 1024 on an OffscreenCanvas, the
+  leaves' coverage scales and DAG masks; the stone marble), the floor's maps (`floor-worker.ts`, one worker for the
+  soil and one per kind of leaf: one for all took ~5 s), the planting, the terrain's grids (`terrain-worker.ts`,
+  three's own PlaneGeometry and normals: the same vertices), the trees (each grown and its DAG built in its own
+  `dag-worker.ts`, its leaf mask in a second message) and Lucy (`model-worker.ts`). ez-tree's npm build inlined its
+  20 textures (4 MB of a 5 MB script) and loaded them through the DOM: Vite bundles its source instead, its textures
+  module stubbed (`vite.config.ts`, for the workers too; `optimizeDeps.exclude` so the dev server does the same), and
+  ez-tree's bare `three` is three's core from source (only what it uses, in the DAG worker). Shaders: three.js
+  compiles a pipeline the first time it draws, and the GPU process compiled them one after another (~10 s of the
+  17); `Precompile` (`warmup.ts`) calls `compileAsync` per mesh as soon as its material is final (sky and clouds
+  first, the forest after its buffers, the ground after the floor, the impostors after the bake) and
+  `compileComputeAsync` for the compute passes (collected by a dry run of the frame's culling, dispatching off), so
+  they compile side by side while the main thread goes on. Compiles in flight read the renderer's render target and
+  MRT as they build their shaders: the renderer stays on a 1x1 copy of the scene target (the same formats: the same
+  pipelines; the scene's own is resized meanwhile, which lost a compile's depth format) and other GPU work (the bake,
+  the sky capture) runs synchronously in `apart()`. `warmUp` then draws everything once (the shadow-map versions)
+  and runs a frame (the full-screen passes); `?precompile=0` for the old group-by-group compile. Also: the bake's
+  materials take their layer and tint as uniforms (4 pipelines, not ~36), the atlas coverage runs in a worker with
+  quickselect (sorting each level was 0.6 s in a browser), the road's distance map writes only near each piece of
+  paving (0.7 s -> 40 ms, the same values). The loading log (on screen, `[loading]` in the console) times each step
+  from the navigation's start; the slowest compiles are named. What's left: #33 (the floor's shader compile,
+  the main thread) and #32 (Lucy's ~5 MB).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
   are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2),
-  then decodes the file as the site does and checks it matches. `src/models.ts` only decodes (no DAG build at load:
+  then decodes the file as the site does and checks it matches. `src/models.ts` only decodes (in `model-worker.ts`; no DAG build at load:
   one file for every device; phones had a 20k-tri copy because of the 3 s build, the user asked why two). The DAG's
   vertices are the model's own, so `model-source.ts` rebuilds normals (summed in doubles: order-independent) and
   planar uvs. The index codec may rotate a triangle's corners. It's "bark" with no
@@ -316,8 +341,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   from full detail): the sum kept far trees' bark levels too fine (a 30 px oak: 2900 bark triangles, now ~350;
   `--probe=lodcut`), 35M software triangles at the user's zoomed spot (now 9M), with the same popping; -0.3..1 ms
   on every view. Lucy's `.nm` was built with the sum (rebuild with `npm run model` to change it).
-- Leaf PNGs have white RGB under transparent texels; `arrayTexture(..., fillTransparent)` replaces it with the average
-  leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
+- Leaf PNGs have white RGB under transparent texels; `fillTransparent` (`texture-pixels.ts`, in the texture worker) replaces it with
+  the average leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
 - Impostors (`src/impostors.ts`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
   (`ELEVATIONS`); the quad faces the camera and cross-fades between them by elevation as the *union* of the

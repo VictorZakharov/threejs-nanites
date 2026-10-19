@@ -86,7 +86,9 @@ async function oneBoot(url: string, query: string, opts: Options, outDir: string
     if (cdp) printProfile((await cdp.send('Profiler.stop')).profile as unknown as Profile, outDir);
     const r = await page.evaluate(() => {
       const nav = performance.getEntriesByType('navigation')[0] as PerformanceNavigationTiming | undefined;
-      return { log: window.__demo.loadLog, html: nav?.responseEnd ?? 0, origin: performance.timeOrigin };
+      // (a build from before the loading log was kept: only when it was ready, to the harness's polling)
+      const log = window.__demo.loadLog ?? [{ t: performance.now(), msg: 'Ready (this build keeps no loading log: to within 0.25 s)' }];
+      return { log, html: nav?.responseEnd ?? 0, origin: performance.timeOrigin };
     });
     // (each URL once: the workers load their script once per worker, from the cache)
     const seen = new Set<string>();
