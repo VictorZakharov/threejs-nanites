@@ -70,7 +70,7 @@ export class TAA {
   readonly renderer: THREE.WebGPURenderer;
   readonly sceneRT: THREE.RenderTarget;
   readonly extra: ((uv: Vec2) => Vec3) | null;
-  readonly spread: number; // the jitter's spread (scene pixels)
+  spread: number; // the jitter's spread (scene pixels; the harness's --typematch sets 0)
   readonly frames: number; // how many frames' worth of samples the history keeps (?taaframes=, else 1 / feedback)
   enabled: boolean;
   frame = 0;

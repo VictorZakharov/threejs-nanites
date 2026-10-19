@@ -112,6 +112,8 @@ export function crop(buf: Buffer, { x, y, w, h }: Rect, scale = 4): Buffer {
 }
 
 /** Hue of an RGB colour in degrees (0..360). */
+const linear = (c: number): number => ((c /= 255) <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4);
+
 function hue(r: number, g: number, b: number): number {
   const hi = Math.max(r, g, b), d = hi - Math.min(r, g, b);
   if (d === 0) return 0;
@@ -121,8 +123,9 @@ function hue(r: number, g: number, b: number): number {
 
 /**
  * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite/shading.ts): the
- * index of the id with the closest hue (within 30 degrees), or -1 (ground, sky, an edge). Fog and tone mapping
- * shift and wash out the ids, so only the hue of saturated pixels counts.
+ * index of the id with the closest hue (within 18 degrees), or -1 (sky, an edge). Under debug 4 the demo draws no
+ * fog, tone mapping, ground or grass (src/type-masks.ts), so a tree's pixel is its id, in linear light: the hue is taken there
+ * (through the sRGB curve alone a hue moved by up to ~16 degrees, nearly to the next id's).
  */
 export function typeMask(png: Buffer | PNG, ids: number[][]): Int8Array {
   const p = decode(png);
@@ -132,9 +135,9 @@ export function typeMask(png: Buffer | PNG, ids: number[][]): Int8Array {
     for (let x = 0; x < p.width; x++) {
       if (inHud(x, y, p.width)) continue;
       const i = (y * p.width + x) * 4;
-      const r = p.data[i], g = p.data[i + 1], b = p.data[i + 2];
+      const r = linear(p.data[i]), g = linear(p.data[i + 1]), b = linear(p.data[i + 2]);
       const hi = Math.max(r, g, b);
-      if (hi < 40 || (hi - Math.min(r, g, b)) / hi < 0.55) continue;
+      if (hi < 0.02 || (hi - Math.min(r, g, b)) / hi < 0.55) continue;
       const h = hue(r, g, b);
       let best = -1, bd = 18; // (half the 36 degrees between the type hues)
       idHues.forEach((ih, k) => {

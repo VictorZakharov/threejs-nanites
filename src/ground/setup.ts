@@ -21,7 +21,7 @@ type StandardMesh = THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMater
 export function setupGround(terrain: THREE.Group, floorMaps: FloorMaps, radius: number, receivedShadow: (far: Float) => () => THREE.Node) {
   const cover: CoverMap = createCoverMap(radius);
   // darkened by how much canopy stands over it
-  const groundShade = uniform(Number(new URLSearchParams(location.search).get('groundshade') ?? 0.7));
+  const groundShade = uniform(Number(new URLSearchParams(location.search).get('groundshade') ?? 0.82));
   const coverMap = texture(cover.texture, positionWorld.xz.div(cover.extent * 2).add(0.5));
   const groundFar = float(1).sub(coverMap.r.mul(groundShade));
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = receivedShadow(groundFar);

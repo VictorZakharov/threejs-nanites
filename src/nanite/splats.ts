@@ -23,7 +23,7 @@ import type { ComputeNode } from 'three/webgpu';
 import { curve } from '../planet.ts';
 import { ELEVATIONS, IMPOSTOR_CUT, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
 import type { ImpostorAtlas } from '../impostors.ts';
-import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare } from './billboards.ts';
+import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impostorCov, impostorShare } from './billboards.ts';
 import { MIN_PX, PHASE2_LAYER, SPLAT, SPLAT_BIT, WG, minU, minI, maxI } from './constants.ts';
 import { MAX_PIXELS } from './softraster.ts';
 import { treeTint, ditherAlt, typeId, mipBias } from './shading.ts';
@@ -47,6 +47,8 @@ interface Shape {
   j: Float; // the lower of the two elevation tiles it blends (ELEVATIONS index)
   blend: Float; // the upper tile's weight
   grow: Float;
+  cov: Float; // its coverage scale (impostorCov, impostorShare)
+  shared: Bool; // drawn at all (impostorShare)
   wPx: Float; // its width on screen before the MIN_PX enlargement
   w0: Float; // the frame's size (m)
   h0: Float;
@@ -111,7 +113,8 @@ export class Splats {
     const ju = uint(j);
     const grow = mix(this.growArr.element(ju), this.growArr.element(ju.add(1)), blend).toVar();
     const wPx = w0.mul(grow).mul(u.projScale).div(max(length(toCam), 0.1)).toVar();
-    return { inst, type, pivot, dir, j, blend, grow, wPx, w0, h0 };
+    const share = impostorShare(inst, impostorCov(fr, elev), wPx);
+    return { inst, type, pivot, dir, j, blend, grow, cov: share.cov.toVar(), shared: share.k.greaterThan(0), wPx, w0, h0 };
   }
 
   /** True if tree i, an impostor `px` tall (switching at `swPx`), is splatted (the instance pass and phase 2). */
@@ -133,7 +136,7 @@ export class Splats {
     const o = screen(clip(0, 0)).toVar();
     const ex = screen(clip(1, 0)).sub(o).toVar(), ey = screen(clip(0, 1)).sub(o).toVar();
     const depth = sw.viewProj.mul(vec4(curve(sh.pivot), 1)).w.toVar();
-    const keep = sh.wPx.greaterThanEqual(MIN_PX).or(hash(sh.inst.add(7)).lessThan(keepShare(sh.wPx)));
+    const keep = sh.shared.and(sh.wPx.greaterThanEqual(MIN_PX).or(hash(sh.inst.add(7)).lessThan(keepShare(sh.wPx))));
     return { o, ex, ey, det: ex.x.mul(ey.y).sub(ex.y.mul(ey.x)).toVar(), depth, keep, right, up, rightN: select(flip, right.negate(), right), w, h, flip };
   }
 
@@ -227,7 +230,7 @@ export class Splats {
       };
       const a = s.map((sk, i) => sk.a.mul(scaleOf(sh.type.add(uint(ks[i]).mul(nTypes)))).mul(clamp(wts[i].mul(2), 0, 1)));
       const coverage = min(max(s[0].a.mul(clamp(wts[0].mul(2), 0, 1)), s[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
-      const pass = (p: Vec2): Bool => (IMP_DITHER ? coverage.mul(IMP_COV).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT));
+      const pass = (p: Vec2): Bool => (IMP_DITHER ? coverage.mul(IMP_COV).mul(sh.cov).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT).and(sh.cov.greaterThan(ditherAlt(p))));
       return { uv, s, a, elev: ks.map((k) => k.mul(ELEV_STEP)), pass };
     };
   }

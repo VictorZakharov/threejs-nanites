@@ -30,12 +30,12 @@ is about using it well.
 | `harness/views.ts` | named viewpoints; add one when a problem needs looking at again |
 | `harness/browser.ts` | temp folder, Vite server, browser launch, page console capture |
 | `harness/session.ts` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
-| `harness/typematch.ts` | `--typematch[=calibrate]`: impostor vs real-tree colour per tree type (debug=4 masks), calibrates `impGain` |
+| `harness/typematch.ts` | `--typematch[=calibrate or cover]`: impostor vs real-tree pixels and colour per tree type (debug=4 masks, single aligned frames), calibrates `impGain` / `impCov` |
 | `harness/status.ts` | the current step, for the watchdog |
 | `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/load.ts` | `--load=N`: cold boots, the loading log's timeline (median), the downloads, `--profile` of the main thread |
 | `harness/images.ts` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
-| `img.ts` | command line for those: `node tools/img.ts mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match) |
+| `img.ts` | command line for those: `node tools/img.ts mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match), `... zoom unzoomed.png zoomed.png 5 [side.png]` (the screen's centre vs the same view through `--zoom=5`, filtered in linear light, the HUD left out: how far things look against what they are up close) |
 | `probes/` | page-side measures (`--probe=<name>`), see `probes/README.md` |
 
 Output in `tools/out/`: `<view>.png` (A/B: `<view>@<k>.png`), `report.json`, `console.log` (the page console),
