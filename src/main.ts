@@ -15,8 +15,7 @@ import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { LoadingScreen } from './loading.ts';
-import { arrayTexture, layerLookup } from './textures.ts';
-import { stoneTextureUrl } from './stone.ts';
+import { arrayTexture, layerLookup, loadLayer } from './textures.ts';
 import { MAX_ALTITUDE, forestRadius, forestDensity, plantForest } from './placement.ts';
 import { createLighting } from './lighting.ts';
 import { runProfile, type ProfileProgress } from './profile.ts';
@@ -39,6 +38,7 @@ import { createCompass } from './compass.ts';
 import { GodRays } from './godrays.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { Precompile, warmUp } from './warmup.ts';
 
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
@@ -53,8 +53,15 @@ if (params.get('help') === '1') document.body.classList.add('show-help'); // (th
 // shadowShift: debug offset of the shadow-map centre (harness sweeps)
 const demo: DemoState = (window.__demo = { ready: false, error: null, shadowShift: new THREE.Vector3() });
 const ui = new LoadingScreen();
+demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 
 // ---------------------------------------------------------------- setup
+// the bark and leaf texture arrays' layers load in workers from the start (src/texture-worker.ts)
+const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
+const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
+const barkLayers = barkTypes.map((t) => loadLayer(t === 'stone' ? 'stone' : `./textures/${t}_color_1k.jpg`, 1024));
+const leafLayers = leafTypes.map((t) => loadLayer(`./textures/${t}_color.png`, 1024, true));
+
 async function start() {
   await ui.update(0.02, 'Waking the GPU');
   if (!navigator.gpu) throw new Error('WebGPU is not available in this browser (try Chrome or Edge).');
@@ -90,15 +97,39 @@ async function start() {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
+  // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
+  // then a fullscreen pass tone-maps it to the canvas.
+  // (two outputs: colour, and the wind's screen motion of the trees for the anti-aliasing, see src/taa.js)
+  // MSAA of the scene target (WebGPU has 1 or 4 samples): none under TAA, where the leaves are dithered by coverage
+  // (LEAF_DITHER) and TAA averages them; 4x MSAA with its alpha to coverage cost ~2.5 ms on High at 1080p on the
+  // user's 4070 Ti. 4 with ?taa=0 or ?leafalpha=a2c, or ?msaa=4.
+  const samples = Number(params.get('msaa') ?? (params.get('aa') === '0' || LEAF_DITHER ? 1 : 4)) > 1 ? 4 : 1;
+  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
+  sceneRT.textures[0].name = 'output';
+  sceneRT.textures[1].name = 'wind';
+  const sceneMRT = mrt({ output: colourOutput, wind: vec4(0) }); // (still everywhere but the trees)
+  sceneMRT.setClearColor('wind', 0x000000, 0);
+  sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
+  // shaders compile ahead, in parallel, each as soon as its material is final (src/warmup.ts); against a 1x1 copy of
+  // the target (the same formats: the same pipelines), as the scene's own is resized while they compile
+  const compileRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
+  compileRT.textures[0].name = 'output';
+  compileRT.textures[1].name = 'wind';
+  compileRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
+  const pre = new Precompile(renderer, scene, camera, compileRT, sceneMRT, params.get('precompile') !== '0');
 
   const { sky, sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly } =
     createLighting(scene, { harness: HARNESS });
 
   await ui.update(0.04, 'Raising hills, sky and sun');
+  // the workers first (the forest floor's maps, src/ground/; the forest planted while the trees grow, src/planting.ts)
+  const t0 = performance.now();
+  const floorMaps = loadFloorMaps();
+  let plantedMs = 0;
+  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
   // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog
   const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
   const terrain = createTerrain(terrainSize);
-  const floorMaps = loadFloorMaps(); // (a worker: the forest floor's maps, src/ground/)
   scene.add(terrain);
   // drawn after the trees, the sky last: what the trees hide is then rejected by its depth before the floor's
   // shader (relief, litter) runs (created first, they were drawn first: over the canopy -0.5 ms, -0.2 elsewhere)
@@ -108,22 +139,14 @@ async function start() {
   scene.add(clouds.group);
   clouds.group.traverse((o) => o.layers.set(PHASE2_LAYER)); // (transparent: drawn after both tree phases)
   clouds.group.visible = params.get('clouds') !== '0'; // (debug switch)
+  pre.add(sky, clouds.group); // (the GPU is idle while the trees grow)
 
   // trees
-  const t0 = performance.now();
-  // the forest is planted in workers while the trees grow (src/planting.ts)
-  let plantedMs = 0;
-  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
-  const trees = await buildAllTrees(ui);
+  const trees = await buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
-  const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
-  const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
-  const [barkTex, leafTex] = await Promise.all([
-    arrayTexture(barkTypes.map((t) => (t === 'stone' ? stoneTextureUrl() : `./textures/${t}_color_1k.jpg`)), 1024),
-    arrayTexture(leafTypes.map((t) => `./textures/${t}_color.png`), 1024, true),
-  ]);
+  const [barkTex, leafTex] = await Promise.all([arrayTexture(barkLayers, 1024), arrayTexture(leafLayers, 1024)]);
   barkTex.colorSpace = leafTex.colorSpace = THREE.SRGBColorSpace;
   leafTex.wrapS = leafTex.wrapT = THREE.ClampToEdgeWrapping;
 
@@ -135,10 +158,6 @@ async function start() {
   };
   const instances = await planting;
   lap(`Planted ${(instances.a.length / 4).toLocaleString()} trees, bushes and statues in workers, done ${Math.round(plantedMs)} ms in; waited`);
-  // MSAA of the scene target (WebGPU has 1 or 4 samples): none under TAA, where the leaves are dithered by coverage
-  // (LEAF_DITHER) and TAA averages them; 4x MSAA with its alpha to coverage cost ~2.5 ms on High at 1080p on the
-  // user's 4070 Ti. 4 with ?taa=0 or ?leafalpha=a2c, or ?msaa=4.
-  const samples = Number(params.get('msaa') ?? (params.get('aa') === '0' || LEAF_DITHER ? 1 : 4)) > 1 ? 4 : 1;
   const forest = new NaniteForest(renderer, trees, instances, {
     bark: barkTex,
     leaf: leafTex,
@@ -160,6 +179,7 @@ async function start() {
     fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
     fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
   }));
+  pre.add(forest.group); // (compiling while the ground and the impostors are made)
   // ground: darkened by how much canopy stands over it
   lap('Software rasterizer');
   const density = forestDensity(instances);
@@ -176,8 +196,12 @@ async function start() {
   const litter = createLitterMap(instances); // (which tree's leaves lie where near the viewer)
   demo.litter = litter;
   lap('Litter map');
-  applyFloor(nearGround.material, await floorMaps, meadowColour(), coverMap, litter);
+  const floor = await floorMaps;
+  ui.note(`Floor maps in workers: soil and leaves ${floor.ms.join(' / ')} ms, done ${floor.doneMs} ms in`);
+  applyFloor(nearGround.material, floor, meadowColour(), coverMap, litter);
   applyFarFloor((terrain.getObjectByName('terrain-high') as THREE.Mesh<THREE.BufferGeometry, THREE.MeshStandardNodeMaterial>).material, terrainDetail(terrain)); // (from high up)
+  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
+  pre.add(terrain); // (the floor's shader takes longest: 2-3 s on the dev machine)
   lap('Forest floor');
   // grass around the viewer (src/grass.ts)
   const grass = createGrass({
@@ -187,17 +211,20 @@ async function start() {
   demo.grass = grass;
   scene.add(grass.group);
   scene.add(forest.group);
+  pre.add(grass.group);
   lap('Grass');
 
   await ui.update(0.82, 'Baking far-field impostors and the sky');
-  cubeCam.update(renderer, skyCapture);
-  const baked = bakeImpostors(renderer, trees, {
+  pre.apart(() => cubeCam.update(renderer, skyCapture));
+  const tb = performance.now();
+  const baked = pre.apart(() => bakeImpostors(renderer, trees, {
     bark: barkTex,
     leaf: leafTex,
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
-  }, Number(params.get('bakepx') ?? forest.u.impostorPx.value)); // (the default switch size, before ?imppx=)
+  }, Number(params.get('bakepx') ?? forest.u.impostorPx.value))); // (the default switch size, before ?imppx=)
+  const bakeMs = performance.now() - tb;
   const atlas: ImpostorAtlas = { ...baked, coverage: await impostorCoverage(renderer, baked, IMPOSTOR_CUT) };
   const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
   impostorMesh.receiveShadow = true;
@@ -210,16 +237,18 @@ async function start() {
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
   // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
-  forest.group.add(forest.splats.build(atlas, {
+  const splatMesh = forest.splats.build(atlas, {
     shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
     fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
     fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
-  }));
+  });
+  forest.group.add(splatMesh);
   if (!impostorMesh.visible) forest.splats.enabled.value = 0;
   const impostorShadow = forest.buildImpostorShadowMesh(atlas);
   impostorShadow.visible = impostorMesh.visible;
   forest.group.add(impostorShadow);
-  ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads`);
+  pre.add(impostorMesh, splatMesh, impostorShadow);
+  ui.note(`Impostor atlas: ${atlas.frames.length} tiles; trees under ${forest.u.impostorPx.value}px tall become 2-triangle quads (bake ${Math.round(bakeMs)} ms, read back ${Math.round(atlas.coverage.ms?.readback ?? 0)} ms, coverage ${Math.round(atlas.coverage.ms?.work ?? 0)} ms)`);
 
   // camera + controls
   const controls = new FlyControls(camera, renderer.domElement);
@@ -262,15 +291,6 @@ async function start() {
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
-  // The scene renders into its own MSAA target (the occlusion culling reads its depth between the two tree phases),
-  // then a fullscreen pass tone-maps it to the canvas.
-  // (two outputs: colour, and the wind's screen motion of the trees for the anti-aliasing, see src/taa.js)
-  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples, depthBuffer: true, count: 2 });
-  sceneRT.textures[0].name = 'output';
-  sceneRT.textures[1].name = 'wind';
-  const sceneMRT = mrt({ output: colourOutput, wind: vec4(0) }); // (still everywhere but the trees)
-  sceneMRT.setClearColor('wind', 0x000000, 0);
-  sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
   // light shafts through the canopy (src/godrays.js; R or ?rays=0), added to the scene before the TAA resolve
   const rays = new GodRays(renderer, sceneRT.depthTexture, sunDir, { enabled: params.get('rays') !== '0' });
   // temporal anti-aliasing (src/taa.js): the output shows its resolved history
@@ -399,57 +419,37 @@ async function start() {
     setBenchMs: (m) => hud.setBenchMs(m),
   });
 
-  // Compile everything before revealing. three.js builds a material's shaders the first time it draws it, which
-  // blocks the main thread; drawing one group of objects at a time (the rest hidden) lets the status line and the
-  // bar move between groups. The last step, a real frame, compiles the culling compute passes.
+  // Compile everything before revealing (src/warmup.ts): the compiles started ahead, the compute passes, then each
+  // group drawn and each GPU stage run once (what wasn't compiled ahead compiles there).
   const tc = performance.now();
-  const byName = (prefix: string): THREE.Object3D[] => forest.group.children.filter((o) => o.name.startsWith(prefix));
-  const warm: [string, THREE.Object3D[]][] = [
-    ['terrain and sky', [terrain, sky]],
-    ['bark', byName('nanite-bark')],
-    ['leaves', byName('nanite-leaves')],
-    ['impostors', byName('nanite-impostors')],
-    ['software rasterizer resolve', [...byName('nanite-software-resolve'), ...byName('nanite-splat-resolve')]],
-    ['clouds', [clouds.group]],
-  ];
-  const all = [terrain, sky, clouds.group, ...forest.group.children];
-  const wasVisible = all.map((o) => o.visible);
-  terrainForAltitude(terrain, 0, true); // (both the detailed and the high ground; the first frame picks one)
-  fitToWindow();
-  renderer.setRenderTarget(sceneRT);
-  renderer.setMRT(sceneMRT);
-  camera.layers.set(0);
-  camera.layers.enable(PHASE2_LAYER);
-  for (let k = 0; k < warm.length; k++) {
-    const [label, objects] = warm[k];
-    await ui.update(0.84 + (0.09 * k) / warm.length, `Compiling shaders: ${label}`, false);
-    const t = performance.now();
-    all.forEach((o, i) => (o.visible = wasVisible[i] && objects.includes(o)));
-    sun.shadow.needsUpdate = shadowsOn; // (the shadow-map versions of the casters too)
-    renderer.render(scene, camera);
-    ui.note(`Compiled ${label} (${Math.round(performance.now() - t)} ms)`);
-  }
-  all.forEach((o, i) => (o.visible = wasVisible[i]));
-  camera.layers.set(0);
-  renderer.setMRT(null);
-  renderer.setRenderTarget(null);
-  // the compute passes, one stage at a time (each compiles on its first dispatch)
   fitToWindow();
   follow(camera, heightAt(camera.position.x, camera.position.z), demo.shadowShift);
-  const computeSteps: [string, () => void][] = [
+  const stages: [string, () => void][] = [
     ['culling', () => forest.update(camera, size, 0, shadowsOn ? sun.shadow.camera : null)],
     ['occlusion', () => forest.occlusion(camera, size.x, size.y)],
     ['software rasterizer', () => forest.rasterize(camera, size.x, size.y)],
     ['the first frame', () => frame(0)],
   ];
-  for (let k = 0; k < computeSteps.length; k++) {
-    const [label, run] = computeSteps[k];
-    await ui.update(0.93 + (0.06 * k) / computeSteps.length, `Compiling shaders: ${label}`, false);
-    const t = performance.now();
-    run();
-    await gpuBackend(renderer).device.queue.onSubmittedWorkDone();
-    ui.note(`Compiled ${label} (${Math.round(performance.now() - t)} ms)`);
-  }
+  const passes = pre.addComputes(() => {
+    stages.slice(0, 3).forEach(([, run]) => run());
+    grass.update(camera);
+  });
+  await ui.update(0.84, 'Compiling shaders', false);
+  const slowest = await pre.done();
+  if (pre.on) ui.note(`Compiled the materials and ${passes} compute passes in parallel (slowest: ${slowest}), waited (${Math.round(performance.now() - tc)} ms)`);
+  const byName = (prefix: string): THREE.Object3D[] => forest.group.children.filter((o) => o.name.startsWith(prefix));
+  await warmUp(ui, {
+    renderer, scene, camera, target: sceneRT, mrt: sceneMRT, sun, shadowsOn, stages,
+    all: [terrain, sky, clouds.group, ...forest.group.children],
+    groups: [
+      ['terrain and sky', [terrain, sky]],
+      ['bark', byName('nanite-bark')],
+      ['leaves', byName('nanite-leaves')],
+      ['impostors', byName('nanite-impostors')],
+      ['software rasterizer resolve', [...byName('nanite-software-resolve'), ...byName('nanite-splat-resolve')]],
+      ['clouds', [clouds.group]],
+    ],
+  });
   ui.note(`First frame ready (${Math.round(performance.now() - tc)} ms)`);
   await ui.reveal();
   if (!HARNESS) renderer.setAnimationLoop(loop);

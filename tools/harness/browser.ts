@@ -2,8 +2,10 @@
 import { chromium } from 'playwright-core';
 import type { Browser, Page } from 'playwright-core';
 import { createServer } from 'vite';
-import { mkdirSync, readdirSync, rmSync } from 'node:fs';
-import { join } from 'node:path';
+import { mkdirSync, readdirSync, readFileSync, rmSync, statSync } from 'node:fs';
+import { createServer as createHttpServer } from 'node:http';
+import { gzipSync } from 'node:zlib';
+import { extname, join, normalize } from 'node:path';
 
 /**
  * Points TEMP/TMP at tools/tmp/browser/run-<pid> (Playwright puts the browser profile in os.tmpdir(), which reads
@@ -32,6 +34,41 @@ export async function startServer(root: string): Promise<{ url: string; close: (
   const url = server.resolvedUrls?.local[0];
   if (!url) throw new Error('Vite reported no local URL');
   return { url, close: () => server.close() };
+}
+
+const TYPES: Record<string, string> = {
+  '.html': 'text/html; charset=utf-8', '.js': 'application/javascript; charset=utf-8', '.json': 'application/json',
+  '.png': 'image/png', '.jpg': 'image/jpeg', '.webp': 'image/webp', '.mp3': 'audio/mpeg', '.css': 'text/css', '.md': 'text/markdown',
+};
+const PRECOMPRESSED = new Set(['.png', '.jpg', '.webp', '.mp3']);
+
+/**
+ * A built site (`--dist`: dist/ after `npx vite build`) served as GitHub Pages serves it: gzip for everything but
+ * images and audio (Pages gzips .nm too), `Cache-Control: max-age=600`. Returns { url, close }.
+ */
+export async function startStatic(dir: string): Promise<{ url: string; close: () => Promise<void> }> {
+  const gz = new Map<string, Buffer>();
+  const server = createHttpServer((req, res) => {
+    const path = normalize(join(dir, decodeURIComponent(new URL(req.url ?? '/', 'http://x').pathname)));
+    let file = path.startsWith(normalize(dir)) ? path : '';
+    try {
+      if (file && statSync(file).isDirectory()) file = join(file, 'index.html');
+      const ext = extname(file);
+      let body: Buffer = readFileSync(file);
+      const headers: Record<string, string> = { 'Content-Type': TYPES[ext] ?? 'application/octet-stream', 'Cache-Control': 'max-age=600' };
+      if (!PRECOMPRESSED.has(ext) && /gzip/.test(String(req.headers['accept-encoding']))) {
+        if (!gz.has(file)) gz.set(file, gzipSync(body, { level: 6 }));
+        body = gz.get(file)!;
+        headers['Content-Encoding'] = 'gzip';
+      }
+      headers['Content-Length'] = String(body.length);
+      res.writeHead(200, headers).end(body);
+    } catch {
+      res.writeHead(404).end();
+    }
+  });
+  await new Promise<void>((r) => server.listen(5299, '127.0.0.1', r));
+  return { url: 'http://127.0.0.1:5299/', close: () => new Promise((r) => server.close(() => r())) };
 }
 
 function gpuArgs(): string[] {

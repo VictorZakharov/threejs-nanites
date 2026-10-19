@@ -33,11 +33,14 @@ export function roadDistance(x: number, z: number): number {
   const out = Math.max(bounds.x0 - x, x - bounds.x1, bounds.z0 - z, z - bounds.z1);
   if (out > NEAR) return out;
   let d = Math.hypot(x - PLAZA.x, z - PLAZA.z) - PLAZA.radius;
-  for (let i = 0; i + 1 < ROAD.length; i++) {
-    const a = ROAD[i], b = ROAD[i + 1];
-    const ex = b.x - a.x, ez = b.z - a.z, l2 = ex * ex + ez * ez;
-    const t = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / l2));
-    d = Math.min(d, Math.hypot(x - a.x - ex * t, z - a.z - ez * t) - ROAD_WIDTH / 2);
-  }
+  for (let i = 0; i + 1 < ROAD.length; i++) d = Math.min(d, segmentDistance(x, z, i));
   return d;
+}
+
+/** Metres from (x, z) to the edge of the road's segment i (ROAD[i] to ROAD[i + 1]), negative on it. */
+export function segmentDistance(x: number, z: number, i: number): number {
+  const a = ROAD[i], b = ROAD[i + 1];
+  const ex = b.x - a.x, ez = b.z - a.z, l2 = ex * ex + ez * ez;
+  const t = Math.max(0, Math.min(1, ((x - a.x) * ex + (z - a.z) * ez) / l2));
+  return Math.hypot(x - a.x - ex * t, z - a.z - ez * t) - ROAD_WIDTH / 2;
 }

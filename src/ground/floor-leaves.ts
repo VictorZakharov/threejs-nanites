@@ -55,8 +55,8 @@ const KINDS: Record<LeafKind, Kind> = {
   },
 };
 
-/** One kind's layer: RGBA texels, `size` square. */
-function leafLayer(kind: LeafKind, size: number, seed: number): Uint8ClampedArray<ArrayBuffer> {
+/** One kind's layer: RGBA texels, `size` square (floor-worker.ts: a worker each). */
+export function leafLayer(kind: LeafKind, size: number, seed: number): Uint8ClampedArray<ArrayBuffer> {
   const K = KINDS[kind], n = size * size, tileCm = LEAF_TILE[kind] * 100, cm = tileCm / size;
   const layers = K.shares.map((sh, li) => makeScatter(seed + li * 2, K.cells, sh));
   const height = new Float32Array(n), key = new Float32Array(n);
@@ -109,8 +109,3 @@ function leafLayer(kind: LeafKind, size: number, seed: number): Uint8ClampedArra
 }
 
 /** All kinds' layers, one after the other (LEAF_KINDS order): a texture array's data. */
-export function leafLayers(size = 1024): Uint8ClampedArray<ArrayBuffer> {
-  const n = size * size * 4, all = new Uint8ClampedArray(n * LEAF_KINDS.length);
-  LEAF_KINDS.forEach((k, i) => all.set(leafLayer(k, size, 41 + i * 100), i * n));
-  return all;
-}

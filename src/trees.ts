@@ -1,6 +1,5 @@
 import { Tree, Billboard } from '@dgreenheck/ez-tree';
 import type { BarkSource, DagReply, DagResult, LeafMask, LeafSource } from './dag-types.ts';
-import { alphaMask } from './textures.ts';
 import type { LoadingScreen } from './loading.ts';
 import { loadModel } from './models.ts';
 
@@ -111,23 +110,21 @@ export function generateTree(variant: TreeVariant): TreeSource {
  * Generates every variant and builds its cluster DAG in a worker. Each worker starts as soon as its tree is grown, so
  * the DAG builds overlap the (main-thread) generation of the next trees. `ui` is the LoadingScreen.
  */
-export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
+export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) => Promise<LeafMask | null>): Promise<BuiltTree[]> {
   const n = VARIANTS.length;
   let done = 0;
   const jobs: Promise<BuiltTree>[] = [];
   const q = new URLSearchParams(location.search);
-  // the leaf textures' alpha, for the leaf levels' coverage (dag-coverage.ts; ?leafcover=0: they keep the area instead)
-  const masks = new Map<string, Promise<LeafMask>>();
-  if (q.get('leafcover') !== '0')
-    for (const v of VARIANTS) if (!v.model && !masks.has(v.leaf)) masks.set(v.leaf, alphaMask(`./textures/${v.leaf}_color.png`));
+  // the models' files download while the trees grow (Lucy's is ~5 MB)
+  const models = new Map(VARIANTS.filter((v) => v.model).map((v) => [v, loadModel(`./${v.model}`, v.height)]));
   for (let id = 0; id < n; id++) {
     const v = VARIANTS[id];
     await ui.update(0.06 + (0.24 * id) / n, v.model ? `Loading ${v.preset}` : `Growing ${v.preset}`, false);
     const t = performance.now();
     if (v.model) {
       // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build
-      const { dag, src } = await loadModel(`./${v.model}`, v.height);
-      ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
+      const { dag, src } = await models.get(v)!;
+      ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (waited ${Math.round(performance.now() - t)} ms)`);
       done++;
       jobs.push(Promise.resolve({ ...dag, id, radius: src.radius, height: src.height, variant: v, src }));
       continue;
@@ -135,7 +132,8 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
     const src = generateTree(v);
     const tris = (src.bark.idx.length + (src.leaves.pos.length / 3 / 4) * 6) / 3;
     ui.note(`Grew ${v.preset}: ${Math.round(tris).toLocaleString()} triangles, ${v.height} m (${Math.round(performance.now() - t)} ms)`);
-    const leafMask = await masks.get(v.leaf);
+    // the leaf texture's alpha, for the leaf levels' coverage (dag-coverage.ts; ?leafcover=0: they keep the area instead)
+    const mask = q.get('leafcover') === '0' ? null : await leafMask(v.leaf);
     jobs.push(
       new Promise<BuiltTree>((resolve, reject) => {
         const w = new Worker(new URL('./dag-worker.ts', import.meta.url), { type: 'module' });
@@ -155,7 +153,7 @@ export async function buildAllTrees(ui: LoadingScreen): Promise<BuiltTree[]> {
         const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);
         const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
         const barkErr = q.get('barkerr') === 'sum' ? { barkErr: 'sum' } : {};
-        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...(leafMask ? { leafMask } : {}), ...attr, ...barkErr });
+        w.postMessage({ id, bark: src.bark, leaves: src.leaves, ...(leafErr > 0 ? { leafErr } : {}), ...(mask ? { leafMask: mask } : {}), ...attr, ...barkErr });
       }),
     );
   }

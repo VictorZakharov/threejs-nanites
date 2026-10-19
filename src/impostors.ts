@@ -13,8 +13,9 @@
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
-import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint } from 'three/tsl';
+import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint, uniform } from 'three/tsl';
 import type { BuiltTree } from './trees.ts';
+import type { CoverageJob } from './atlas-coverage-worker.ts';
 import type { Float, Uint, Vec4 } from './types.ts';
 
 /** A triangle mesh (positions, normals, uvs, indices) in the source meshes' form. */
@@ -38,6 +39,7 @@ export interface BakeTextures {
 export interface AtlasCoverage {
   scales: Float32Array; // tile * levels + level
   levels: number;
+  ms?: { readback: number; work: number }; // (the loading log)
 }
 
 /** The baked atlases and each tile's quad size (m); `coverage` from impostorCoverage. */
@@ -150,7 +152,9 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
     barkGeo.setAttribute('uv', new THREE.BufferAttribute(bark.uv, 2));
     barkGeo.setIndex(new THREE.BufferAttribute(bark.idx, 1));
     const barkMat = new THREE.MeshBasicNodeMaterial();
-    barkMat.colorNode = vec4(texture(tex.bark, attribute('uv', 'vec2')).depth(float(tex.barkLayers[i])).rgb.mul(vec3(0.9, 0.86, 0.8)), 1);
+    // (the layer and tint as uniforms: every tree's materials compile to the same four shaders; as constants, each
+    // tree had its own, ~36 pipelines compiled one after another, ~1 s of loading)
+    barkMat.colorNode = vec4(texture(tex.bark, attribute('uv', 'vec2')).depth(uniform(tex.barkLayers[i])).rgb.mul(vec3(0.9, 0.86, 0.8)), 1);
     const barkNrm = new THREE.MeshBasicNodeMaterial();
     barkNrm.colorNode = normalOut(1);
     scenes[0].add(new THREE.Mesh(barkGeo, barkMat));
@@ -163,10 +167,11 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, trees: BuiltTree[]
       leafGeo.setAttribute('uv', new THREE.BufferAttribute(leaves.uv, 2));
       leafGeo.setIndex(new THREE.BufferAttribute(leaves.idx, 1));
       const layer = tex.leafLayers[i];
-      const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(float(layer));
-      const alpha = tex.leafAlpha(l.a, uint(layer));
+      const layerU = uniform(layer);
+      const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(layerU);
+      const alpha = tex.leafAlpha(l.a, uint(layerU));
       // the leaf material's colour without the per-tree tint (applied at runtime)
-      const layerTint = layer === 2 ? vec3(0.5, 0.82, 0.85) : layer === 3 ? vec3(0.62, 0.78, 1.0) : vec3(1);
+      const layerTint = uniform(layer === 2 ? new THREE.Vector3(0.5, 0.82, 0.85) : layer === 3 ? new THREE.Vector3(0.62, 0.78, 1.0) : new THREE.Vector3(1, 1, 1));
       const inner = smoothstep(-0.6, 0.8, normalLocal.y).mul(0.4).add(0.6);
       const col = l.rgb.mul(layerTint).mul(inner).mul(1.2);
       // cut out and write alpha 1: the MSAA resolve then gives true coverage (and coverage-premultiplied colour)
@@ -244,37 +249,16 @@ export function lookup(values: number[]): (type: Uint) => Float {
  */
 export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Omit<ImpostorAtlas, 'coverage'>, cut: number): Promise<AtlasCoverage> {
   const rt = atlas.renderTarget;
-  const W = rt.width, H = rt.height, cols = W / TILE_W, tiles = ELEVATIONS.length * atlas.frames.length;
+  const W = rt.width, H = rt.height, tiles = ELEVATIONS.length * atlas.frames.length;
+  const t = performance.now();
   const raw = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H);
-  const half = (h: number): number => {
-    const e = (h >> 10) & 31, m = h & 1023;
-    const v = e === 0 ? m / 1024 / 16384 : e === 31 ? 1 : (1 + m / 1024) * 2 ** (e - 15);
-    return h & 0x8000 ? -v : v;
-  };
-  const alphaAt = raw instanceof Uint16Array ? (i: number) => half(raw[i * 4 + 3]) : (i: number) => raw[i * 4 + 3] / (raw instanceof Uint8Array ? 255 : 1);
-  const levels = Math.log2(TILE_W) + 1;
-  const scales = new Float32Array(tiles * levels);
-  for (let t = 0; t < tiles; t++) {
-    let w = TILE_W, h = TILE_H;
-    let a = new Float32Array(w * h);
-    const x0 = (t % cols) * TILE_W, y0 = Math.floor(t / cols) * TILE_H;
-    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++) a[y * w + x] = alphaAt((y0 + y) * W + x0 + x);
-    let target = 0;
-    for (const v of a) if (v > cut) target++;
-    target /= a.length;
-    scales[t * levels] = 1;
-    for (let l = 1; l < levels; l++) {
-      const w2 = w >> 1, h2 = h >> 1;
-      const b = new Float32Array(w2 * h2);
-      for (let y = 0; y < h2; y++)
-        for (let x = 0; x < w2; x++)
-          b[y * w2 + x] = (a[2 * y * w + 2 * x] + a[2 * y * w + 2 * x + 1] + a[(2 * y + 1) * w + 2 * x] + a[(2 * y + 1) * w + 2 * x + 1]) / 4;
-      a = b; w = w2; h = h2;
-      // alpha value at the (1 - target) quantile becomes the new cut-off
-      const sorted = Float32Array.from(a).sort();
-      const q = sorted[Math.min(sorted.length - 1, Math.floor((1 - target) * sorted.length))];
-      scales[t * levels + l] = Math.min(8, cut / Math.max(q, 1e-3));
-    }
-  }
-  return { scales, levels };
+  const readback = performance.now() - t;
+  // (in a worker: ~0.5 s of the main thread while loading, when it's busiest)
+  return new Promise((resolve, reject) => {
+    const w = new Worker(new URL('./atlas-coverage-worker.ts', import.meta.url), { type: 'module' });
+    w.onmessage = (e: MessageEvent<AtlasCoverage>) => (w.terminate(), resolve({ ...e.data, ms: { readback, work: performance.now() - t - readback } }));
+    w.onerror = (e) => reject(new Error(e.message));
+    const job: CoverageJob = { raw: raw as CoverageJob['raw'], W, tiles, cut, tileW: TILE_W, tileH: TILE_H };
+    w.postMessage(job, [job.raw.buffer]);
+  });
 }
