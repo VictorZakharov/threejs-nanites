@@ -29,7 +29,7 @@ const TOUCH = isTouchDevice(params);
 const RADII = (params.get('glnear') ?? (TOUCH ? '35,110' : '60,220')).split(',').map(Number);
 const PX = TOUCH ? [90, 25] : [160, 45];
 const LEVELS = RADII.map((r, k) => ({ r, px: PX[k] ?? PX[PX.length - 1] }));
-const NEAR_MAX = RADII[RADII.length - 1] * 1.15;
+const NEAR_MAX = RADII[RADII.length - 1] * 1.15; // (at detail 1: see setDetail)
 const BUSH_FAR = Number(params.get('glbushes') ?? (TOUCH ? 350 : 700)); // m: bushes' impostors out to here
 const CELL = 64, BUCKET = 1024; // m: the near scan's grid, the impostors' cells
 const MIN_PX = 2; // (impostors never narrower: smaller ones enlarged, a matching share dropped)
@@ -58,6 +58,8 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   const count = inst.a.length / 4 - inst.statues;
   const nearCentre = uniform(new THREE.Vector3(1e9, 0, 0)); // (where the near scan was made: the impostors leave those out)
   const projScale = uniform(1); // pixels per metre at 1 m
+  const nearScale = uniform(1); // the level radii's scale (setDetail)
+  let scale = 1;
   const iA = attribute<'vec4'>('iA', 'vec4'), iB = attribute<'vec4'>('iB', 'vec4');
   // (the cells' copies hold the tree's rank in the fraction, under 0.5, see the cells below; +0.25: interpolated into
   // the fragment stage, 3 can arrive as 2.9999, and the trunks were speckled with another type's bark)
@@ -83,7 +85,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   trees.forEach((t, v) => {
     if (isModel(t.variant)) return;
     LEVELS.forEach((L, k) => {
-      const cap = Math.ceil((Math.PI * (L.r * 1.15) ** 2) / 81 * (isBush(t.variant) ? 3 : 1.5)) + 64;
+      const cap = Math.ceil((Math.PI * (L.r * 1.15 * 1.5) ** 2) / 81 * (isBush(t.variant) ? 3 : 1.5)) + 64;
       const a = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
       const b = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
       const cut = dagCut(t, t.height / L.px);
@@ -145,14 +147,15 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   function scanNear(p: THREE.Vector3): void {
     for (const l of slots) for (const s of l) if (s) s.n = 0;
     near = 0;
-    if (Math.abs(p.y - heightAt(p.x, p.z)) > NEAR_MAX) return void (nearCentre.value.copy(p), finishScan());
-    const c0x = Math.floor((p.x - NEAR_MAX) / CELL), c1x = Math.floor((p.x + NEAR_MAX) / CELL);
-    const c0z = Math.floor((p.z - NEAR_MAX) / CELL), c1z = Math.floor((p.z + NEAR_MAX) / CELL);
+    const reach = NEAR_MAX * scale;
+    if (Math.abs(p.y - heightAt(p.x, p.z)) > reach) return void (nearCentre.value.copy(p), finishScan());
+    const c0x = Math.floor((p.x - reach) / CELL), c1x = Math.floor((p.x + reach) / CELL);
+    const c0z = Math.floor((p.z - reach) / CELL), c1z = Math.floor((p.z + reach) / CELL);
     const A = inst.a, B = inst.b;
     for (let cx = c0x; cx <= c1x; cx++) for (let cz = c0z; cz <= c1z; cz++) {
       for (const i of grid.get(key(cx, cz)) ?? []) {
         const d = Math.hypot(A[i * 4] - p.x, A[i * 4 + 1] - p.y, A[i * 4 + 2] - p.z), j = jitterCPU(A[i * 4 + 3]);
-        const k = LEVELS.findIndex((L) => d < L.r * j);
+        const k = LEVELS.findIndex((L) => d < L.r * j * scale);
         const s = k < 0 ? undefined : slots[Math.floor(B[i * 4 + 2])][k];
         if (!s || s.n * 4 >= s.a.array.length) continue;
         (s.a.array as Float32Array).set(A.subarray(i * 4, i * 4 + 4), s.n * 4);
@@ -199,7 +202,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
     grow.mulAssign(max(float(MIN_PX).div(max(wPx, 1e-3)), 1));
     // not where the near scan drew it as geometry, nor a bush past BUSH_FAR
     const dNear = length(iA.xyz.sub(nearCentre));
-    const show = keep.and(dNear.greaterThanEqual(jitter(s).mul(LEVELS[LEVELS.length - 1].r)))
+    const show = keep.and(dNear.greaterThanEqual(jitter(s).mul(LEVELS[LEVELS.length - 1].r).mul(nearScale)))
       .and(pick(bushType).lessThan(0.5).or(dist.lessThan(BUSH_FAR)));
     const cx = select(vertexIndex.equal(1).or(vertexIndex.equal(2)), float(1), float(0)).toVar();
     const cy = select(vertexIndex.equal(2).or(vertexIndex.equal(3)), float(1), float(0)).toVar();
@@ -306,5 +309,12 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
       }
     },
     stats: () => ({ instances: near, impostors }),
+    /** The detail level (the menu's error threshold, tau): the geometry's radii x 1 / sqrt(tau), rescanned. */
+    setDetail(tau: number): void {
+      scale = nearScale.value = Math.min(1.5, Math.max(0.25, 1 / Math.sqrt(tau)));
+      lastScan.set(1e9, 0, 0);
+    },
+    treeCount: inst.trees,
+    bushCount: count - inst.trees,
   };
 }

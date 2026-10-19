@@ -21,6 +21,11 @@ import { createMusic } from '../music.ts';
 import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
 import { installWebGLHarness } from './harness.ts';
+import { createWebGLHud } from './hud.ts';
+import { createMenu } from '../menu.ts';
+import { createWaypoint } from '../waypoint.ts';
+import { createCompass } from '../compass.ts';
+import type { AutoQuality } from '../hud.ts';
 import type { LoadingScreen } from '../loading.ts';
 import type { DemoState } from '../harness-api.ts';
 import type { FloorMaps } from '../ground/floor.ts';
@@ -54,9 +59,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const touch0 = isTouchDevice(params);
   const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: true, powerPreference: 'high-performance' });
   await renderer.init();
-  const maxPr = Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5);
-  let pr = touch0 ? Math.min(maxPr, 1) : maxPr;
-  renderer.setPixelRatio(pr);
+  const maxPr = Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5); // (the resolution's 100%: auto.scale 1)
+  renderer.setPixelRatio(touch0 ? Math.min(maxPr, 1) : maxPr);
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
@@ -64,7 +68,9 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   renderer.shadowMap.type = THREE.PCFShadowMap;
   document.body.appendChild(renderer.domElement);
   const gl = (renderer.backend as unknown as { gl?: WebGL2RenderingContext }).gl;
-  ui.note(`WebGL 2: ${gl?.getParameter(gl.VERSION) ?? '?'}, max texture ${gl?.getParameter(gl.MAX_TEXTURE_SIZE) ?? '?'}`);
+  const info = gl?.getExtension('WEBGL_debug_renderer_info');
+  const adapterName = String((gl && (info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER))) ?? 'unknown GPU');
+  ui.note(`WebGL 2: ${adapterName}, ${gl?.getParameter(gl.VERSION) ?? '?'}, max texture ${gl?.getParameter(gl.MAX_TEXTURE_SIZE) ?? '?'}`);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
@@ -124,17 +130,37 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const music = createMusic(params, harness);
   demo.music = music;
 
-  // the resolution steered by the frame time (no GPU timers here): down to half the pixel ratio over the budget
+  // quality: the resolution (auto.scale of maxPr) and the near trees' detail (`tau`: forest.setDetail), the menu's
+  // presets; auto quality steers the resolution by the frame time (no GPU timers here), down to half over the budget
   const budget = Number(params.get('budget') ?? (touch0 ? 33 : 17)); // ms a frame
-  let ema = budget, settle = 0;
+  const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: renderer.getPixelRatio() / maxPr, gpuMs: 0, busy: false };
+  const tau = { value: 1 };
+  const setScale = (s: number): void => {
+    auto.scale = s;
+    renderer.setPixelRatio(maxPr * s);
+  };
+  let ema = budget, settle = 0, detail = tau.value;
   const steer = (dt: number): void => {
+    if (tau.value !== detail) forest.setDetail((detail = tau.value)); // (the menu, or the [ ] keys)
     ema += (dt * 1000 - ema) * 0.1;
-    if ((settle -= dt) > 0) return;
-    const next = ema > budget * 1.15 ? Math.max(0.5, pr * 0.85) : ema < budget * 0.7 ? Math.min(maxPr, pr * 1.1) : pr;
-    if (Math.abs(next - pr) > 0.01) (pr = next, renderer.setPixelRatio(pr), (settle = 1));
+    auto.frameMs = ema;
+    if (!auto.on || (settle -= dt) > 0) return;
+    const s = auto.scale, next = ema > budget * 1.15 ? Math.max(0.5, s * 0.85) : ema < budget * 0.7 ? Math.min(1, s * 1.1) : s;
+    if (Math.abs(next - s) > 0.01) (setScale(next), (settle = 1));
+  };
+  // shadows off: no pass and no light lost (switching the shadow map off would recompile every shader)
+  let shadowsOn = renderer.shadowMap.enabled;
+  const setShadows = (on: boolean): void => {
+    shadowsOn = on;
+    sun.shadow.intensity = on ? 1 : 0;
+    farShadowOn.value = on ? 1 : 0;
+    sun.shadow.autoUpdate = on;
+    sun.shadow.needsUpdate = true;
   };
 
-  let time = 0;
+  let time = 0, frameTris = 0;
+  const waypoint = createWaypoint(harness && params.get('waypoint') !== '1'); // (to the plaza; as main.ts)
+  const compass = createCompass(waypoint.target, harness && params.get('waypoint') !== '1');
   const size = new THREE.Vector2();
   function frame(dt: number): void {
     if (renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
@@ -156,6 +182,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     clouds.update(time, camera);
     litter.update(camera.position, camera.position.y - gy);
     camera.updateMatrixWorld();
+    waypoint.update(camera);
+    compass.update(camera, controls.walking);
     const altitude = Math.max(0, camera.position.y - gy);
     music.setAltitude(altitude);
     terrainForAltitude(terrain, altitude);
@@ -165,10 +193,17 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     fitShadowMap(size.x * size.y);
     follow(camera, gy, demo.shadowShift);
     forest.update(camera, size.y, fogFar.value);
+    renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
     renderer.render(scene, camera);
+    frameTris = renderer.info.render.triangles;
   }
 
-  installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size });
+  installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
+  // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
+  const hud = createWebGLHud({ tris: () => frameTris, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
+  demo.perfReport = () => hud.perf?.report();
+  demo.hud = hud;
+  createMenu({ controls, u: { tau }, clouds: clouds.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
@@ -194,7 +229,9 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     frame(dt);
-    if (params.get('auto') !== '0') steer(dt);
+    steer(dt);
+    hud.frame(now, dt);
   });
+  hud.update();
   demo.ready = true;
 }

@@ -430,7 +430,7 @@ async function start(adapterReady: Promise<GPUAdapter | null>) {
   );
   demo.profile = profile;
   // settings menu + keyboard shortcuts (src/menu.ts)
-  createMenu({ controls, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
+  createMenu({ controls, u: forest.u, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
   let prev = performance.now();
   function loop() {

@@ -131,8 +131,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   1.8 s on its own); its forest (`webgl/forest.ts`) is near trees as instanced meshes at two fixed DAG cuts (by
   distance, rescanned on the CPU from a 64 m grid when the camera moves; 60 / 220 m, touch 35 / 110, `?glnear=`)
   and the baked impostors as instanced quads in 1 km cells, culled and thinned on the CPU (a cell draws the share
-  of its shuffled trees that `MIN_PX` keeps at its nearest edge). Missing there: grass, statues, wind, TAA and
-  upscaling, god rays, occlusion, the software rasterizer, splats, the HUD, menu and performance panel; auto quality
+  of its shuffled trees that `MIN_PX` keeps at its nearest edge). It has the performance panel (`webgl/hud.ts`: no GPU
+  timers, GPU reads --), the scene details, waypoint, compass and the settings menu (`menu.ts` takes the forest,
+  TAA, god rays, grass and the GPU profile as optional: left out, their switches and keys aren't shown; the quality
+  presets set the resolution and the near radii, x 1 / sqrt(tau)). Missing: grass, statues, wind, TAA and
+  upscaling, god rays, occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
   is the pixel ratio by frame time (`budget` 17 / 33 ms). Each program compiles on the main thread in WebGL: one bark
   and one leaf material for every type (the layer by a select chain on the instance's type, +0.25 before the floor:
   interpolated, 3 arrived as 2.9999 and speckled the trunks). `?webgl=1` runs it on a WebGPU browser (the harness

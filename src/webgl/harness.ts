@@ -17,6 +17,7 @@ interface WebGLHarnessContext {
   forest: ReturnType<typeof createWebGLForest>;
   instances: TreeInstances;
   size: THREE.Vector2;
+  tris(): number;
 }
 
 export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): void {
@@ -53,10 +54,7 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
         ms.push(performance.now() - t);
       }
       const med = [...ms].sort((a, b) => a - b)[ms.length >> 1];
-      renderer.info.reset();
-      frame(1 / 60); // (one frame's triangles, the shadow map's included)
-      const info = renderer.info.render;
-      return { frameMs: med, medianMs: med, gpuRenderMs: 0, gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: info.triangles, ...forest.stats() };
+      return { frameMs: med, medianMs: med, gpuRenderMs: 0, gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
     },
   });
 }

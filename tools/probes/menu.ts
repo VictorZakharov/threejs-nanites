@@ -25,7 +25,7 @@ async (demo: Demo) => {
     shadows: flip('Shadows'), taa: flip('TAA'), rays: flip('God rays'), wind: flip('Wind'), clouds: flip('Clouds'), grass: flip('Grass'), relief: flip('Ground relief'),
     occlusion: flip('Occlusion'), sw: flip('Software'), music: flip('Music'),
     quality: [seg('quality', 'low'), seg('quality', 'auto')].join(' '),
-    tau: demo.forest.u.tau.value,
+    tau: demo.forest?.u.tau.value, // (none in the WebGL mode)
     gear: Boolean(document.querySelector('.touch-menu')), note: Boolean(document.querySelector('.touch-music')),
   };
   // in a short window only the columns scroll: the title and the buttons stay inside the box (the user's screenshot)
