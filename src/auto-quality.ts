@@ -13,7 +13,8 @@ import { gpuBackend } from './three-gaps.ts';
 
 /**
  * The per-frame step of the controller. `tau`: the forest's error threshold; `setScale`: the resolution scale (of the
- * base pixel ratio); `zoom`: the controls' zoom and its target (the swap happens as the button changes; null: one
+ * base pixel ratio); `maxScale`: the highest scale (the scene at the output's resolution, above 1 on a screen denser
+ * than the base ratio); `zoom`: the controls' zoom and its target (the swap happens as the button changes; null: one
  * setting for both, ?autozoom=0).
  */
 export function createAutoQuality(
@@ -21,6 +22,7 @@ export function createAutoQuality(
   auto: AutoQuality,
   tau: { value: number },
   setScale: (s: number) => void,
+  maxScale: () => number,
   zoom: { zoom: number; zoomTarget: number } | null,
 ): (dt: number) => void {
   let lastAdjust = 0;
@@ -50,8 +52,10 @@ export function createAutoQuality(
     // seconds of slow frames, and /1.1 seconds of lost detail after
     const far = over > 1.5 || over < 0.5;
     // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
-    if (now - lastAdjust < (far ? 250 : auto.scale < 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
-    if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
+    if (now - lastAdjust < (far ? 250 : auto.scale !== 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
+    // over the budget, the resolution above the base goes first (it's the extra: full detail came before it)
+    if (over > 1.1 && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
+    else if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
     else if (over > 1.1 && auto.scale > 0.5 && !futile) {
       const before = median(lastAdjust + 200, now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
@@ -64,6 +68,10 @@ export function createAutoQuality(
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
     else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
     else if (over < 0.75 && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / (far ? 1.25 : 1.1)); // (not before the resolution is back: it ate the room)
+    // at full detail with room to spare, past the base towards the screen's own pixels (a dense screen at 1.5 of
+    // its 3 read blurry, the scene's pixels upscaled 2x): a step is x1.32 the pixels (and finer LOD), so under 55%
+    // it lands under the budget's 1.1 and doesn't swing back
+    else if (over < 0.55 && tau.value <= 1 && auto.scale >= 1 && auto.scale < maxScale()) setScale(Math.min(maxScale(), auto.scale * 1.15));
     else return;
     lastAdjust = now;
   };

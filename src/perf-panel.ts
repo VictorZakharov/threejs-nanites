@@ -171,7 +171,7 @@ export class PerfPanel {
       : 'GPU TIME UNAVAILABLE';
     const r = det.resolution;
     this.k.res.innerHTML = `<b>${r.width}×${r.height}</b>${r.outWidth !== r.width ? ` → <b>${r.outWidth}×${r.outHeight}</b>` : ''} · ${r.msaa}× MSAA · TAA ${r.taa ? 'ON' : 'OFF'}`;
-    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale < 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}`;
+    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale !== 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}`;
     const sc = det.scene;
     this.k.scene.innerHTML = sc
       ? `<b>${count(sc.trees)}</b> PLANTS · <b>${short(sc.tris + sc.swTris + sc.impostorTris)}</b> TRIS · SHADOW <b>${short(sc.shadowTris)}</b>`

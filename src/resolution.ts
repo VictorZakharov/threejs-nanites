@@ -3,7 +3,8 @@
 // (temporal upscaling, as UE's TSR or AMD's FSR 2). Before, the canvas itself was rendered at the lower resolution and
 // the browser stretched it: a phone with 3.75 device pixels per CSS pixel showed 1.5 (less under auto quality), each
 // rendered pixel smeared over 2.5 x 2.5 of its own (the user: "blurry, no detail"; "you render 9 times fewer pixels
-// than needed" on an iPhone). Auto quality's scale moves only the scene's resolution now.
+// than needed" on an iPhone). Auto quality's scale moves only the scene's resolution now, from half the base ratio up
+// to the output's (`maxScale`: above 1 where the GPU has room, on a screen denser than 1.5).
 // `?pr=` the scene's pixel ratio at scale 1 (default the device's, at most 1.5), `?outpr=` the output's,
 // `?taau=0` no upscaling: the canvas at the scene's resolution, as before.
 import * as THREE from 'three/webgpu';
@@ -27,6 +28,8 @@ export interface Resolution {
   fit(): void;
   /** The scene's resolution scale (auto quality: of `basePR`). */
   setScale(s: number): void;
+  /** The highest useful scale: the scene at the output's resolution (1 without upscaling). */
+  maxScale(): number;
 }
 
 export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, sceneRT: THREE.RenderTarget, params: URLSearchParams): Resolution {
@@ -47,6 +50,7 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
       res.fit();
     },
     ratio: () => output.x / render.x,
+    maxScale: () => (upscale ? Math.max(1, outPR / basePR) : 1),
     fit() {
       renderer.getSize(view);
       const w = window.innerWidth, h = window.innerHeight;
