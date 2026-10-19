@@ -197,7 +197,7 @@ export class Splats {
           });
         });
       });
-    })().compute(n, [WG]);
+    })().compute(n, [WG]).setName('splats');
     this.depthPass = pass('depth');
     this.idPass = pass('id');
     this.enabled.value = this.wanted ? 1 : 0;

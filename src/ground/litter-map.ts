@@ -17,7 +17,8 @@ const MOVE = 32; // m the camera moves before a rebuild
 const BUCKET = 64; // m
 const SLICE_MS = 2; // main-thread time a frame for a rebuild
 
-export function createLitterMap({ a, b, radius }: TreeInstances) {
+/** The map's texture and centre at once (the ground's shader compiles against them), its trees with `plant`. */
+export function createLitterMap() {
   const N = LITTER_RES, cellM = LITTER_SIZE / N;
   const data = new Uint8Array(N * N * 4);
   const tex = new THREE.DataTexture(data, N, N);
@@ -27,18 +28,25 @@ export function createLitterMap({ a, b, radius }: TreeInstances) {
   const kindOf = VARIANTS.map((v) => LEAF_KINDS.indexOf(v.leaf as LeafKind) + 1);
   const reach = VARIANTS.map((v) => (isBush(v) ? v.height * 0.9 : v.height * 0.3) * 1.3); // m at scale 1
 
-  // buckets of instance indices over the forest
-  const side = Math.ceil((radius * 2.8) / BUCKET), origin = -side * BUCKET * 0.5;
-  const counts = new Uint32Array(side * side + 1);
+  // buckets of instance indices over the forest (from `plant`)
+  let a: Float32Array = new Float32Array(0), b: Float32Array = new Float32Array(0);
+  let side = 0, origin = 0, counts = new Uint32Array(1), items = new Uint32Array(0);
   const bucketOf = (x: number, z: number): number => {
     const bx = Math.floor((x - origin) / BUCKET), bz = Math.floor((z - origin) / BUCKET);
     return bx < 0 || bz < 0 || bx >= side || bz >= side ? -1 : bz * side + bx;
   };
-  const count = a.length / 4;
-  for (let i = 0; i < count; i++) { const k = bucketOf(a[i * 4], a[i * 4 + 2]); if (k >= 0) counts[k + 1]++; }
-  for (let k = 0; k < side * side; k++) counts[k + 1] += counts[k];
-  const items = new Uint32Array(counts[side * side]), fill = counts.slice(0, side * side);
-  for (let i = 0; i < count; i++) { const k = bucketOf(a[i * 4], a[i * 4 + 2]); if (k >= 0) items[fill[k]++] = i; }
+  const plant = (inst: TreeInstances): void => {
+    ({ a, b } = inst);
+    side = Math.ceil((inst.radius * 2.8) / BUCKET);
+    origin = -side * BUCKET * 0.5;
+    counts = new Uint32Array(side * side + 1);
+    const count = a.length / 4;
+    for (let i = 0; i < count; i++) { const k = bucketOf(a[i * 4], a[i * 4 + 2]); if (k >= 0) counts[k + 1]++; }
+    for (let k = 0; k < side * side; k++) counts[k + 1] += counts[k];
+    items = new Uint32Array(counts[side * side]);
+    const fill = counts.slice(0, side * side);
+    for (let i = 0; i < count; i++) { const k = bucketOf(a[i * 4], a[i * 4 + 2]); if (k >= 0) items[fill[k]++] = i; }
+  };
 
   // a rebuild is ~17 ms of main-thread work (the user's 1% lows: a hitch every 32 m walked, under a second apart
   // flying low): it runs in slices of SLICE_MS a frame into its own arrays, published (with its centre) when done
@@ -86,12 +94,13 @@ export function createLitterMap({ a, b, radius }: TreeInstances) {
   return {
     texture: tex,
     center,
+    plant,
     /**
      * Rebuilds round the camera once it has moved MOVE metres (skipped high up: the litter is gone by 200 m), a slice
      * per frame; the first time all at once (and after a jump: then the old map is far off anyway).
      */
     update(cam: { x: number; z: number }, agl: number): void {
-      if (agl > 220) return;
+      if (agl > 220 || !side) return;
       const far = Math.hypot(cam.x - center.value.x, cam.z - center.value.y);
       if (!job && far >= MOVE && Math.hypot(cam.x - jobAt.x, cam.z - jobAt.z) >= 1) {
         jobAt = { x: snap(cam.x), z: snap(cam.z) };

@@ -36,38 +36,68 @@ export class InstanceChunks {
     let extent = EXTENT, r = InstanceChunks.runs(a, b, types, extent);
     while (r.start.length > MAX_CHUNKS) r = InstanceChunks.runs(a, b, types, (extent *= 1.5));
     this.count = r.start.length;
-    this.start = Uint32Array.from(r.start);
-    this.size = Uint32Array.from(r.size);
-    this.box = Float32Array.from(r.box);
+    this.start = r.start;
+    this.size = r.size;
+    this.box = r.box;
     let h = 0;
-    for (let i = 0; i < a.length / 4; i++) h = Math.max(h, types[b[i * 4 + 2]].w * a[i * 4 + 3]);
+    const height = Float64Array.from(types, (t) => t.w);
+    for (let i = 0; i < a.length / 4; i++) h = Math.max(h, height[b[i * 4 + 2]] * a[i * 4 + 3]);
     this.maxHeight = h;
+  }
+
+  /** Recomputes the boxes of the chunks holding instances from `first` on (a late model's: its radius changed). */
+  refit(a: Float32Array, b: Float32Array, types: THREE.Vector4[], first: number): void {
+    for (let c = 0; c < this.count; c++) {
+      const s = this.start[c], e = s + this.size[c];
+      if (e <= first) continue;
+      const box = [Infinity, Infinity, Infinity, -Infinity, -Infinity, -Infinity];
+      for (let i = s; i < e; i++) {
+        const t = types[b[i * 4 + 2]], sc = a[i * 4 + 3], r = t.z * sc;
+        const cx = a[i * 4], cy = a[i * 4 + 1] + t.w * 0.5 * sc, cz = a[i * 4 + 2];
+        box[0] = Math.min(box[0], cx - r); box[1] = Math.min(box[1], cy - r); box[2] = Math.min(box[2], cz - r);
+        box[3] = Math.max(box[3], cx + r); box[4] = Math.max(box[4], cy + r); box[5] = Math.max(box[5], cz + r);
+      }
+      this.box.set(box, c * 6);
+    }
   }
 
   private static runs(a: Float32Array, b: Float32Array, types: THREE.Vector4[], extent: number) {
     const n = a.length / 4;
-    const start: number[] = [], size: number[] = [], box: number[] = [];
-    let x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0, k = 0;
-    const close = () => box.push(x0, y0, z0, x1, y1, z1);
+    // (typed arrays and a type table: over 2.5M instances, Vector4 reads and array pushes were ~1 s of a phone's load)
+    const rad = Float64Array.from(types, (t) => t.z), half = Float64Array.from(types, (t) => t.w * 0.5);
+    const most = Math.ceil(n / CHUNK) * 4 + 64; // (runs also break at extent: grown when it runs out)
+    let start = new Uint32Array(most), size = new Uint32Array(most), box = new Float32Array(most * 6);
+    let m = 0, x0 = 0, y0 = 0, z0 = 0, x1 = 0, y1 = 0, z1 = 0, k = 0;
+    const close = (): void => {
+      box[m * 6] = x0; box[m * 6 + 1] = y0; box[m * 6 + 2] = z0; box[m * 6 + 3] = x1; box[m * 6 + 4] = y1; box[m * 6 + 5] = z1;
+      size[m++] = k;
+    };
     for (let i = 0; i < n; i++) {
-      const t = types[b[i * 4 + 2]], s = a[i * 4 + 3], r = t.z * s;
-      const cx = a[i * 4], cy = a[i * 4 + 1] + t.w * 0.5 * s, cz = a[i * 4 + 2];
-      if (k > 0 && (k === CHUNK || Math.max(x1, cx + r) - Math.min(x0, cx - r) > extent || Math.max(z1, cz + r) - Math.min(z0, cz - r) > extent)) {
+      const t = b[i * 4 + 2], s = a[i * 4 + 3], r = rad[t] * s;
+      const cx = a[i * 4], cy = a[i * 4 + 1] + half[t] * s, cz = a[i * 4 + 2];
+      if (k > 0 && (k === CHUNK || (x1 > cx + r ? x1 : cx + r) - (x0 < cx - r ? x0 : cx - r) > extent || (z1 > cz + r ? z1 : cz + r) - (z0 < cz - r ? z0 : cz - r) > extent)) {
         close();
         k = 0;
       }
       if (k === 0) {
-        start.push(i);
-        size.push(0);
-        [x0, y0, z0, x1, y1, z1] = [cx - r, cy - r, cz - r, cx + r, cy + r, cz + r];
+        if (m === start.length) {
+          const grow = <T extends Uint32Array | Float32Array>(arr: T, c: new (len: number) => T): T => { const g = new c(arr.length * 2); g.set(arr); return g; };
+          start = grow(start, Uint32Array); size = grow(size, Uint32Array); box = grow(box, Float32Array);
+        }
+        start[m] = i;
+        x0 = cx - r; y0 = cy - r; z0 = cz - r; x1 = cx + r; y1 = cy + r; z1 = cz + r;
       } else {
-        x0 = Math.min(x0, cx - r); y0 = Math.min(y0, cy - r); z0 = Math.min(z0, cz - r);
-        x1 = Math.max(x1, cx + r); y1 = Math.max(y1, cy + r); z1 = Math.max(z1, cz + r);
+        if (cx - r < x0) x0 = cx - r;
+        if (cy - r < y0) y0 = cy - r;
+        if (cz - r < z0) z0 = cz - r;
+        if (cx + r > x1) x1 = cx + r;
+        if (cy + r > y1) y1 = cy + r;
+        if (cz + r > z1) z1 = cz + r;
       }
-      size[size.length - 1] = ++k;
+      k++;
     }
     if (k > 0) close();
-    return { start, size, box };
+    return { start: start.slice(0, m), size: size.slice(0, m), box: box.slice(0, m * 6) };
   }
 
   /**

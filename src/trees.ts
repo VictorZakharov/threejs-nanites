@@ -1,6 +1,6 @@
 import type { BarkSource, DagReply, DagResult, LeafMask, LeafSource } from './dag-types.ts';
 import type { LoadingScreen } from './loading.ts';
-import { loadModel } from './models.ts';
+import { loadModel, type ModelHeader } from './models.ts';
 
 type RGB = [number, number, number];
 export interface TreeVariant {
@@ -27,6 +27,18 @@ export interface BuiltTree extends DagResult {
   height: number;
   variant: TreeVariant;
   src: TreeSource;
+  /**
+   * A model still downloading (its arrays are empty, its radius a bound from the header): the sizes the forest
+   * reserves for it in its buffers, and the model once it's in (NaniteForest.fillType).
+   */
+  later?: { verts: number; indices: number; clusters: number; tree: Promise<BuiltTree> };
+}
+
+/** A bound on a model's radius around its axis from its header's box (positions at height 1, base at y = 0). */
+function boundRadius(h: ModelHeader, height: number): number {
+  let r = 0;
+  for (const x of [h.lo[0], h.hi[0]]) for (const y of [h.lo[1], h.hi[1]]) for (const z of [h.lo[2], h.hi[2]]) r = Math.max(r, Math.hypot(x, y - 0.5, z));
+  return r * height;
 }
 
 // Tree variants: ez-tree preset, seed, target height (m), and its textures. impGain: the impostor colour gains
@@ -65,11 +77,25 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
   const finished = (): void => void ui.update(0.06 + (0.69 * ++done) / n, `Trees and cluster DAGs ${done}/${n}`, false);
   const jobs = VARIANTS.map(async (v, id): Promise<BuiltTree> => {
     if (v.model) {
-      // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build (Lucy's is ~5 MB)
-      const { dag, src } = await loadModel(`./${v.model}`, v.height);
-      ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
+      // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build. Lucy's is ~5 MB: only its
+      // header is waited for, the forest fills the model in when it's arrived (the statues may come after the first
+      // frame on a slow connection)
+      const { header, model } = loadModel(`./${v.model}`, v.height);
+      const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download, ms)
+      const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(({ dag, src }): BuiltTree => {
+        ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
+        return { ...dag, id, radius: src.radius, height: src.height, variant: v, src };
+      });
+      tree.catch(() => {}); // (surfaces where the forest awaits it)
+      const h = await header;
       finished();
-      return { ...dag, id, radius: src.radius, height: src.height, variant: v, src };
+      const none = new Float32Array(0);
+      return {
+        id, vtx: none, idx: new Uint32Array(0), rec: none, meta: new Uint32Array(0), stats: { ...h.stats, ms: 0 },
+        radius: boundRadius(h, v.height), height: v.height, variant: v,
+        src: { bark: { pos: none, nrm: none, uv: none, idx: new Uint32Array(0) }, leaves: { pos: none, nrm: none, uv: none, vpl: 4 }, radius: 0, height: v.height },
+        later: { verts: h.vertices, indices: h.indices, clusters: h.clusters, tree },
+      };
     }
     return new Promise<BuiltTree>((resolve, reject) => {
       // the worker grows the tree (tree-grow.ts) and builds its DAG

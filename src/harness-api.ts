@@ -7,7 +7,7 @@ import type { AutoQuality } from './hud.ts';
 import type { NaniteForest } from './nanite/forest.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
-import type { forestDensity } from './placement.ts';
+import type { CoverMap } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
 import type { createGrass } from './grass.ts';
 import type { ImpostorAtlas } from './impostors.ts';
@@ -65,7 +65,7 @@ export type Demo = DemoState & ReturnType<typeof harnessApi> & DemoExtras;
 
 /** What main.ts adds to window.__demo besides the API (for probes). */
 export interface DemoExtras {
-  coverMap: ReturnType<typeof forestDensity>; // (the canopy cover / fallen leaves map, --probe=autumn)
+  coverMap: CoverMap; // (the canopy cover / fallen leaves map, --probe=autumn)
   leafOf: string[]; // (each variant's kind of leaf)
   litter: ReturnType<typeof createLitterMap>;
   grass: ReturnType<typeof createGrass>;

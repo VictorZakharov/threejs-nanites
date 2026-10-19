@@ -19,6 +19,7 @@ export class Precompile {
   /** Each compile's name, start and end (ms since the navigation started): the loading log names the slowest. */
   readonly times: { name: string; start: number; end: number }[] = [];
   private held = false;
+  private readonly computes = new Set<THREE.ComputeNode>();
 
   constructor(
     readonly renderer: THREE.WebGPURenderer,
@@ -65,7 +66,10 @@ export class Precompile {
     }
   }
 
-  /** Starts compiling the compute passes that `run` dispatches: it's run with dispatching switched off. */
+  /**
+   * Starts compiling the compute passes that `run` dispatches (it's run with dispatching switched off) that weren't
+   * already; returns how many.
+   */
   addComputes(run: () => void): number {
     if (!this.on) return 0;
     const r = this.renderer, nodes = new Set<THREE.ComputeNode>();
@@ -76,8 +80,12 @@ export class Precompile {
     } finally {
       r.compute = dispatch;
     }
-    for (const n of nodes) this.track(`compute ${n.name || n.id}`, r.compileComputeAsync(n));
-    return nodes.size;
+    const fresh = [...nodes].filter((n) => !this.computes.has(n));
+    for (const n of fresh) {
+      this.computes.add(n);
+      this.track(`compute ${n.name || n.id}`, r.compileComputeAsync(n));
+    }
+    return fresh.length;
   }
 
   private track(name: string, job: Promise<unknown>): void {
@@ -86,11 +94,13 @@ export class Precompile {
     this.jobs.push(job.then(() => (t.end = performance.now())));
   }
 
-  /** Waits for everything started so far; returns the slowest few, for the log. */
+  /** Waits for everything started so far; returns the slowest few and the last to finish, for the log. */
   async done(): Promise<string> {
     await Promise.all(this.jobs);
     const slow = [...this.times].sort((a, b) => b.end - b.start - (a.end - a.start)).slice(0, 3);
-    return slow.map((t) => `${t.name} ${Math.round(t.end - t.start)} ms from ${(t.start / 1000).toFixed(1)} s`).join(', ');
+    const last = this.times.reduce((a, b) => (b.end > a.end ? b : a), this.times[0]);
+    const at = (t: { start: number; end: number }) => `${Math.round(t.end - t.start)} ms from ${(t.start / 1000).toFixed(1)} s`;
+    return `${slow.map((t) => `${t.name} ${at(t)}`).join(', ')}; last done: ${last ? `${last.name} ${at(last)}` : 'none'}`;
   }
 }
 

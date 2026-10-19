@@ -144,7 +144,7 @@ export const hzbMethods = {
           }
           h.buf.element(uint(lv.x).add(y.mul(w)).add(x)).assign(m);
         });
-      })().compute(HZB_LEVEL0_MAX, [WG]);
+      })().compute(HZB_LEVEL0_MAX, [WG]).setName('hzb');
       h.passes.push(node);
     }
     this.hzbReady = true;

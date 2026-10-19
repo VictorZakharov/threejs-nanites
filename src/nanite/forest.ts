@@ -13,7 +13,7 @@
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
 import * as THREE from 'three/webgpu';
-import { storage, uniform, uniformArray, bitcast, uint } from 'three/tsl';
+import { uniform, bitcast, uint } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
 import { Splats } from './splats.ts';
@@ -22,6 +22,7 @@ import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
 import { billboardMethods } from './billboards.ts';
+import { bufferMethods, type ForestArrays } from './buffers.ts';
 import { computeBatch } from '../three-gaps.ts';
 import { InstanceChunks, CHUNK } from './chunks.ts';
 import { viewerPos, PLANET_RADIUS } from '../planet.ts';
@@ -38,7 +39,8 @@ const CAST_SLACK = 60; // m: how much lower than a tree's base its shadow may la
 
 // The stage modules' methods, attached to the prototype at the end of this file.
 export interface NaniteForest
-  extends Omit<typeof cullingMethods, never>, Omit<typeof hzbMethods, never>, Omit<typeof drawMethods, never>, Omit<typeof billboardMethods, never> {}
+  extends Omit<typeof cullingMethods, never>, Omit<typeof hzbMethods, never>, Omit<typeof drawMethods, never>, Omit<typeof billboardMethods, never>,
+    Omit<typeof bufferMethods, never> {}
 
 export class NaniteForest {
   readonly renderer: THREE.WebGPURenderer;
@@ -49,12 +51,16 @@ export class NaniteForest {
   shadowActive = false;
   readonly u: ForestUniforms;
   readonly textures: ForestTextures;
-  // GPU data (see _buildBuffers and the accessors)
+  // GPU data (see _buildBuffers in buffers.ts and the accessors)
+  arrays!: ForestArrays; // (their CPU copies: a late model is written into them)
   vtx!: StorageBufferNode<'vec4'>;
   idx!: StorageBufferNode<'uint'>;
   cData!: StorageBufferNode<'vec4'>;
   inst!: StorageBufferNode<'vec4'>;
-  typeInfo!: UniformArrayNode<'vec4'>;
+  instA!: Float32Array; // (the instances' (x, y, z, scale) and (cos, sin, type, phase): a late model refits the chunks)
+  instB!: Float32Array;
+  typeInfo!: UniformArrayNode<'vec4'>; // per type (first cluster, clusters, radius, height)
+  typeValues!: THREE.Vector4[]; // (its values)
   chunks!: InstanceChunks; // (the instances in compact runs: the instance passes cull them on the CPU first)
   // per tree type its impostor frame (width, height in metres at scale 1), from the atlas once it's baked (until
   // then wide: no impostor is thinned out, see _impostorKept)
@@ -115,73 +121,6 @@ export class NaniteForest {
       this.group.add(m2);
       this.group.add(this._buildMesh(kind, this.shadow, this.shadow.sets[0], true));
     }
-  }
-
-  // ------------------------------------------------------------------ data
-  _buildBuffers(trees: BuiltTree[], instances: TreeInstances): void {
-    let nClusters = 0, nVerts = 0, nIdx = 0;
-    for (const t of trees) {
-      nClusters += t.meta.length / 4;
-      nVerts += t.vtx.length / 8;
-      nIdx += t.idx.length;
-    }
-    // (few, merged buffers: a shader may bind only 8 storage buffers on some GPUs, Macs among them)
-    const vtx = new Float32Array(nVerts * 8); // per vertex: (x y z u), (nx ny nz v)
-    const idx = new Uint32Array(nIdx);
-    // per cluster CD_STRIDE vec4s: lod sphere, parent lod sphere, cull sphere, (err, parent err, level, kind), and
-    // its meta as uint bits (first index, triangles, level, kind)
-    const cBuf = new ArrayBuffer(nClusters * CD_STRIDE * 16);
-    const cData = new Float32Array(cBuf), cMeta = new Uint32Array(cBuf);
-    const typeInfo: THREE.Vector4[] = [];
-    let co = 0, vo = 0, io = 0;
-    this.stats = { clusters: nClusters, verts: nVerts, tris: nIdx / 3, types: [] };
-    for (const t of trees) {
-      const n = t.meta.length / 4;
-      // sort by parent error, descending: for a given distance the selectable clusters are then a prefix
-      const order = Array.from({ length: n }, (_, i) => i).sort((a, b) => t.rec[b * 16 + 13] - t.rec[a * 16 + 13]);
-      let radius = 0;
-      const cy = t.height / 2;
-      order.forEach((src, k) => {
-        const d = co + k, r = t.rec.subarray(src * 16, src * 16 + 16);
-        const o = d * CD_STRIDE * 4;
-        cData.set(r, o);
-        cMeta[o + 16] = t.meta[src * 4] + io;
-        cMeta[o + 17] = t.meta[src * 4 + 1];
-        cMeta[o + 18] = t.meta[src * 4 + 2];
-        cMeta[o + 19] = t.meta[src * 4 + 3];
-        for (const s of [r.subarray(0, 4), r.subarray(4, 8), r.subarray(8, 12)])
-          radius = Math.max(radius, Math.hypot(s[0], s[1] - cy, s[2]) + s[3]);
-      });
-      for (let i = 0; i < t.idx.length; i++) idx[io + i] = t.idx[i] + vo;
-      const nv = t.vtx.length / 8;
-      vtx.set(t.vtx, vo * 8);
-      typeInfo.push(new THREE.Vector4(co, n, radius, t.height));
-      this.stats.types.push({ name: t.variant.preset, ...t.stats, radius: +radius.toFixed(1) });
-      co += n;
-      vo += nv;
-      io += t.idx.length;
-    }
-    const sb = (arr: Float32Array | Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
-    this.vtx = storage(sb(vtx, 4), 'vec4', nVerts * 2).toReadOnly();
-    this.idx = storage(sb(idx, 1), 'uint', nIdx).toReadOnly();
-    this.cData = storage(sb(cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
-    this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
-    this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo);
-    this.impFrameValues = typeInfo.map(() => new THREE.Vector4(1e9, 0, 0, 0));
-    this.impFrame = uniformArray<'vec4'>(this.impFrameValues, 'vec4');
-    this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
-
-    this.instanceCount = instances.a.length / 4;
-    this.treeCount = instances.trees;
-    this.statueCount = instances.statues;
-    this.u.firstModel.value = this.instanceCount - this.statueCount;
-    // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
-    const inst = new Float32Array(this.instanceCount * 8);
-    for (let i = 0; i < this.instanceCount; i++) {
-      inst.set(instances.a.subarray(i * 4, i * 4 + 4), i * 8);
-      inst.set(instances.b.subarray(i * 4, i * 4 + 4), i * 8 + 4);
-    }
-    this.inst = storage(sb(inst, 4), 'vec4', this.instanceCount * 2).toReadOnly();
   }
 
   // ------------------------------------------------------------------ buffer accessors (node -> node)
@@ -298,4 +237,4 @@ export class NaniteForest {
 }
 
 // the methods live in modules by stage
-Object.assign(NaniteForest.prototype, cullingMethods, hzbMethods, drawMethods, billboardMethods);
+Object.assign(NaniteForest.prototype, cullingMethods, hzbMethods, drawMethods, billboardMethods, bufferMethods);

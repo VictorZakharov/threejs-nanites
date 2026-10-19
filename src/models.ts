@@ -28,11 +28,21 @@ export function dequantize(q: Uint16Array, n: number, lo: number[], hi: number[]
   return pos;
 }
 
-/** The file's DAG and source mesh, at `height` m. */
-export async function decodeModel(buf: Uint8Array, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
+/** The file's header, once `buf` (its start) holds it; null before. */
+export function readHeader(buf: Uint8Array): ModelHeader | null {
+  if (buf.length < 4) return null;
   const headLen = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
+  if (buf.length < 4 + headLen) return null;
   const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLen))) as ModelHeader;
   if (head.format !== 'nanite-model 2') throw new Error(`model format "${head.format}": re-import it with tools/nanite-model.ts`);
+  return head;
+}
+
+/** The file's DAG and source mesh, at `height` m. */
+export async function decodeModel(buf: Uint8Array, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
+  const head = readHeader(buf);
+  if (!head) throw new Error('model file cut short');
+  const headLen = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
   await MeshoptDecoder.ready;
   let o = 4 + headLen;
   const take = (n: number) => buf.subarray(o, (o += n));
@@ -72,16 +82,32 @@ export async function decodeModel(buf: Uint8Array, height: number): Promise<{ da
   return { dag: { vtx, idx, rec, meta, stats: { ...head.stats, ms: 0 } }, src };
 }
 
-/** Downloads and decodes a model in a worker (model-worker.ts); `url` relative to the page. */
-export function loadModel(url: string, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
-  return new Promise((resolve, reject) => {
+/** A model's DAG and source mesh, as loadModel gives them. */
+export type LoadedModel = { dag: Omit<DagResult, 'id'>; src: ModelSource };
+
+/**
+ * Downloads and decodes a model in a worker (model-worker.ts); `url` relative to the page. `header` resolves as soon
+ * as the file's header has arrived, `model` once it's all decoded.
+ */
+export function loadModel(url: string, height: number): { header: Promise<ModelHeader>; model: Promise<LoadedModel> } {
+  let gotHeader: (h: ModelHeader) => void = () => {}, fail: (e: Error) => void = () => {};
+  const header = new Promise<ModelHeader>((resolve, reject) => ((gotHeader = resolve), (fail = reject)));
+  const model = new Promise<LoadedModel>((resolve, reject) => {
     const w = new Worker(new URL('./model-worker.ts', import.meta.url), { type: 'module' });
-    w.onmessage = (e: MessageEvent<{ dag: Omit<DagResult, 'id'>; src: ModelSource } | { error: string }>) => {
+    w.onmessage = (e: MessageEvent<LoadedModel | { header: ModelHeader } | { error: string }>) => {
+      if ('header' in e.data) return gotHeader(e.data.header);
       w.terminate();
-      if ('error' in e.data) reject(new Error(e.data.error));
-      else resolve(e.data);
+      if ('error' in e.data) {
+        const err = new Error(e.data.error);
+        fail(err);
+        reject(err);
+      } else resolve(e.data);
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => {
+      fail(new Error(e.message));
+      reject(new Error(e.message));
+    };
     w.postMessage({ url: new URL(url, document.baseURI).href, height });
   });
+  return { header, model };
 }
