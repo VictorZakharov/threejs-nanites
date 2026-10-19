@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, clamp, smoothstep, dFdx, dFdy, log2, cross,
-  cameraViewMatrix, normalize, asin, cos, sin, screenCoordinate, bool,
+  cameraViewMatrix, normalize, asin, cos, sin, screenCoordinate, bool, uvec2, exp2,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
@@ -28,6 +28,7 @@ interface ImpostorQuad {
   vAutumn: Float;
   vFade: Float;
   vCov: Float;
+  vSeed: Float;
   vRight: Vec3;
   vUp: Vec3;
   vDir: Vec3;
@@ -40,16 +41,17 @@ interface ImpostorQuad {
   elev: Float[];
   alpha: Float;
   coverage: Float;
+  holes: (cov: Float) => Bool;
 }
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 export const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
 export const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
-// how much of a type's coverage scale (impCov) its shadow quads take: 0 solid, 1 all of it; the real crowns' shadow
-// casters are coarser LODs (SHADOW_TAU_MUL), less see-through than the crowns seen from afar (?impshadowcov=)
-const IMP_SHADOW_COV = Number(new URLSearchParams(location.search).get('impshadowcov') ?? 0.5);
-// per baked elevation (ELEVATIONS): how much the quad is enlarged (see grow below); ?grow=a,b,c,d to calibrate
-export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,1.15,1.45,1.5').split(',').map(Number);
+// per baked elevation (ELEVATIONS): the quad's scale (see grow below); ?grow=a,b,c,d to calibrate
+export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,0.9,0.8,0.8').split(',').map(Number);
 const GROW_MAX = Math.max(...GROW);
+// the shadow quads' (?shadowgrow=): the real trees' shadows come from coarser LODs (SHADOW_TAU_MUL), fat leaf cards;
+// with the camera's sizes the ground under the impostors was ~4/255 too light from 1 km up
+const GROW_SHADOW = (new URLSearchParams(location.search).get('shadowgrow') ?? '1,1.05,1.45,1.5').split(',').map(Number);
 /**
  * Tree type `fr`'s coverage scale seen from `elev` degrees up: its side and top factors (`impCov` in VARIANTS, in
  * its impFrame's z, w), mixed by the elevation like impGain. The real crowns are see-through from afar (sub-pixel
@@ -125,7 +127,7 @@ export const billboardMethods = {
     const u = this.u;
     const n = atlas.frames.length;
     const { frameW, frameH } = atlas; // (filled by the bake)
-    const growArr = uniformArray<'float'>(GROW, 'float');
+    const growArr = uniformArray<'float'>(screen ? GROW : GROW_SHADOW, 'float');
     const v = {
       vUv: varying(vec2(0), 'vImpUv'),
       vBlend: varying(vec2(0), 'vImpBlend'), // the lower of the two tiles it blends (ELEVATIONS index), the upper's weight
@@ -134,6 +136,7 @@ export const billboardMethods = {
       vAutumn: varying(float(0), 'vImpAutumn'), // (src/autumn.ts)
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
       vCov: varying(float(1), 'vImpCov'), // the coverage scale (impostorCov; on screen impostorShare's)
+      vSeed: varying(float(0), 'vImpSeed'), // (the tree's own pattern of holes, see holes)
       vRight: varying(vec3(1, 0, 0), 'vImpRight'), // billboard basis (right incl. mirroring), for the normals
       vUp: varying(vec3(0, 1, 0), 'vImpUp'),
       vDir: varying(vec3(0, 0, 1), 'vImpDir'),
@@ -164,12 +167,13 @@ export const billboardMethods = {
       const mid = ELEV_STEP / 2;
       const j = clamp(elev.sub(mid).div(ELEV_STEP).round(), 0, ELEVATIONS.length - 2); // (the band it's nearest)
       const blend = smoothstep(mid - 7.5, mid + 7.5, elev.sub(j.mul(ELEV_STEP)));
-      // seen from above, the coarse cluster LODs it replaces read wider than the crown in the atlas (fewer, grown
-      // leaf cards): enlarge the higher views to match, so the forest doesn't thin out at the switch
-      // (the shadow casters too: the geometry's shadow comes from the same fat coarse LODs)
+      // the quad's size by elevation, so the impostors cover as many pixels as the trees they replace (GROW: from
+      // above smaller than the baked frame; it was 1.5 while half the trees were missing); the shadow casters' larger
+      // (GROW_SHADOW: the geometry's shadow comes from fat coarse LODs)
       const ju = uint(j);
       const grow = mix(growArr.element(ju), growArr.element(ju.add(1)), blend).toVar();
       q.vCov.assign(impostorCov(this.impFrame.element(type), elev)); // (the shadow casters' too: by the sun's elevation)
+      q.vSeed.assign(float(hash(inst.add(31)).mul(4096).floor()));
       if (screen) {
         // sub-pixel trees shimmer (they hit or miss pixel centres as the camera moves): never draw a quad narrower
         // than MIN_PX; keep the forest's coverage by dropping a matching share of the trees instead (per tree, so
@@ -231,7 +235,12 @@ export const billboardMethods = {
     const alpha = min(max(a[0], a[1]), 1);
     // the plain filtered alpha: the share of the pixel the tree covers (see IMP_DITHER)
     const coverage = min(max(t[0].a.mul(clamp(wts[0].mul(2), 0, 1)), t[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
-    return { ...v, position, uv, t, tile, a, elev, alpha, coverage };
+    // the coverage scale as holes fixed to the tree: the atlas cells of the mip it samples (about a pixel each), kept
+    // with the chance `cov`, the tree's own pattern. By the moving dither instead, TAA averaged it into a translucent
+    // smudge: the forest from ~1.5 km went blurry (the user)
+    const cell = uvec2(texel.div(exp2(lod.round())).floor());
+    const holes = (cov: Float): Bool => hash(cell.x.add(cell.y.mul(4099)).add(uint(q.vSeed).mul(1048573))).lessThan(cov);
+    return { ...v, position, uv, t, tile, a, elev, alpha, coverage, holes };
   },
 
   /**
@@ -278,10 +287,9 @@ export const billboardMethods = {
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
-    // (the cut-out keeps a pixel by the coverage scale against the dither: scaling its sharpened alpha, ~1 inside,
-    // dropped whole trees under the cut)
-    const kept = q.vCov.greaterThan(ditherAlt(screenCoordinate.xy));
-    const cut = IMP_DITHER ? select(q.coverage.mul(IMP_COV).mul(q.vCov).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : select(kept, q.alpha, float(0));
+    // (and the coverage scale's holes: see holes)
+    const kept = q.holes(q.vCov);
+    const cut = select(kept, IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));
@@ -302,13 +310,8 @@ export const billboardMethods = {
   buildImpostorShadowMesh(this: NaniteForest, atlas: ImpostorAtlas): THREE.Mesh {
     const list = storage(this.shadow.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, () => this.u.sunDir, false);
-    // (the cut-out, kept with the type's coverage scale against the moving dither: as see-through as the real crowns'
-    // shadows; solid, they darkened the ground under the impostors. Not the filtered alpha as the camera's quads: a
-    // few texels wide in the map, the quad samples a coarse mip, the tile's average, and the shadows nearly vanished)
-    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
-    const solid = select(q.alpha.greaterThanEqual(IMPOSTOR_CUT), float(1), float(0));
-    const cut = select(mix(float(1), q.vCov, IMP_SHADOW_COV).greaterThan(ditherAlt(screenCoordinate.xy)), solid, float(0));
-    mat.colorNode = vec4(1, 1, 1, cut);
+    const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
+    mat.colorNode = vec4(1, 1, 1, q.alpha);
     mat.positionNode = q.position;
     const mesh = new THREE.Mesh(this._impostorGeometry(this.shadow), mat);
     mesh.frustumCulled = false;
