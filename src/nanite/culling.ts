@@ -6,9 +6,10 @@ import {
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
+import { impostorShown } from './billboards.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
-  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
+  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
 } from './constants.ts';
 import type { NaniteForest } from './forest.ts';
 import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
@@ -244,11 +245,23 @@ export const cullingMethods = {
     const impList = storage(v.impListAttr, 'uint', this.instanceCount);
     const impCount = ctr.atomic.element(IMP_ARGS + 1);
     // (a tree is listed once at most: by the instance pass, or by phase 2 when it tests the impostors)
-    const impAppend = (i: Uint): void => {
-      impList.element(atomicAdd(impCount, uint(1))).assign(i);
+    // in the main view, tiny ones (`px` tall, switching at `swPx`) are splatted instead: listed from the top down
+    // (see splats.ts)
+    const n = this.instanceCount;
+    const splatCount = ctr.atomic.element(SPLAT);
+    const impAppend = (i: Uint, px?: Float, swPx?: Float): void => {
+      const draw = (): void => {
+        impList.element(atomicAdd(impCount, uint(1))).assign(i);
+      };
+      if (main && px && swPx) {
+        If(this.splats.wants(i, px, swPx), () => {
+          impList.element(uint(n - 1).sub(atomicAdd(splatCount, uint(1)))).assign(i);
+        }).Else(draw);
+      } else draw();
     };
     const impReset = Fn(() => {
       atomicStore(impCount, uint(0));
+      atomicStore(splatCount, uint(0));
     })().compute(1, [1]);
     const sets = [this._buildSet(v, tau, main ? 'retest' : null, 0)];
     if (main) sets.push(this._buildSet(v, tau, 'final', 1));
@@ -283,12 +296,12 @@ export const cullingMethods = {
         const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
         const far = px.lessThan(swPx);
         const retest = v.retest;
-        if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
+        if (!retest) If(visible.and(far).and(impostorShown(i)), () => impAppend(i)); // (impostor shadow casters; see impostorShown)
         else {
           // impostors are drawn in phase 2 and tested once, against this frame's HZB (retestTreesPass); listed here when
           // phase 2 won't run (occlusion off, no HZB yet)
           If(visible.and(px.lessThan(swPx.mul(FADE_HI))).and(this._impostorKept(i)), () => {
-            If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i));
+            If(v.impRetest.equal(1), () => retest.tree(i.bitOr(IMP_BIT))).Else(() => impAppend(i, px, swPx));
           });
         }
         If(visible.and(far.not()), () => {
@@ -310,13 +323,13 @@ export const cullingMethods = {
         If(k.lessThan(retest.count(2)), () => {
           const e = retest.treesRO.element(k);
           const i = e.bitAnd(IMP_BIT - 1);
-          const { ti, s, centerC, r, dCam } = treeInfo(i);
+          const { ti, s, centerC, r, dCam, px } = treeInfo(i);
           const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w, ti.w, s, this._sway(this._b(i).z))));
           If(e.greaterThanEqual(IMP_BIT), () => {
             // an impostor: listed if it's not hidden
             If(hidden, () => {
               atomicAdd(setB.stat(4), uint(1));
-            }).Else(() => impAppend(i));
+            }).Else(() => impAppend(i, px, switchPx(u, i)));
           })
             .ElseIf(hidden, () => {
               atomicAdd(setB.stat(3), uint(1));

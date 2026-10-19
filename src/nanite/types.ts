@@ -131,6 +131,7 @@ export interface ForestStats {
   occluded: number;
   occludedImpostors: number;
   phase2: number;
+  splats?: number;
   swClusters?: number;
   swTris?: number;
 }

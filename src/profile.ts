@@ -59,7 +59,8 @@ function steps(ctx: ProfileContext): Step[] {
     { label: 'grass off', off: flag(() => ctx.grass.visible, (v) => (ctx.grass.visible = v)) },
     { label: 'clouds off', off: flag(() => clouds.visible, (v) => (clouds.visible = v)) },
     { label: 'occlusion off', off: flag(() => forest.occlusionOn && forest.u.occlusion.value > 0, (v) => (forest.occlusionOn = v)) },
-    { label: 'sw raster off', off: uflag(forest.u.sw) },
+    { label: 'sw raster off', off: uflag(forest.u.sw) }, // (the splats too: they need its buffer)
+    { label: 'imp splats off', off: uflag(forest.splats.enabled) },
     { label: 'terrain+sky off', off: flag(() => terrain.every((o) => o.visible), (v) => terrain.forEach((o) => (o.visible = v))) },
     { label: 'tree draws off', off: flag(() => forest.group.visible, (v) => (forest.group.visible = v)) },
     {

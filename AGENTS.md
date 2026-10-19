@@ -96,7 +96,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
-  plus `softraster.ts`, `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
+  plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
   loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts` and `harness-api.ts`
   (`window.__demo`) are split out of it.
 
@@ -188,7 +188,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report). Bigger type on desktop; its lines never
   wrap, and the HUD on the right only ever widens (`minWidth`): numbers changing width shifted the layout (the user).
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
-  time (shadow map, TAA, god rays, clouds, occlusion, software raster, terrain+sky, tree draws, half the pixels) and
+  time (shadow map, TAA, god rays, clouds, occlusion, software raster, impostor splats, terrain+sky, tree draws, half the pixels) and
   appends the median GPU ms of each to the report: a device's breakdown in one paste. MSAA can't be switched live
   (`?msaa=4`). Its progress shows in a banner (`src/profile-banner.ts`: step, bar, time left, then Copy report; the
   panel's last line alone went unseen on a phone), and the menu button starts it on the press's end, however long (a
@@ -381,6 +381,26 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   a fixed cost no quality setting touched (the user's Mac at 4 fps; 4070 Ti ground view 6.6 -> 4.1 ms at tau 8).
   An earlier note said appending was slower (900k threads on one atomic, ~5 ms): phase 2 appends only the visible
   few thousand, and the retest list was already appending every impostor in view.
+- Half the trees have no impostor (`impostorShown` in `billboards.ts`: hash > 0.5, the ones that were to be
+  mirrored): they fade out at the switch and aren't listed, in the view or the shadow map. Their quads were always
+  drawn with zero width (TSL built the corner's x inside the mirroring's `select` branch, and the position read it
+  unset: look for a var assigned in one branch only in the WGSL when a node first used inside a `select`/`If` is
+  used again outside it; `.toVar()` it first), so every impostor calibration (`GROW`, `impGain`, `impcov`) was done
+  with that half missing, and listing them only cost vertex work: 504k -> 253k quads at `phone9k`, same image.
+  `?impall=1` draws them all, mirrored (the forest from ~0.5 km reads ~4/255 darker than `imppx=0`: recalibrate
+  before turning it on). Found by rendering one tree alone in both paths (the splats below drew it, the quads didn't).
+- Tiny impostors are splatted in compute (`src/nanite/splats.ts`, Nanite's way with tiny triangles): from
+  `?splatalt=` (2 km) above the ground the instance pass lists an impostor under `?splatpx=` (3) px wide in the
+  impostor list from its top down (another buffer would be a 9th in the instance pass), and one thread per splat
+  walks its quad's pixels in the software rasterizer's visibility buffer (depth atomicMin, then the id with
+  `SPLAT_BIT`), as the quad would be drawn: size, elevation tiles, `MIN_PX` and thinning, the atlas alpha by
+  coverage against `ditherAlt`. A fullscreen resolve (phase 2 layer) shades those pixels as the impostor material
+  does (normal atlas, gains, tint, autumn, shadow, fog). One depth per splat (its centre's), so where two overlap
+  the nearer centre wins. Same image as the quads (`phone9k`: means within 0.1/255, isolated trees pixel for pixel);
+  dev GPU at the phone's size render 0.95 -> 0.59 ms, compute +0.21 (`orbit` at 1080p 0.94 -> 0.84); below 2 km
+  they cost more than they save on the dev GPU (`topdown` 1.8 km +0.06 ms; ~0.05 ms with none at all). `?splat=0`,
+  the profile's `imp splats off`; debug 5 shows them cyan. A phone's quads cost by their count (vertex work), so
+  its report is the measure.
 - Shadow casters' LOD: by the camera's pixels at `SHADOW_TAU_MUL` (5, `?shadowtau=`) x tau; at 2.5 they were 9M
   triangles at full detail (the trees all round, for ~11 cm texels), at 5 half, same image. A texel floor (no caster
   finer than a shadow texel) changed nothing: few casters are that close.

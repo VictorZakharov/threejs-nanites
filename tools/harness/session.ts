@@ -59,6 +59,7 @@ const COLUMNS: [string, number, (n: string, r: ViewResult) => string | number][]
   ['trees', 6, (n, r) => r.instances ?? ''],
   ['shadowTris', 11, (n, r) => r.shadowTris ?? ''],
   ['imposts', 8, (n, r) => r.impostors ?? ''],
+  ['splats', 8, (n, r) => r.splats ?? ''], // impostors splatted in compute (src/nanite/splats.ts)
   ['occluded', 8, (n, r) => r.occluded ?? ''], // trees drawn neither way: hidden behind nearer ones
   ['occImp', 7, (n, r) => r.occludedImpostors ?? ''], // impostors dropped the same way
   ['secs', 5, (n, r) => r.secs ?? ''], // wall time of the benchmark (the harness's own cost)

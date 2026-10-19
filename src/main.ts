@@ -43,6 +43,7 @@ import { createResolution } from './resolution.ts';
 const params = new URLSearchParams(location.search);
 const HARNESS = params.has('harness');
 const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
+const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite/splats.ts)
 // occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
 const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
 const TREE_COUNT = Number(params.get('trees') ?? 1000000);
@@ -208,6 +209,13 @@ async function start() {
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
+  // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
+  forest.group.add(forest.splats.build(atlas, {
+    shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
+    fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
+    fog: (pos: Vec3, viewZ: Float) => ({ color: fogColour(pos), factor: smoothstep(fogNear, fogFar, viewZ) }),
+  }));
+  if (!impostorMesh.visible) forest.splats.enabled.value = 0;
   const impostorShadow = forest.buildImpostorShadowMesh(atlas);
   impostorShadow.visible = impostorMesh.visible;
   forest.group.add(impostorShadow);
@@ -316,6 +324,7 @@ async function start() {
     terrainForAltitude(terrain, altitude); // (coarser ground from high up)
     // the software rasterizer only from SW_ALTITUDE up (down to 70% of it: no flipping at one height; see sw.idle)
     if (SW_ALTITUDE > 0) forest.sw.idle = altitude < (forest.sw.idle ? SW_ALTITUDE : SW_ALTITUDE * 0.7);
+    forest.splats.idle = altitude < (forest.splats.idle ? SPLAT_ALTITUDE : SPLAT_ALTITUDE * 0.7); // (likewise)
     // occlusion culling only up to OCC_ALTITUDE (to 130% of it): from above little hides anything and its passes cost
     forest.u.occlusion.value = forest.occlusionOn && altitude < OCC_ALTITUDE * (forest.u.occlusion.value ? 1.3 : 1) ? 1 : 0;
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
@@ -400,7 +409,7 @@ async function start() {
     ['bark', byName('nanite-bark')],
     ['leaves', byName('nanite-leaves')],
     ['impostors', byName('nanite-impostors')],
-    ['software rasterizer resolve', byName('nanite-software-resolve')],
+    ['software rasterizer resolve', [...byName('nanite-software-resolve'), ...byName('nanite-splat-resolve')]],
     ['clouds', [clouds.group]],
   ];
   const all = [terrain, sky, clouds.group, ...forest.group.children];

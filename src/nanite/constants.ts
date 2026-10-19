@@ -16,6 +16,8 @@ export const LIST_CAP = 1 << 20; // max visible clusters per list
 // marks an impostor in the phase 2 retest list (tree indices are below it); a tree in the cross-fade band is listed
 // both as geometry and as an impostor
 export const IMP_BIT = 0x80000000;
+// marks a splatted impostor's id in the software rasterizer's visibility buffer (cluster ids are below 2^27)
+export const SPLAT_BIT = 0x80000000;
 export const HZB_LEVELS = 13;
 export const HZB_LEVEL0_MAX = 2048 * 2048; // level 0 texels (half resolution): screens up to 4096 x 4096
 export const HZB_FLOATS = Math.ceil(HZB_LEVEL0_MAX * 1.34) + 64;
@@ -55,7 +57,8 @@ export const CD_STRIDE = 5;
 // leaf tris, trees, occluded trees, occluded impostors) and the clamped work-item count (ITEM_COUNT); then the main
 // view's retest counts (RETEST: trees, clusters appended; trees, clusters clamped) and the software rasterizer's
 // (SW: clusters, triangles appended; clusters clamped); last the impostor draw's indirect args (IMP_ARGS, indexed: 6
-// indices, instances = the impostors listed this frame (see View.impListAttr), then 0s).
+// indices, instances = the impostors listed this frame (see View.impListAttr), then 0s); then the main view's splatted
+// impostors (SPLAT: listed from the top of its impostor list down, see splats.ts).
 export const SET_STRIDE = 16;
 export const ARGS = { bark: 0, leaf: 4 };
 export const STATS = 9;
@@ -63,7 +66,8 @@ export const ITEM_COUNT = 14;
 export const RETEST = 32;
 export const SW = 36;
 export const IMP_ARGS = 40;
-export const CTR_SIZE = 45;
+export const SPLAT = 45;
+export const CTR_SIZE = 46;
 
 /**
  * A view's counters buffer, with one node per access mode: a shader must use only one of them (two bindings of the
