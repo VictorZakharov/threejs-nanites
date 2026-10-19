@@ -129,9 +129,11 @@ export async function plantForest(count: number): Promise<TreeInstances> {
   for (const kind of ['trees', 'bushes'] as const)
     for (const p of order) {
       const src = p[kind];
+      // (plain copies: a subarray per instance was 5M short-lived objects, ~0.2 s of the main thread)
       for (let i = 0; i < src.length; i += 8, k++) {
-        a.set(src.subarray(i, i + 4), k * 4);
-        b.set(src.subarray(i + 4, i + 8), k * 4);
+        const o = k * 4;
+        a[o] = src[i]; a[o + 1] = src[i + 1]; a[o + 2] = src[i + 2]; a[o + 3] = src[i + 3];
+        b[o] = src[i + 4]; b[o + 1] = src[i + 5]; b[o + 2] = src[i + 6]; b[o + 3] = src[i + 7];
       }
     }
   a.set(statueA, k * 4);

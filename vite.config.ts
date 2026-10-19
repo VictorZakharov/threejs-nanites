@@ -10,7 +10,7 @@ function ezTreeWithoutTextures(): Plugin {
     name: 'ez-tree-without-textures',
     enforce: 'pre',
     load(id) {
-      if (id.replace(/\\/g, '/').endsWith(`${EZ_TREE}textures.js`)) return 'export const getBarkTexture = () => null;\nexport const getLeafTexture = () => null;\n';
+      if (id.split('?')[0].replace(/\\/g, '/').endsWith(`${EZ_TREE}textures.js`)) return 'export const getBarkTexture = () => null;\nexport const getLeafTexture = () => null;\n';
     },
   };
 }
@@ -26,6 +26,8 @@ export default defineConfig({
       { find: /^three$/, replacement: 'three/src/Three.Core.js' },
     ],
   },
+  // (the dev server would pre-bundle ez-tree from its npm build, past the alias and the plugin)
+  optimizeDeps: { exclude: ['@dgreenheck/ez-tree'] },
   worker: { format: 'es', plugins: () => [ezTreeWithoutTextures()] }, // (ez-tree grows in the DAG worker)
   build: { target: 'es2022' },
   // (the harness's scratch and output: browser profiles left by hung runs are ~100k files, and watching them held
