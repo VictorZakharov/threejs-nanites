@@ -199,6 +199,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   }
 
   installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
+  // the key help without the keys of what isn't here (anti-aliasing, wind, god rays, debug colours, freeze culling)
+  for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'G', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
   const hud = createWebGLHud({ tris: () => frameTris, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
