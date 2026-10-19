@@ -90,6 +90,11 @@ export const VIEWS: Record<string, HarnessView> = {
   d350: { x: 400, z: 600, agl: 350, yaw: 0, pitch: -89 },
   // looking down at 40 degrees: trees ~12 px tall (impostors), ~60 px through the 5x zoom (user: "piles of poop")
   slope: { x: 400, z: 600, agl: 450, yaw: 0, pitch: -40 },
+  // the loneliest tree near (400, 600) (no plant within up to 48 m), 1.2 km off and 30 degrees up: one impostor alone
+  // on the ground, to compare with its geometry (imppx=0) and through the zoom (the user: "pick a single tree... go far
+  // out... then zoom in 5x")
+  lone: { x: 400, z: 600, lone: 1200, yaw: 0, pitch: -30 },
+  lone600: { x: 400, z: 600, lone: 600, yaw: 0, pitch: -30 },
 };
 
 /** The views run when --views isn't given: the everyday set, not every special-purpose one. */

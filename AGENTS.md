@@ -393,6 +393,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   those aren't listed. Mean colour vs `imppx=0` (1080p, wind 0): `d1500` +0.3/0/-1.5, `d1100` +0.8/+0.4/-0.7,
   `d550` -0.1/-0.1/-0.6, `topdown700` -0.7/-0.8/-0.9, `slope` -1.5/-1.4/-1.4, `overview` -1.1/-0.9/-1.0,
   `fogline` within 0.5, `phone9k` within 0.7.
+  All geometry is not the truth far out: its sub-pixel trees thin out (the user: "without / with zoom, they are not
+  the same"). The truth is the same spot through the 5x zoom (`img.ts zoom`, `--zoom=5`; the `lone` / `lone600` views:
+  the loneliest tree near the test spot, 1.2 km / 600 m off). Unzoomed vs zoomed, 1600x900: impostors within
+  -1.5..+2.5/255 on `zoomdown`, `topdown700`, `d1100`, `d1500`, `slope`, `lone`, `lone600`; `imppx=0` up to +9
+  (`lone`: its trees nearly vanish, only their shadows left). The zoom tool once read 4/255 darker zoomed: the HUD.
 - Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).

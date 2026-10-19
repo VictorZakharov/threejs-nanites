@@ -55,7 +55,33 @@ export interface HarnessView {
   pitch?: number;
   nearTree?: number;
   trunk?: number;
+  /** The loneliest tree within 3 km of (x, z) (no plant for the most metres round it), looked at from this many
+   * metres along yaw / pitch (the user: "a single tree on plain ground, far out, then zoom in 5x"). */
+  lone?: number;
   zoom?: number;
+}
+
+/** The tree (not bush, not statue) within `range` of (x, z) with the most open ground round it. */
+function loneliestTree(instances: TreeInstances, trees: number, count: number, x: number, z: number, range: number): number {
+  const a = instances.a, CELL = 16, R = 3; // (cells searched each way: up to 48 m of clearance)
+  const grid = new Map<number, number[]>();
+  const key = (cx: number, cz: number): number => cx * 100003 + cz;
+  for (let i = 0; i < count; i++) {
+    const k = key(Math.floor(a[i * 4] / CELL), Math.floor(a[i * 4 + 2] / CELL));
+    const l = grid.get(k);
+    if (l) l.push(i); else grid.set(k, [i]);
+  }
+  let best = 0, bestGap = -1;
+  for (let i = 0; i < trees; i++) {
+    const tx = a[i * 4], tz = a[i * 4 + 2];
+    if (Math.hypot(tx - x, tz - z) > range) continue;
+    const cx = Math.floor(tx / CELL), cz = Math.floor(tz / CELL);
+    let gap = R * CELL;
+    for (let dx = -R; dx <= R; dx++) for (let dz = -R; dz <= R; dz++)
+      for (const j of grid.get(key(cx + dx, cz + dz)) ?? []) if (j !== i) gap = Math.min(gap, Math.hypot(a[j * 4] - tx, a[j * 4 + 2] - tz));
+    if (gap > bestGap) (bestGap = gap), (best = i);
+  }
+  return best;
 }
 
 export function installHarnessApi(demo: DemoState, ctx: HarnessContext): void {
@@ -78,6 +104,8 @@ export interface DemoExtras {
   loadLog: { t: number; msg: string }[]; // (the loading log's lines, ms since the navigation started: --load)
   profile(): Promise<string>;
 }
+
+let lone: number | undefined; // (the lone view's tree, found once)
 
 function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
@@ -112,6 +140,15 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
         y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
         pitch = Math.atan2(ty + 6 - y, dist);
       }
+    }
+    if (v.lone) {
+      // camera `lone` metres from the crown's middle, back along the view (yaw, pitch: down is negative)
+      const i = (lone ??= loneliestTree(instances, forest.treeCount, forest.instanceCount - forest.statueCount, v.x, v.z, 3000));
+      const h = forest.typeValues[instances.b[i * 4 + 2]].w * instances.a[i * 4 + 3];
+      const cx = instances.a[i * 4], cy = instances.a[i * 4 + 1] + h / 2, cz = instances.a[i * 4 + 2];
+      x = cx + Math.sin(yaw) * Math.cos(pitch) * v.lone;
+      z = cz + Math.cos(yaw) * Math.cos(pitch) * v.lone;
+      y = cy - Math.sin(pitch) * v.lone;
     }
     camera.position.set(x, y, z);
     controls.yaw = yaw;
