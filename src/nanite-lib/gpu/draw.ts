@@ -79,7 +79,8 @@ export const drawMethods = {
     return select(u.debug.equal(5), vec3(0.25, 0.4, 0.25), select(u.debug.equal(4), typeId(type), select(u.debug.equal(2), levelRamp, palette)));
   },
 
-  _buildMesh(this: NaniteRenderer, kind: 0 | 1, view: View, set: CullSet, shadowOnly: boolean): THREE.Mesh {
+  /** `afterPrepass`: the leaves drawn after their depth prepass (prepass.ts), which writes their depth. */
+  _buildMesh(this: NaniteRenderer, kind: 0 | 1, view: View, set: CullSet, shadowOnly: boolean, afterPrepass = false): THREE.Mesh {
     const u = this.u;
     const textures = this.textures;
     const list = storage(set.listAttr, 'uvec2', LIST_CAP * 2).toReadOnly(); // (bark, then leaves)
@@ -159,6 +160,7 @@ export const drawMethods = {
       setEmissive(mat, select(u.debug.equal(4), vDebug, select(u.debug.greaterThan(0), vec3(0), col.mul(0.12))));
     }
     mat.positionNode = position;
+    if (afterPrepass) mat.depthWrite = false;
     if (!shadowOnly && motionOut) {
       // (uv units, y down: what the demo's TAA resolve subtracts from its camera reprojection, src/taa.ts)
       const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));

@@ -5,7 +5,8 @@
 // harness variants can't measure a few ms: alternating blocks in one page can. `name@other` measures a material
 // instead: the mesh `name` with its own material ("on") against `other`'s ("off"), the same geometry and depth
 // (`terrain@terrain-high`: the forest floor's shader over the plain ground's; the terrain's visibility is set every
-// frame by its altitude, so it can't be switched off).
+// frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
+// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass).
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -27,8 +28,11 @@ async (demo: Demo) => {
         toggle = { get visible() { return mesh.material === mine; }, set visible(v: boolean) { mesh.material = v ? mine : alt.material; } };
       }
     } else {
+      // (a dotted path: a boolean property of an object of the demo, `forest.leafPrepass.mode` with ?leafpre=1)
+      const path = name.split('.'), key = path.pop()!;
+      const owner = path.length ? path.reduce<Record<string, unknown> | undefined>((o, k) => o?.[k] as Record<string, unknown> | undefined, demo as unknown as Record<string, unknown>) : undefined;
       const sw = demo[name] as { enabled?: boolean } | undefined; // (taa, rays)
-      toggle = sw && typeof sw.enabled === 'boolean' ? { get visible() { return sw.enabled!; }, set visible(v: boolean) { sw.enabled = v; } } : demo.scene.getObjectByName(name);
+      toggle = owner && typeof owner[key] === 'boolean' ? { get visible() { return owner[key] as boolean; }, set visible(v: boolean) { owner[key] = v; } } : sw && typeof sw.enabled === 'boolean' ? { get visible() { return sw.enabled!; }, set visible(v: boolean) { sw.enabled = v; } } : demo.scene.getObjectByName(name);
     }
     if (!toggle) { out[name] = 'not in the scene'; continue; }
     const was = toggle.visible, on: number[] = [], off: number[] = [];
