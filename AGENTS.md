@@ -128,13 +128,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   WebGPURenderer with `forceWebGL`), from the same loading work. A null adapter gets the same warning when it's
   known (the adapter is requested alongside the workers: awaiting it first held them back ~0.3 s). The mode has the
   terrain, sky, fog, clouds, sun shadows and the forest floor (after the first frame, its shader compiled meanwhile:
-  1.8 s on its own); its forest (`webgl/forest.ts`) is near trees (`webgl/near.ts`) as instanced meshes at fixed
+  1.8 s on its own; the grass too, 2.2 s; `?glearly=1` waits for both); its forest (`webgl/forest.ts`) is near trees (`webgl/near.ts`) as instanced meshes at fixed
   DAG cuts (by distance, rescanned on the CPU from a 64 m grid when the camera moves; out to 12 / 30 / 80 / 180 m at
   the cuts for 1000 / 350 / 120 / 40 px tall, touch 10 / 35 / 110 m at 400 / 90 / 25 px; `?glnear=`, `?glpx=`; with
   two levels, 60 m at 160 px, a trunk a few metres away was smeared, its branches square) and the baked impostors.
   Over a band of +-6% round each radius (`?glband=`) a tree is drawn at both levels (the last: geometry and its
-  impostor), the pixels split by the dither (`fadeCode` in `webgl/instanced.ts`, in iB.z's fraction): no pop from
-  one cut to the next. ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
+  impostor), the pixels split by the dither: the scan lists a tree in every level whose range (plus 4 m) holds it,
+  and the vertex shader works out its band from the camera every frame (`near.ts`, the level by `userData.glK`):
+  no pop from one cut to the next, nor at a rescan. From level 2 on the leaves are cut out, not dithered
+  (`?glleafdither=`): their coarse cards' dithered edges shimmered from 150 m up (`plazahigh` turning 919 -> 119
+  flicker events, WebGPU ~110); a cut-out near read ~4/255 darker than WebGPU on the ground. ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
   `--probe=gltris` lists the triangles by level and kind. The impostors are instanced quads in 1 km cells, culled
   and thinned on the CPU (a cell draws the share of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
   pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
@@ -153,10 +156,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   Wind switch, G). The statues (`webgl/statues.ts`) are drawn once Lucy has arrived, at three DAG cuts (900 / 250 /
   70 px tall, sharing her vertices) picked per statue every frame by her height on screen, with the bark material
   (her stone layer, untinted, no wind): never impostors, as on WebGPU (+0.13 ms on `plaza`). The output is
-  main.ts's (`webgl/output.ts`): the scene into a half-float target with the wind output (0 samples: three's WebGL
-  backend takes 1 as multisampled, and its depth blit failed), god rays, the TAA with upscaling (`resolution.ts`:
+  main.ts's (`webgl/output.ts`): the scene into a half-float target (0 samples: three's WebGL backend takes 1 as
+  multisampled, and its depth blit failed) with one output: with the wind output (MRT) ANGLE on D3D11 rebuilt every
+  program at its first draw whatever `compileAsync` had done, a 1-1.7 s freeze after the reveal (the user), so no
+  wind motion vectors (`?glwind=1` for them); TAA's reprojection takes WebGL's -1..1 clip z, god rays, the TAA with upscaling (`resolution.ts`:
   the canvas at the display's ratio, auto quality's scale moves the scene's target, so no canvas resize), the output
-  pass; the near trees and grass write their wind motion, leaves and impostors take the dithered alpha. The renderer
+  pass; leaves and impostors take the dithered alpha. The renderer
   stays bound to the scene target between frames: compiles in flight read its outputs. Without the frames read
   darker than WebGPU's: with `rays=0` on WebGPU the means matched within ~2/255, and now they match with the rays.
   Where the GPU can't render to float targets, or with `?gltaa=0` / `?taa=0`, the old 4x MSAA canvas, no rays. The
@@ -166,7 +171,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   shadow map whose shadows can reach the view; `?glimpshadow=0` none), the shadow map looked up past their own
   caster (`receivedShadowPositionNode`), the per-type coverage holes and far drop (`impCov`), and the cut-out alpha
   scaled per mip by `impostorCoverage`'s scales (from a float texture: 360 floats are more uniform vectors than a
-  WebGL 2 fragment shader is sure to have). Without the casters the forest from 450 m was ~17/255 brighter and the
+  WebGL 2 fragment shader is sure to have). Each quad blends its two elevation tiles as WebGPU's do (the union of
+  the silhouettes, ±7.5 degrees round each midpoint): one tile at a time switched whole crowns as the camera
+  climbed, the user's "tree shimmer" from 169 m. Its screen axis is the camera's right from straight above
+  (`?glsteady=`: the view direction's turned with every step there), quads wider than `?gldither=` (4-8 px) take the
+  cut-out alpha (each tree its own threshold) rather than the dither, and the coverage holes are only in quads under
+  `?glholes=` (8-24 px): dithered, the far trees against the sky were a speckle that TAA never settled (the user:
+  "those distant trees are weird"). Without the casters the forest from 450 m was ~17/255 brighter and the
   meadows had no tree shadows; with the casters but the raw alpha, ~5/255 darker at 1.1 km. Now `slope`, `d1100`,
   `topdown700`, `fogline` and `phone9k` are within ~3/255 of WebGPU. The casters cost ~1.5 ms on the dev GPU from
   450 m-1.1 km; the shadow pass is skipped from high up as on WebGPU (`shadowFarOnly`). Debug colours (`webgl/debug.ts`, the
