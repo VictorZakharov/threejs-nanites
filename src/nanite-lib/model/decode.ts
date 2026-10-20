@@ -1,11 +1,15 @@
-// Loads a model file written by tools/nanite-model.ts (public/models/*.nm): a JSON header, the positions quantized
-// to 16 bits, then the cluster DAG built offline (its triangles per cluster, the cluster records and meta), all
-// meshopt-compressed. The DAG's vertices are the model's own, so normals and uvs are rebuilt here (model-source.ts)
-// and nothing is built at load: one file for every device (the 3 s DAG build at load was why phones had a smaller copy).
+// Loads a model file written by encode.ts (tools/nanite-model.ts makes the demo's, public/models/*.nm): a JSON
+// header, the positions quantized to 16 bits, then the cluster DAG built offline (its triangles per cluster, the
+// cluster records and meta), all meshopt-compressed. The DAG's vertices are the model's own, so normals and uvs are
+// rebuilt here (source.ts) and nothing is built at load: one file for every device (the 3 s DAG build at load was why
+// phones had a smaller copy).
 import { MeshoptDecoder } from 'meshoptimizer';
-import { modelSource, type ModelSource } from './model-source.ts';
-import type { DagResult, DagStats } from './dag-types.ts';
-import { workerError } from './worker-error.ts';
+import { modelSource, type ModelSource } from './source.ts';
+import type { DagResult, DagStats } from '../dag/types.ts';
+import { workerError } from '../worker-error.ts';
+
+/** The file format's tag (encode.ts writes it, readHeader checks it). */
+export const MODEL_FORMAT = 'nanite-model 2';
 
 export interface ModelHeader {
   format: string;
@@ -35,7 +39,7 @@ export function readHeader(buf: Uint8Array): ModelHeader | null {
   const headLen = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
   if (buf.length < 4 + headLen) return null;
   const head = JSON.parse(new TextDecoder().decode(buf.subarray(4, 4 + headLen))) as ModelHeader;
-  if (head.format !== 'nanite-model 2') throw new Error(`model format "${head.format}": re-import it with tools/nanite-model.ts`);
+  if (head.format !== MODEL_FORMAT) throw new Error(`model format "${head.format}": re-encode it (encode.ts)`);
   return head;
 }
 

@@ -16,7 +16,7 @@ import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typ
 
 /**
  * The leaf draws' index buffer, shared by every leaf cluster: a cluster's cards are quads from its first vertex
- * (dag-build.ts packs them so), and indexed, the GPU shades the two corners a card's triangles share once: 4 vertex
+ * (dag/build.ts packs them so), and indexed, the GPU shades the two corners a card's triangles share once: 4 vertex
  * shader runs a card instead of 6.
  */
 // (?ids=1: debug 6 writes each pixel's tree and cluster into the wind target, for --probe=visible; compiled in only

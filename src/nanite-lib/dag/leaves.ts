@@ -1,12 +1,12 @@
-// The leaf cards' cluster DAG (see dag-build.ts): disconnected alpha-tested cards cannot be simplified by edge
+// The leaf cards' cluster DAG (see build.ts): disconnected alpha-tested cards cannot be simplified by edge
 // collapse, so a group of leaf clusters is reduced by keeping half the leaves and growing each kept leaf until they
-// cover what the whole group did (dag-coverage.ts; without the leaf texture's mask by sqrt(2), keeping the area) -
+// cover what the whole group did (coverage.ts; without the leaf texture's mask by sqrt(2), keeping the area) -
 // same DAG, same runtime selection.
-import { MAX_TRIS, LEAF_GROUP_SIZE, sphereOfPoints, mergeSpheres, mortonOrder } from './dag-util.ts';
-import type { Leaf, LeafCluster, LeafVerts, Sphere } from './dag-util.ts';
-import { Coverage } from './dag-coverage.ts';
-import type { Card } from './dag-coverage.ts';
-import type { LeafMask } from './dag-types.ts';
+import { MAX_TRIS, LEAF_GROUP_SIZE, sphereOfPoints, mergeSpheres, mortonOrder } from './util.ts';
+import type { Leaf, LeafCluster, LeafVerts, Sphere } from './util.ts';
+import { Coverage } from './coverage.ts';
+import type { Card } from './coverage.ts';
+import type { LeafMask } from './types.ts';
 
 // A coarser level's error: this share of its (grown) leaf size. At 0.35 the leaves were kept under ~3 px at tau 1,
 // crowns many leaves deep: several triangles per pixel (the user's 4070 Ti at 80 fps on High); at 0.175 under ~6 px,

@@ -1,6 +1,5 @@
-import type { BarkSource, DagReply, DagResult, LeafMask, LeafSource } from './dag-types.ts';
+import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type ModelHeader } from './nanite-lib/index.ts';
 import type { LoadingScreen } from './loading.ts';
-import { loadModel, type ModelHeader } from './models.ts';
 import { workerError } from './worker-error.ts';
 
 type RGB = [number, number, number];
@@ -24,6 +23,14 @@ export interface TreeSource {
   radius: number;
   height: number;
 }
+/**
+ * What the DAG worker (dag-worker.ts) is sent: a mesh, or a variant to grow first (tree-grow.ts; its meshes come back
+ * as `src`), then its leaf mask (or null) in a message of its own.
+ */
+export type DagJob = DagRequest | (Omit<DagRequest, 'bark' | 'leaves'> & { grow: TreeVariant });
+/** What it sends back: with `grow`, the tree's source meshes and how long growing it took (ms). */
+export type DagReply = (DagResult & { src?: TreeSource; growMs?: number }) | { id: number; error: string };
+
 /** A variant with its cluster DAG, ready for the renderer. */
 export interface BuiltTree extends DagResult {
   radius: number;
@@ -121,7 +128,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
       const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
       const barkErr = q.get('barkerr') === 'sum' ? { barkErr: 'sum' } : {};
       w.postMessage({ id, grow: v, ...(leafErr > 0 ? { leafErr } : {}), ...attr, ...barkErr });
-      // the leaf texture's alpha, for the leaf levels' coverage (dag-coverage.ts; ?leafcover=0: they keep the area
+      // the leaf texture's alpha, for the leaf levels' coverage (nanite-lib/dag/coverage.ts; ?leafcover=0: they keep the area
       // instead), sent when it's loaded
       (q.get('leafcover') === '0' ? Promise.resolve(null) : leafMask(v.leaf)).then((m) => w.postMessage(m), reject);
     });

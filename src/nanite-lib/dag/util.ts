@@ -1,4 +1,4 @@
-// Shared pieces of the cluster DAG builder (dag-build.ts, dag-leaves.ts): types, bounding spheres, Morton order,
+// Shared pieces of the cluster DAG builder (build.ts, leaves.ts): types, bounding spheres, Morton order,
 // splitting a triangle list into clusters.
 import { MeshoptClusterizer } from 'meshoptimizer';
 

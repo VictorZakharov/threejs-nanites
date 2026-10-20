@@ -6,12 +6,12 @@
 // clusters. Every cluster records its own LOD sphere/error and its parent group's sphere/error; at runtime a cluster
 // is drawn iff its own projected error <= threshold < its parent's projected error.
 //
-// Leaves: dag-leaves.ts.
+// Leaves: leaves.ts.
 import { MeshoptClusterizer, MeshoptSimplifier } from 'meshoptimizer';
-import type { DagRequest, DagResult } from './dag-types.ts';
-import { GROUP_SIZE, mergeSpheres, mortonOrder, compact, meshletize, makeCluster } from './dag-util.ts';
-import type { Cluster, LeafCluster, LeafVerts } from './dag-util.ts';
-import { buildLeaves } from './dag-leaves.ts';
+import type { DagRequest, DagResult } from './types.ts';
+import { GROUP_SIZE, mergeSpheres, mortonOrder, compact, meshletize, makeCluster } from './util.ts';
+import type { Cluster, LeafCluster, LeafVerts } from './util.ts';
+import { buildLeaves } from './leaves.ts';
 
 function groupByAdjacency(clusters: Cluster[], remap: Uint32Array): Cluster[][] {
   const n = clusters.length;

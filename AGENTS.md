@@ -100,14 +100,22 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   WebGPU or WebGL; `webgpu-start.ts` is the WebGPU mode's setup, `webgpu-forest.ts` its forest and impostors,
   `webgpu-frame.ts` its frame; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
   startup's shader compiles) and `harness-api.ts` (`window.__demo`) are split out of it.
+- **The library** (issue #17, in steps; the plan is in the issue): `src/nanite-lib/` is the generic Nanite-style
+  renderer another three.js project could take as it is. Nothing in it imports from outside it but `three/webgpu`,
+  `three/tsl` and `meshoptimizer` (`tools/check-lib.ts`, part of `typecheck` and `build`, fails on anything else);
+  the demo imports it through `index.ts`, a worker straight from the module it needs (its bundle takes only what it
+  imports). So far: `dag/` (the cluster DAG build for any mesh: `build.ts`, `leaves.ts`, `coverage.ts`, `util.ts`,
+  `types.ts`) and `model/` (the `.nm` file: `encode.ts`, `decode.ts` with `loadModel`, `model-worker.ts`, `source.ts`).
+  Next: the GPU renderer (`src/nanite/`) behind hooks for what's the forest's (the planet's curve, wind, autumn,
+  tints, impostor gains), then the impostors, then a plain glTF example page.
 
 - `src/trees.ts` lists the variants; `tree-grow.ts` grows one with ez-tree, scaled to metres, in its DAG worker (see
   Loading below for how ez-tree is bundled).
-- `src/dag-build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools): bark via
-  meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
-  (`dag-leaves.ts`) by keeping half the cards and growing them until they cover what the group did
-  (`dag-coverage.ts`: the cards through their texture's alpha mask, `maskOf` in `texture-pixels.ts`, counted on a grid
-  from 4 directions; ~1.3 per level); shared pieces in `dag-util.ts`. Growing by √2 (keeping the area) covered far
+- `src/nanite-lib/dag/build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools):
+  bark via meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
+  (`leaves.ts`) by keeping half the cards and growing them until they cover what the group did
+  (`coverage.ts`: the cards through their texture's alpha mask, `maskOf` in `texture-pixels.ts`, counted on a grid
+  from 4 directions; ~1.3 per level); shared pieces in `util.ts`. Growing by √2 (keeping the area) covered far
   more than the tree (its leaves overlap, the fewer bigger cards much less): each coarser level closed the gaps, and
   at tau 8 the forest was a bright even carpet (the user's zoom: "washed"). Now tau 1..8 look alike (`zoommid`:
   mean colour within 2/255) and match the full-detail leaves (`leaferr=100&shadowtau=1000`); -0.2..1.4 ms on every
@@ -215,7 +223,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   leaves' coverage scales and DAG masks; the stone marble), the floor's maps (`floor-worker.ts`, one worker for the
   soil and one per kind of leaf: one for all took ~5 s), the planting, the terrain's grids (`terrain-worker.ts`,
   three's own PlaneGeometry and normals: the same vertices), the trees (each grown and its DAG built in its own
-  `dag-worker.ts`, its leaf mask in a second message) and Lucy (`model-worker.ts`). ez-tree's npm build inlined its
+  `dag-worker.ts`, its leaf mask in a second message) and Lucy (`nanite-lib/model/model-worker.ts`). ez-tree's npm build inlined its
   20 textures (4 MB of a 5 MB script) and loaded them through the DOM: Vite bundles its source instead, its textures
   module stubbed (`vite.config.ts`, for the workers too; `optimizeDeps.exclude` so the dev server does the same), and
   ez-tree's bare `three` is three's core from source (only what it uses, in the DAG worker). Shaders: three.js
@@ -250,10 +258,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
-  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2),
-  then decodes the file as the site does and checks it matches. `src/models.ts` only decodes (in `model-worker.ts`; no DAG build at load:
+  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2;
+  the encoding is the library's `nanite-lib/model/encode.ts`, the tool reads the PLY and writes the file), then
+  decodes the file as the site does and checks it matches. `nanite-lib/model/decode.ts` only decodes (in its
+  `model-worker.ts`; no DAG build at load:
   one file for every device; phones had a 20k-tri copy because of the 3 s build, the user asked why two). The DAG's
-  vertices are the model's own, so `model-source.ts` rebuilds normals (summed in doubles: order-independent) and
+  vertices are the model's own, so `nanite-lib/model/source.ts` rebuilds normals (summed in doubles: order-independent) and
   planar uvs. A vertex whose faces cancel exactly (Lucy's back-to-back flaps: 1840 of them) takes its neighbours'
   normal (`smoothCancelled`): left at zero, the shader's normalize made NaN and every triangle touching one black (the
   user, close up on her drapery and hair); the DAG builder weights normals too, so the file is rebuilt with them. The index codec may rotate a triangle's corners. It's "bark" with no
@@ -264,7 +274,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
-  Nothing waits for a model's download (Lucy is ~5 MB): `model-worker.ts` posts the file's header as soon as it has
+  Nothing waits for a model's download (Lucy is ~5 MB): the model worker posts the file's header as soon as it has
   arrived, the forest reserves the model's share of its buffers by it with no clusters (`BuiltTree.later`), and
   `fillType` (`src/nanite/buffers.ts`) writes it in when it's decoded, uploads those ranges and refits the boxes of
   the chunks holding the statues (her LOD spheres reach 8.4 m, her mesh's box 2.4). On a slow connection the statues
@@ -284,7 +294,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. The leaf draws
-  are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): `dag-build.ts` packs each leaf cluster's
+  are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): the DAG build packs each leaf cluster's
   vertices contiguously as quads, so the GPU shades the two corners a card's triangles share once (4 vertex shader
   runs a card instead of 6: `plazane` 8.33 -> 7.84 ms, `closeup` -0.65, same image). Their indirect args are 5 uints.
   A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy.

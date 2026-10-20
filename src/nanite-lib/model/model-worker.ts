@@ -1,7 +1,7 @@
-// Downloads and decodes a model file (models.ts) off the main thread: Lucy's meshopt decode and rebuilt normals took
+// Downloads and decodes a model file (decode.ts) off the main thread: Lucy's meshopt decode and rebuilt normals took
 // ~0.5 s of the main thread while loading (~1.5 s at a phone's speed). Its header is posted as soon as it has
 // arrived (the forest sizes its buffers by it and doesn't wait for the ~5 MB download), then the model.
-import { decodeModel, readHeader } from './models.ts';
+import { decodeModel, readHeader } from './decode.ts';
 
 self.onmessage = async (e: MessageEvent<{ url: string; height: number }>) => {
   const post = (msg: unknown, transfer: Transferable[] = []): void => (self as unknown as Worker).postMessage(msg, transfer);

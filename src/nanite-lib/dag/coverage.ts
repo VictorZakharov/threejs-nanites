@@ -1,10 +1,10 @@
-// How much of the view a group of leaf cards covers (dag-leaves.ts): their opaque area, through the leaf texture's
+// How much of the view a group of leaf cards covers (leaves.ts): their opaque area, through the leaf texture's
 // alpha, projected along a few directions and counted on a grid (overlaps once). A coarser leaf level keeps half
 // the cards and grows them until they cover what the whole group did. Growing them by sqrt(2) (keeping their total
 // area) covered much more: a crown's leaves overlap a lot, the fewer, bigger cards much less, so each level closed
 // the gaps between the crowns and the forest turned into a bright even carpet as the detail dropped (the user's
 // zoom at tau 8: "washed").
-import type { LeafMask } from './dag-types.ts';
+import type { LeafMask } from './types.ts';
 
 // the directions it's seen from: from above, from the side (two ways: cards stand at all angles), and a diagonal
 // (five directions and finer cells chose the same growth within ~0.03, in twice the time)

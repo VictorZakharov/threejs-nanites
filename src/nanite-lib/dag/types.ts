@@ -1,7 +1,8 @@
-// What the main thread sends the DAG worker (src/dag-worker.ts) and what comes back.
-import type { TreeSource, TreeVariant } from './trees.ts';
+// A cluster DAG build's input and output (build.ts). Two kinds of geometry: solid triangles ("bark", kind 0) and
+// alpha-tested cards ("leaves", kind 1: quads whose coarser levels keep their coverage, leaves.ts). A plain mesh is
+// bark with no leaves.
 
-/** Bark mesh of one tree, in metres: positions, normals, uvs (2 per vertex), triangles. */
+/** Solid triangles (a tree's bark), in metres: positions, normals, uvs (2 per vertex), triangles. */
 export interface BarkSource {
   pos: Float32Array;
   nrm: Float32Array;
@@ -21,21 +22,15 @@ export interface DagRequest {
   id: number;
   bark: BarkSource;
   leaves: LeafSource;
-  /** A coarser leaf level's error, as a share of its (grown) leaf size (dag-leaves.ts; ?leaferr=). */
+  /** A coarser leaf level's error, as a share of its (grown) leaf size (leaves.ts; ?leaferr=). */
   leafErr?: number;
-  /** The leaf texture's alpha (dag-coverage.ts): coarser levels cover what the finer did (none: area kept; ?leafcover=0). */
+  /** The leaf texture's alpha (coverage.ts): coarser levels cover what the finer did (none: area kept; ?leafcover=0). */
   leafMask?: LeafMask;
-  /** Scales of the bark simplifier's normal and uv weights (dag-build.ts BARK_WEIGHTS; ?barkattr=n,uv). */
+  /** Scales of the bark simplifier's normal and uv weights (build.ts BARK_WEIGHTS; ?barkattr=n,uv). */
   barkAttr?: [number, number];
   /** How a bark group's error adds to its children's: the max (default: each switch moves <= tau) or the sum (?barkerr=sum). */
   barkErr?: 'sum' | 'max';
 }
-
-/**
- * What the worker is sent: a mesh, or a variant to grow first (tree-grow.ts; its meshes come back as `src`), then
- * its leaf mask (or null) in a message of its own.
- */
-export type DagJob = DagRequest | (Omit<DagRequest, 'bark' | 'leaves'> & { grow: TreeVariant });
 
 /** A leaf texture's alpha as a coarse mask: `size` x `size`, 1 = opaque, rows from the image's top. */
 export interface LeafMask {
@@ -69,9 +64,4 @@ export interface DagResult {
   rec: Float32Array;
   meta: Uint32Array;
   stats: DagStats;
-  /** With `grow`: the tree's source meshes and how long growing it took (ms). */
-  src?: TreeSource;
-  growMs?: number;
 }
-
-export type DagReply = DagResult | { id: number; error: string };

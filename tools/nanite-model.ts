@@ -1,8 +1,8 @@
 // Imports a high-poly model for the Nanite renderer: reads a PLY (binary either endianness, or ASCII; triangles or
 // polygons), stands it up (its longest axis, or --up=x|y|z|-x|-y|-z), centres it on its base, decimates it to --tris
 // with meshoptimizer and writes a compact model file for the site (public/models/<name>.nm): positions quantized to
-// 16 bits, and its cluster DAG (src/dag-build.ts) built here at --height (metres, the variant's: the LOD errors are
-// in metres), all meshopt-compressed. The site only decodes it (src/models.ts); the file is read back to check.
+// 16 bits, and its cluster DAG built here at --height (metres, the variant's: the LOD errors are in metres), all
+// meshopt-compressed (src/nanite-lib/model/encode.ts). The site only decodes it (decode.ts); it's read back to check.
 //
 //   node tools/nanite-model.ts <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
 //
@@ -11,7 +11,7 @@
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MeshoptSimplifier, MeshoptEncoder } from 'meshoptimizer';
+import { MeshoptSimplifier } from 'meshoptimizer';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
@@ -143,7 +143,6 @@ function gridMerge(pos: Float32Array, idx: Uint32Array, cells: number): { pos: F
 
 // ---------------------------------------------------------------- main
 await MeshoptSimplifier.ready;
-await MeshoptEncoder.ready;
 let { pos, idx } = readPly(readFileSync(input));
 log(`read ${input}: ${(pos.length / 3).toLocaleString()} vertices, ${(idx.length / 3).toLocaleString()} triangles`);
 
@@ -178,50 +177,25 @@ if (idx.length / 3 > target) {
   idx = res;
   log(`simplified: ${(idx.length / 3).toLocaleString()} triangles (error ${(err * 1000).toFixed(3)} / 1000 of the height)`);
 }
-// drop unused vertices, order for the vertex cache and compression
-const [remap, unique] = MeshoptEncoder.reorderMesh(idx, true, false);
-const np = new Float32Array(unique * 3);
-for (let i = 0; i < remap.length; i++) if (remap[i] !== 0xffffffff) np.set(pos.subarray(i * 3, i * 3 + 3), remap[i] * 3);
-pos = np;
-log(`${unique.toLocaleString()} vertices after reordering`);
-
-// quantize to 16 bits over the bounding box
-const lo = [0, 1, 2].map((k) => { let a = Infinity; for (let i = k; i < pos.length; i += 3) a = Math.min(a, pos[i]); return a; });
-const hi = [0, 1, 2].map((k) => { let a = -Infinity; for (let i = k; i < pos.length; i += 3) a = Math.max(a, pos[i]); return a; });
-const q = new Uint16Array(unique * 4);
-for (let i = 0; i < unique; i++) for (let k = 0; k < 3; k++) q[i * 4 + k] = Math.round(((pos[i * 3 + k] - lo[k]) / (hi[k] - lo[k] || 1)) * 65535);
-const vb = MeshoptEncoder.encodeVertexBuffer(new Uint8Array(q.buffer), unique, 8);
-
-// the cluster DAG, built here from the very floats the site decodes (src/models.ts), at the height it's shown at
-const { modelSource } = await import('../src/model-source.ts');
-const { buildDag } = await import('../src/dag-build.ts');
-const { dequantize, decodeModel } = await import('../src/models.ts');
+// the model file (src/nanite-lib/model/encode.ts): vertices reordered, positions quantized, the cluster DAG built from
+// the very floats the site decodes, at the height it's shown at
+const { encodeModel, decodeModel } = await import('../src/nanite-lib/index.ts');
 const height = Number(args.height ?? 1);
-const src = modelSource(dequantize(q, unique, lo, hi), idx, height);
-// --attr=n,uv: the simplifier's normal and uv weights x these (src/dag-build.ts BARK_WEIGHTS): heavier normals switch
-// later, so the shading jumps less at each switch, for more triangles
+// --attr=n,uv: the simplifier's normal and uv weights x these (src/nanite-lib/dag/build.ts BARK_WEIGHTS): heavier
+// normals switch later, so the shading jumps less at each switch, for more triangles
 const attr = (args.attr ?? '1,1').split(',').map(Number) as [number, number];
-const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves, barkAttr: attr });
-const clusters = dag.meta.length / 4;
-log(`DAG at ${height} m: ${clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);
-const bytes = (a: ArrayBufferView): Uint8Array => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
-const ib = MeshoptEncoder.encodeIndexBuffer(bytes(dag.idx), dag.idx.length, 4);
-const rb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.rec), clusters, 64);
-const mb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.meta), clusters, 16);
-const head = Buffer.from(JSON.stringify({
-  format: 'nanite-model 2', vertices: unique, lo, hi, height, vertexBytes: vb.length, indices: dag.idx.length, indexBytes: ib.length,
-  clusters, recBytes: rb.length, metaBytes: mb.length, stats: dag.stats, attr, source: args.source ?? '',
-}));
-const pad = (4 - (head.length % 4)) % 4;
-const file = Buffer.concat([Buffer.from(new Uint32Array([head.length + pad]).buffer), head, Buffer.alloc(pad, 32), ...[vb, ib, rb, mb].map((b) => Buffer.from(b))]);
+const { file, header: head, dag } = await encodeModel(pos, idx, { height, attr, source: args.source ?? '' });
+const unique = head.vertices;
+log(`${unique.toLocaleString()} vertices after reordering`);
+log(`DAG at ${height} m: ${head.clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);
 const outDir = join(root, 'public', 'models');
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, `${args.name}.nm`);
 writeFileSync(out, file);
-log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(vb.length / 1e6).toFixed(2)}, DAG triangles ${(ib.length / 1e6).toFixed(2)}, clusters ${((rb.length + mb.length) / 1e6).toFixed(2)})`);
+log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(head.vertexBytes / 1e6).toFixed(2)}, DAG triangles ${(head.indexBytes / 1e6).toFixed(2)}, clusters ${((head.recBytes + head.metaBytes) / 1e6).toFixed(2)})`);
 
 // read it back as the site does
-const back = await decodeModel(new Uint8Array(file), height);
+const back = await decodeModel(file, height);
 const same = (a: ArrayLike<number>, b: ArrayLike<number>): boolean => {
   if (a.length !== b.length) return false;
   for (let i = 0; i < a.length; i++) if (a[i] !== b[i]) return false;

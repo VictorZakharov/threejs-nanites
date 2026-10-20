@@ -22,8 +22,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -p . && tsc -p tools && vite build",
-    "typecheck": "tsc -p . && tsc -p tools",
+    "build": "tsc -p . && tsc -p tools && node tools/check-lib.ts && vite build",
+    "typecheck": "tsc -p . && tsc -p tools && node tools/check-lib.ts",
     "preview": "vite preview",
     "harness": "node tools/harness.ts",
     "model": "node --max-old-space-size=8000 tools/nanite-model.ts"

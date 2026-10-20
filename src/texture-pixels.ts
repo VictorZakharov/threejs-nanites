@@ -1,5 +1,5 @@
 // The pixel work behind the texture arrays (textures.ts), plain TypeScript for the texture worker.
-import type { LeafMask } from './dag-types.ts';
+import type { LeafMask } from './nanite-lib/index.ts';
 
 /** A layer to load: an image's URL (absolute: the worker's base is its script) or 'stone'; leaves get their alpha work. */
 export interface LayerJob { url: string; size: number; leaf: boolean }
@@ -72,7 +72,7 @@ export function fillTransparent(px: Uint8ClampedArray): void {
 
 /**
  * An image's alpha as a `cells` x `cells` mask (each cell the mean alpha of its block, over half: 1), rows from the
- * top as the leaf shader samples them (flipY off): the leaf DAG's coverage counts (dag-coverage.ts).
+ * top as the leaf shader samples them (flipY off): the leaf DAG's coverage counts (nanite-lib/dag/coverage.ts).
  */
 export function maskOf(px: Uint8ClampedArray, size: number, cells = 64): LeafMask {
   const sum = new Float64Array(cells * cells), n = new Float64Array(cells * cells);
