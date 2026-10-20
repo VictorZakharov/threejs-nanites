@@ -257,7 +257,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   planar uvs. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
-  1M tris, DAG 15.7k clusters: 6.45 MB (positions 1.9, DAG triangles 4.1, clusters 0.5). Statues stand on the lowest
+  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 6.45 MB (positions 1.9, DAG
+  triangles 4.1, clusters 0.5). Statues stand on the lowest
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
@@ -449,7 +450,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   rule: each switch moves the image by at most tau; `?barkerr=sum` for the old sum, meshoptimizer's demo, the drift
   from full detail): the sum kept far trees' bark levels too fine (a 30 px oak: 2900 bark triangles, now ~350;
   `--probe=lodcut`), 35M software triangles at the user's zoomed spot (now 9M), with the same popping; -0.3..1 ms
-  on every view. Lucy's `.nm` was built with the sum (rebuild with `npm run model` to change it).
+  on every view. Lucy's `.nm` too (issue #20; `npm run model -- lucy.ply --name=lucy --tris=1000000 --height=4`, the
+  scan in `tools/tmp/models/`): the same mesh and size, her cut about half (`lodcut` at tau 1: 400 px 110k -> 53k
+  triangles, 100 px 35k -> 20k; WebGL's 900 / 250 / 70 px cuts 197k / 64k / 24k -> 96k / 35k / 13k), her levels
+  9-13 one error (0.8 m: their own simplification adds less), so the cut mostly skips from level 8 to the root. Frames on
+  `plaza` -0.2M triangles, -50k shadow, `plazatop` -84k software; GPU time, load and images the same (up close
+  indistinguishable). Her `--sweep=lod` (`taa=0`) jumps more, `statue` 688 -> 841, `plaza` 139 -> 282 (worst 23
+  -> 48/255: her coarser levels shade differently), but `--dolly` with TAA is unchanged (`plaza` 61103 -> 61083).
 - Leaf PNGs have white RGB under transparent texels; `fillTransparent` (`texture-pixels.ts`, in the texture worker) replaces it with
   the average leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
