@@ -446,7 +446,21 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   32 steps, then 5 bisections; sampling max(floor, leaf) heights; 4 cm deep, fades by 40 m; `reliefSteps` uniform:
   `?relief=0`, off on touch, a menu switch). Litter under dense canopy or any tree's fall, within ~200 m; the meadow
   keeps its plain colour. A lone tree's litter goes by the litter map's amount alone: mixed with the cover map's over the
-  map's fading edge, open ground had a brown band along the square, moving with it (the user; `meadowair` view). Gotchas in three r186's WGSL: an array texture's layer must be an `int(...).toVar()` (a
+  map's fading edge, open ground had a brown band along the square, moving with it (the user; `meadowair` view).
+  The shader works only where it shows (issue #4): the litter, its relief and the moss inside an `If` within 200 m
+  (`LITTER_GONE`) and a nested one where `under` > 0, the cobbles' Voronoi where `paved` > 0 and the stones are
+  still resolved (`COBBLES_GONE`); elsewhere the meadow colour, the paving's average. The derivatives (the uvs', the
+  cobbles' footprint) and the cover map's filtered read are `toVar`s at the top of the colour's `Fn`, the branches
+  sample by `.grad()` / `.level()`, and the joints' `fwidth(edge)` comes from the two nearest stones' directions
+  (same mean colour; specks on the far joints differ). The normal's lean is a variable (`tilt`) assigned beside the
+  colour and read by the normal node, which three builds after the colour. The floor's cost over the plain ground
+  (`--probe=cost --query=cost=terrain@terrain-high`, 1080p): `overview` 0.40 -> 0.08 ms, `floor` 1.27 -> 0.96,
+  `litterclose` 0.95 -> 0.70, `meadowair` 0.29 -> 0.16, `ground` / `plaza` the same (~0.5: nearly all near or
+  paved); at the phone's size `overview` 0.30 -> 0.17, `floor` 0.71 -> 0.62. A `.toVar()` made outside a `Fn` is
+  declared where it's first used: the litter's kind, its layer and the conifers' tile scale were first used inside
+  the relief's `If`, so past its 40 m fade, or with relief off (every touch screen), they stayed 0: every tree's
+  litter was oak's, sampled at one texel (a flat sheet without leaves on phones). Made inside the `Fn` now.
+  Gotchas in three r186's WGSL: an array texture's layer must be an `int(...).toVar()` (a
   float index fails to compile), use `.level()` not `.grad()` on it, and the needle layer's tile scale must be a
   `.toVar()` (computed inline it sampled one uniform colour). `?litterkind=0..3` forces one kind (debug). Views
   `floor`, `litterclose`, `needlesclose`, `autumn*`; `--probe=litter` reads the map round the camera.
