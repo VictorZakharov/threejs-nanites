@@ -1,121 +1,32 @@
-// Imports a high-poly model for the Nanite renderer: reads a PLY (binary either endianness, or ASCII; triangles or
-// polygons), stands it up (its longest axis, or --up=x|y|z|-x|-y|-z), centres it on its base, decimates it to --tris
+// Imports a high-poly model for the Nanite renderer: reads a PLY, glTF / GLB or OBJ (by the file's extension; the
+// readers are in model-input/: a glTF's or OBJ's meshes merged into one, node transforms applied, materials ignored),
+// stands it up (its longest axis, a glTF's y, or --up=x|y|z|-x|-y|-z), centres it on its base, decimates it to --tris
 // with meshoptimizer and writes a compact model file for the site (public/models/<name>.nm): positions quantized to
 // 16 bits, and its cluster DAG built here at --height (metres, the variant's: the LOD errors are in metres), all
 // meshopt-compressed (src/nanite-lib/model/encode.ts). The site only decodes it (decode.ts); it's read back to check.
 //
-//   node tools/nanite-model.ts <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
+//   node tools/nanite-model.ts <in.ply|.gltf|.glb|.obj> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
 import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
-import { join, dirname } from 'node:path';
+import { join, dirname, extname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MeshoptSimplifier } from 'meshoptimizer';
+import { readPly } from './model-input/ply.ts';
+import { readGltf } from './model-input/gltf.ts';
+import { readObj } from './model-input/obj.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const input = process.argv[2];
 if (!input || !args.name) {
-  console.log('usage: node tools/nanite-model.ts <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z] [--attr=1,1]');
+  console.log('usage: node tools/nanite-model.ts <in.ply|.gltf|.glb|.obj> --name=NAME [--tris=1000000] [--height=1] [--up=z] [--attr=1,1]');
   process.exit(1);
 }
 const target = Number(args.tris ?? 1e6);
 const t0 = performance.now();
 const log = (s: string): void => console.log(`${((performance.now() - t0) / 1000).toFixed(1).padStart(6)} s  ${s}`);
-
-// ---------------------------------------------------------------- PLY
-interface PlyProp {
-  name: string;
-  type: string;
-  list?: boolean;
-  count?: string; // (a list's length type)
-}
-interface PlyElement {
-  name: string;
-  count: number;
-  props: PlyProp[];
-}
-
-function readPly(buf: Buffer): { pos: Float32Array; idx: Uint32Array } {
-  const headEnd = buf.indexOf('end_header');
-  const header = buf.subarray(0, headEnd).toString('latin1').split(/\r?\n/);
-  let body = headEnd + 'end_header'.length;
-  while (buf[body] !== 0x0a) body++;
-  body++;
-  const format = header.find((l) => l.startsWith('format'))?.split(' ')[1];
-  const elements: PlyElement[] = [];
-  for (const l of header) {
-    const w = l.trim().split(/\s+/);
-    if (w[0] === 'element') elements.push({ name: w[1], count: Number(w[2]), props: [] });
-    else if (w[0] === 'property') elements.at(-1)?.props.push(w[1] === 'list' ? { list: true, count: w[2], type: w[3], name: w[4] } : { type: w[1], name: w[2] });
-  }
-  const size: Record<string, number> = { char: 1, uchar: 1, int8: 1, uint8: 1, short: 2, ushort: 2, int16: 2, uint16: 2, int: 4, uint: 4, int32: 4, uint32: 4, float: 4, float32: 4, double: 8, float64: 8 };
-  const le = format === 'binary_little_endian';
-  const dv = new DataView(buf.buffer, buf.byteOffset, buf.byteLength);
-  const read = (t: string, o: number): number => {
-    switch (t) {
-      case 'char': case 'int8': return dv.getInt8(o);
-      case 'uchar': case 'uint8': return dv.getUint8(o);
-      case 'short': case 'int16': return dv.getInt16(o, le);
-      case 'ushort': case 'uint16': return dv.getUint16(o, le);
-      case 'int': case 'int32': return dv.getInt32(o, le);
-      case 'uint': case 'uint32': return dv.getUint32(o, le);
-      case 'float': case 'float32': return dv.getFloat32(o, le);
-      default: return dv.getFloat64(o, le);
-    }
-  };
-  let pos: Float32Array | null = null;
-  if (format === 'ascii') {
-    const idx: number[] = [];
-    const lines = buf.subarray(body).toString('latin1').split(/\r?\n/);
-    let li = 0;
-    for (const el of elements) {
-      if (el.name === 'vertex') {
-        const xi = el.props.findIndex((p) => p.name === 'x');
-        pos = new Float32Array(el.count * 3);
-        for (let i = 0; i < el.count; i++) { const w = lines[li++].trim().split(/\s+/).map(Number); pos.set(w.slice(xi, xi + 3), i * 3); }
-      } else if (el.name === 'face') {
-        for (let i = 0; i < el.count; i++) { const w = lines[li++].trim().split(/\s+/).map(Number); for (let k = 2; k < w[0]; k++) idx.push(w[1], w[k], w[k + 1]); }
-      } else li += el.count;
-    }
-    if (!pos) throw new Error('no vertices');
-    return { pos, idx: Uint32Array.from(idx) };
-  }
-  let o = body, idx = new Uint32Array(0);
-  for (const el of elements) {
-    if (el.name === 'vertex') {
-      pos = new Float32Array(el.count * 3);
-      const offs: Record<string, { o: number; t: string }> = {}; let stride = 0;
-      for (const p of el.props) { offs[p.name] = { o: stride, t: p.type }; stride += size[p.type]; }
-      for (let i = 0; i < el.count; i++, o += stride) {
-        pos[i * 3] = read(offs.x.t, o + offs.x.o); pos[i * 3 + 1] = read(offs.y.t, o + offs.y.o); pos[i * 3 + 2] = read(offs.z.t, o + offs.z.o);
-      }
-    } else if (el.name === 'face') {
-      const out = new Uint32Array(el.count * 3);
-      let n = 0, grow = out;
-      for (let i = 0; i < el.count; i++) {
-        for (const p of el.props) {
-          if (!p.list) { o += size[p.type]; continue; }
-          const ct = p.count ?? 'uchar';
-          const c = read(ct, o); o += size[ct];
-          const first = read(p.type, o), vs: number[] = [];
-          for (let k = 0; k < c; k++) { vs.push(read(p.type, o)); o += size[p.type]; }
-          if (p.name !== 'vertex_indices' && p.name !== 'vertex_index') continue;
-          for (let k = 1; k + 1 < c; k++) {
-            if (n + 3 > grow.length) { const g = new Uint32Array(grow.length * 2); g.set(grow); grow = g; }
-            grow[n++] = first; grow[n++] = vs[k]; grow[n++] = vs[k + 1];
-          }
-        }
-      }
-      idx = grow.subarray(0, n);
-    } else {
-      throw new Error(`binary PLY element "${el.name}" before the faces isn't supported`);
-    }
-  }
-  if (!pos) throw new Error('no vertices');
-  return { pos, idx };
-}
 
 // ---------------------------------------------------------------- vertex-grid merge (for huge scans)
 function gridMerge(pos: Float32Array, idx: Uint32Array, cells: number): { pos: Float32Array; idx: Uint32Array } {
@@ -143,12 +54,16 @@ function gridMerge(pos: Float32Array, idx: Uint32Array, cells: number): { pos: F
 
 // ---------------------------------------------------------------- main
 await MeshoptSimplifier.ready;
-let { pos, idx } = readPly(readFileSync(input));
+const kind = extname(input).toLowerCase();
+const read = { '.ply': () => readPly(readFileSync(input)), '.gltf': () => readGltf(readFileSync(input), input), '.glb': () => readGltf(readFileSync(input), input), '.obj': () => readObj(readFileSync(input)) }[kind];
+if (!read) throw new Error(`${input}: .ply, .gltf, .glb or .obj`);
+let { pos, idx } = await read();
 log(`read ${input}: ${(pos.length / 3).toLocaleString()} vertices, ${(idx.length / 3).toLocaleString()} triangles`);
 
 // stand it up: the up axis to +y (the longest extent unless --up), base at y = 0, centred in x and z, height 1
 const ext = [0, 1, 2].map((k) => { let a = Infinity, b = -Infinity; for (let i = k; i < pos.length; i += 3) { a = Math.min(a, pos[i]); b = Math.max(b, pos[i]); } return [a, b]; });
-const up: string = args.up ?? ['x', 'y', 'z'][[0, 1, 2].sort((a, b) => (ext[b][1] - ext[b][0]) - (ext[a][1] - ext[a][0]))[0]];
+// (glTF is y up by definition)
+const up: string = args.up ?? (kind === '.gltf' || kind === '.glb' ? 'y' : undefined) ?? ['x', 'y', 'z'][[0, 1, 2].sort((a, b) => (ext[b][1] - ext[b][0]) - (ext[a][1] - ext[a][0]))[0]];
 const ax = ({ x: 0, y: 1, z: 2 } as Record<string, number>)[up.replace('-', '')], sign = up.startsWith('-') ? -1 : 1;
 if (ax === undefined) throw new Error(`--up=${up}: x, y, z, -x, -y or -z`);
 const others = [0, 1, 2].filter((k) => k !== ax);
@@ -179,7 +94,8 @@ if (idx.length / 3 > target) {
 }
 // the model file (src/nanite-lib/model/encode.ts): vertices reordered, positions quantized, the cluster DAG built from
 // the very floats the site decodes, at the height it's shown at
-const { encodeModel, decodeModel } = await import('../src/nanite-lib/index.ts');
+const { encodeModel } = await import('../src/nanite-lib/model/encode.ts');
+const { decodeModel } = await import('../src/nanite-lib/model/decode.ts');
 const height = Number(args.height ?? 1);
 // --attr=n,uv: the simplifier's normal and uv weights x these (src/nanite-lib/dag/build.ts BARK_WEIGHTS): heavier
 // normals switch later, so the shading jumps less at each switch, for more triangles
