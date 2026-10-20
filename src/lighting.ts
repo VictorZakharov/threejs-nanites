@@ -9,7 +9,7 @@ import type { Float, Vec3 } from './types.ts';
 const params = new URLSearchParams(location.search);
 const SHADOW_MAX = Number(params.get('shadowmax') ?? 6000); // largest half-extent of the shadow map (m)
 
-export function createLighting(scene: THREE.Scene, { harness }: { harness: boolean }) {
+export function createLighting(scene: THREE.Scene, { harness, floatTargets = true }: { harness: boolean; floatTargets?: boolean }) {
   // sky + sun
   const sunDir = new THREE.Vector3().setFromSphericalCoords(1, THREE.MathUtils.degToRad(90 - 32), THREE.MathUtils.degToRad(215));
   const sky = new SkyMesh();
@@ -34,7 +34,7 @@ export function createLighting(scene: THREE.Scene, { harness }: { harness: boole
   sky2.cloudSpeed.value = 0;
   sky2.scale.setScalar(100);
   skyCapture.add(sky2);
-  const skyCube = new THREE.CubeRenderTarget(128, { type: THREE.HalfFloatType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
+  const skyCube = new THREE.CubeRenderTarget(128, { type: floatTargets ? THREE.HalfFloatType : THREE.UnsignedByteType, generateMipmaps: true, minFilter: THREE.LinearMipmapLinearFilter });
   const cubeCam = new THREE.CubeCamera(1, 1000, skyCube);
   const fogNear = uniform(400), fogFar = uniform(4000);
   const fogColour = (pos: Vec3): Vec3 => {

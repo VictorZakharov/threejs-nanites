@@ -141,6 +141,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   casters take the plain cut-out and a dither that stands still (`steadyDither`): moved every frame under TAA, every
   shadow flickered with the camera still (the user; `ground --dolly --step=0` 1154 -> 48 flicker events, 37 without
   shadows). ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
+  `--probe=glnear` walks the camera and checks every tree in a band is in that level's list (`audit`): the CPU's
+  copy of the radii's jitter once read 1.15-1.45 against the shader's 0.85-1.15 (`jitterCPU`), and trees were drawn
+  by one level (half their pixels: see-through under TAA) or none, shadows and all (the user).
   `--probe=gltris` lists the triangles by level and kind. The impostors are instanced quads in 1 km cells, culled
   and thinned on the CPU (a cell draws the share of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
   pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
@@ -167,7 +170,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   pass; leaves and impostors take the dithered alpha. The renderer
   stays bound to the scene target between frames: compiles in flight read its outputs. Without the frames read
   darker than WebGPU's: with `rays=0` on WebGPU the means matched within ~2/255, and now they match with the rays.
-  Where the GPU can't render to float targets, or with `?gltaa=0` / `?taa=0`, the old 4x MSAA canvas, no rays. The
+  Where the GPU can't render to float targets, or with `?gltaa=0` / `?taa=0`, the old 4x MSAA canvas, no rays;
+  without float targets (`?glfloat=0` to test) the impostor atlas and the sky's cube are 8-bit too (`createAtlas`'s
+  `bytes`: the normals stored as n x 0.5 + 0.5). The
   TAA resolve costs ~1.2-1.6 ms on the dev GPU at the phone's 1152x2496 output (`--probe=cost --query=cost=taa`).
   The impostors are drawn as on WebGPU: shadow casters (each 1 km cell's quads turned to the sun, `GROW_SHADOW`, in
   the shadow map only, thinned by the camera's tests as WebGPU's shadow view lists them, culled to cells in the

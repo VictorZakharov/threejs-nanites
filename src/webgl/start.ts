@@ -22,7 +22,7 @@ import { createMusic } from '../music.ts';
 import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
 import { createWebGLStatues } from './statues.ts';
-import { createWebGLOutput, floatTargets } from './output.ts';
+import { createWebGLOutput, floatTargets, canRenderFloat } from './output.ts';
 import { installWebGLHarness } from './harness.ts';
 import { createWebGLHud } from './hud.ts';
 import { runLoop } from './harness.ts';
@@ -66,7 +66,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const touch0 = isTouchDevice(params);
   // the scene into a half-float target, then god rays, TAA and upscaling (src/webgl/output.ts); else straight to an
   // MSAA canvas. (GPU timers where the browser has EXT_disjoint_timer_query_webgl2: Chrome does, Firefox doesn't)
-  const piped = floatTargets(params);
+  const piped = floatTargets(params), fp = canRenderFloat(params); // (fp: the atlas and the sky's cube in half floats)
   const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: !piped, powerPreference: 'high-performance', trackTimestamp: params.get('gltimer') !== '0' });
   await renderer.init();
   const maxPr = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5)); // (the resolution's 100%: auto.scale 1)
@@ -86,7 +86,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
-  const { sky, sun, sunDir, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly } = createLighting(scene, { harness });
+  const { sky, sun, sunDir, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly } = createLighting(scene, { harness, floatTargets: fp });
   sky.renderOrder = 2;
   const clouds = createClouds();
   scene.add(clouds.group);
@@ -119,7 +119,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   };
   await ui.update(0.82, 'Baking far-field impostors and the sky');
   cubeCam.update(renderer, skyCapture);
-  const atlas = createAtlas(VARIANTS.length);
+  const atlas = createAtlas(VARIANTS.length, !fp);
   const barkLayer = VARIANTS.map((v) => o.barkTypes.indexOf(v.bark)), leafLayer = VARIANTS.map((v) => o.leafTypes.indexOf(v.leaf));
   bakeImpostors(renderer, atlas, trees, { bark: barkTex, leaf: leafTex, barkLayers: barkLayer, leafLayers: leafLayer, leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')) }, 20);
   lap('Impostors baked');
