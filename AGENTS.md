@@ -96,8 +96,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
   renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
   methods in modules by stage, attached as prototype mixins (`buffers.ts`, `culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
-  plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` is setup and the frame
-  loop; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
+  plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` starts the loading and picks
+  WebGPU or WebGL; `webgpu-start.ts` is the WebGPU mode's setup, `webgpu-forest.ts` its forest and impostors,
+  `webgpu-frame.ts` its frame; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
   startup's shader compiles) and `harness-api.ts` (`window.__demo`) are split out of it.
 
 - `src/trees.ts` lists the variants; `tree-grow.ts` grows one with ez-tree, scaled to metres, in its DAG worker (see
@@ -311,7 +312,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
-  `main.ts`'s setup order: a phone-only startup crash shipped once.
+  `webgpu-start.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report). Bigger type on desktop; its lines never
@@ -587,7 +588,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   it takes and computes each triangle's vertices in both walks, and down there the far trees it's for are mostly
   hidden (High, 1080p: 0.3-0.4 ms slower on `plazane`/`ground`/`closeup`, even on `treeline` at 30 m, 0.4-0.8 faster on
   `canopy`/`fogline`/`slope`/`overview`). Compare it on the ground with `swalt=0`.
-- No MSAA under TAA (`samples` in `main.ts`; WebGPU has 1 or 4): the hardware leaves do alpha to coverage with one
+- No MSAA under TAA (`samples` in `webgpu-start.ts`; WebGPU has 1 or 4): the hardware leaves do alpha to coverage with one
   sample, three.js's `smoothstep(0.5, 0.5 + fwidth(a), a)` against the moving `ditherAlt` (`a2cDither` in
   `shading.ts`), so only each leaf's 1 px edge is dithered and TAA averages it. 4x MSAA cost ~2.5 ms on High at 1080p
   on the user's 4070 Ti (`plazane` 10.3 -> 8.6 ms frame, `canopy` 15.8 -> 12.7; same mean colours and turning
