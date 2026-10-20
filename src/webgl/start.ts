@@ -145,8 +145,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: o.terrainSize, segments: TERRAIN_SEGMENTS,
     cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true, motion: Boolean(out?.taa.enabled),
   });
-  scene.add(grass.group);
-  demo.grass = grass;
+  demo.grass = grass; // (in the scene after the first frame: below)
   lap('Grass');
   await covered;
 
@@ -280,8 +279,10 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
 
   installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update(),
     heightOf: (i) => trees[instances.b[i * 4 + 2]].height * instances.a[i * 4 + 3], taa: out?.taa, rays: out?.rays });
-  // the key help without the keys of what isn't here (anti-aliasing, god rays, debug colours, freeze culling)
-  for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
+  // the key help without the keys of what isn't here (debug colours, freeze culling; anti-aliasing and god rays
+  // without the float target)
+  const absent = out ? ['L', 'F'] : ['T', 'R', 'L', 'F'];
+  for (const k of [...document.querySelectorAll('#help i')]) if (absent.includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
   const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, output: out?.res.output ?? size, taa: () => Boolean(out?.taa.enabled), adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
@@ -310,10 +311,16 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     ui.note(`Forest floor in, ${Math.round(performance.now() - tg)} ms after the first frame`);
     ev('forest floor in (the plain ground before)');
   });
+  // the grass too (~1.7 s of compiles on the dev machine; ?glgrass=0: none)
+  const grassIn = params.get('glgrass') === '0' ? Promise.resolve() : renderer.compileAsync(grass.group, camera, scene).then(() => {
+    scene.add(grass.group);
+    ui.note(`Grass in, ${Math.round(performance.now() - tg)} ms after the first frame`);
+    ev('grass in');
+  });
   // (?startloop=1 under the harness: the page's own first 10 s, the floor coming in meanwhile, as a person sees them)
   const startLoop = harness && params.get('startloop') === '1';
-  if (harness && !startLoop) await Promise.all([floorIn, statuesIn]);
-  else floorIn.catch((e) => console.error(e));
+  if (harness && !startLoop) await Promise.all([floorIn, grassIn, statuesIn]);
+  else Promise.all([floorIn, grassIn]).catch((e) => console.error(e));
   // the GPU time of the frames (eased, the panel's GPU line), one readback at a time
   const sampleGpu = (): void => {
     if (!timed || auto.busy) return;
@@ -338,7 +345,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   if (startLoop) {
     auto.on = params.get('auto') !== '0';
     renderer.setAnimationLoop(loop);
-    await Promise.all([floorIn, new Promise((r) => setTimeout(r, 10000))]);
+    await Promise.all([floorIn, grassIn, new Promise((r) => setTimeout(r, 10000))]);
     renderer.setAnimationLoop(null);
   }
   demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on, () => drawnWidth);

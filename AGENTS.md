@@ -140,7 +140,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
   `grass-keep.ts`, shared with the compute pass) in the vertex shader, collapsing the dropped blades onto their root,
   at density 4 on desktops (`WEBGL_DENSE`: x6 cost ~2 ms GPU on the dev GPU, x4 ~1.5, the phone's x1 at half the
-  radii ~0.3), no motion vectors. GPU time comes from `EXT_disjoint_timer_query_webgl2` where the browser has it
+  radii ~0.3), wind motion under TAA (below), in the scene after the first frame like the floor (its compiles were ~1.7 s of the load; `?glgrass=0`
+  none). The first draw of the scene waits ~1 s for the GPU process (a `gl.getError()` right after it blocks that
+  long): with the TAA's passes that shows as the first frame's time, drawn straight to the canvas it came after
+  "first frame ready"; compiling the passes ahead saved nothing. GPU time comes from `EXT_disjoint_timer_query_webgl2` where the browser has it
   (Chrome, headless too; not Firefox): the panel's GPU line and the harness's `gpu` column. Run to run, WebGL GPU
   times on the dev GPU swung ~2x (ground 7 or 13 ms): measure a part's cost with `--probe=cost` (`?cost=grass,...`:
   scene objects by name switched off and on in alternating blocks in one page). It has the performance panel
