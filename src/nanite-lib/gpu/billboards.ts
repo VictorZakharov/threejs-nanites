@@ -1,23 +1,20 @@
-// NaniteForest methods: the far-field impostor quads (camera view and shadow casters), from the baked atlas
-// (src/impostors.js).
+// NaniteRenderer methods: the far-field impostor quads (camera view and shadow casters), from the baked atlas
+// (impostors/atlas.ts).
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, clamp, smoothstep, dFdx, dFdy, log2, cross,
   cameraViewMatrix, normalize, asin, cos, sin, screenCoordinate, bool, uvec2, exp2,
 } from 'three/tsl';
-import { curve } from '../planet.ts';
-import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
+import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors/atlas.ts';
 import { MIN_PX, FADE_HI, PHASE2_LAYER, IMP_ARGS } from './constants.ts';
-import { treeTint, dither, ditherAlt, typeId, switchPx, mipBias } from './shading.ts';
+import { dither, ditherAlt, typeId, switchPx, mipBias } from './shading.ts';
 import type { StorageBufferNode, UniformArrayNode, TextureNode } from 'three/webgpu';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { View } from './types.ts';
-import type { ImpostorAtlas } from '../impostors.ts';
-import type { TreeVariant } from '../trees.ts';
+import type { ImpostorAtlas } from '../impostors/atlas.ts';
 import type { Bool, Float, Uint, Vec2, Vec3, Vec4 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
-import { autumnOf, autumnColour } from '../autumn.ts';
 
 /** A billboard's shader pieces (see _impostorQuad). */
 interface ImpostorQuad {
@@ -93,6 +90,11 @@ const gainParam = (name: string): number[] => (new URLSearchParams(location.sear
 const IMP_GAIN = gainParam('impgain');
 const IMP_GAIN_TOP = gainParam('impgaintop');
 const v3 = (c: number[]) => new THREE.Vector3(c[0], c[1], c[2]);
+/** A type's impostor colour gains seen from the side and from above (mixed by elevation): they match its geometry. */
+export interface ImpostorGains {
+  side: number[];
+  top: number[];
+}
 
 export const billboardMethods = {
   // ------------------------------------------------------------------ impostors (far field)
@@ -101,7 +103,7 @@ export const billboardMethods = {
    * enlargement: it keeps all the quad would): the instance pass then doesn't list it. Listed, the quads collapsed
    * themselves: from 9 km up a phone drew 898k impostors for a 288x521 screen, and phase 2 tested them all.
    */
-  _impostorKept(this: NaniteForest, i: Uint): Bool {
+  _impostorKept(this: NaniteRenderer, i: Uint): Bool {
     const u = this.u;
     const a = this._a(i), s = a.w;
     const fr = this.impFrame.element(uint(this._b(i).z));
@@ -123,7 +125,7 @@ export const billboardMethods = {
    * ~500k impostors on a phone.
    * `screen`: the camera's quads (sub-pixel trees thinned out, cross-fade share with the geometry, shading inputs).
    */
-  _impostorQuad(this: NaniteForest, atlas: ImpostorAtlas, list: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
+  _impostorQuad(this: NaniteRenderer, atlas: ImpostorAtlas, list: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
     const u = this.u;
     const n = atlas.frames.length;
     const { frameW, frameH } = atlas; // (filled by the bake)
@@ -133,7 +135,7 @@ export const billboardMethods = {
       vBlend: varying(vec2(0), 'vImpBlend'), // the lower of the two tiles it blends (ELEVATIONS index), the upper's weight
       vType: varying(float(0), 'vImpType'),
       vTint: varying(float(1), 'vImpTint'),
-      vAutumn: varying(float(0), 'vImpAutumn'), // (src/autumn.ts)
+      vAutumn: varying(float(0), 'vImpAutumn'), // (the look's impostorValue: the forest's autumn level)
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
       vCov: varying(float(1), 'vImpCov'), // the coverage scale (impostorCov; on screen impostorShare's)
       vSeed: varying(float(0), 'vImpSeed'), // (the tree's own pattern of holes, see holes)
@@ -202,15 +204,15 @@ export const billboardMethods = {
       q.vType.assign(float(type));
       const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(h)));
       if (screen) {
-        q.vTint.assign(treeTint(inst));
-        q.vAutumn.assign(select(this.textures.leafLayerOf(type).equal(3), float(0), autumnOf(b.w))); // (pines stay green)
+        q.vTint.assign(this.look.tint(inst));
+        q.vAutumn.assign(this.look.impostorValue(inst, b, type));
         q.vRight.assign(select(flip, right.negate(), right));
         q.vUp.assign(up);
         q.vDir.assign(dir);
-        q.vShadowPos.assign(curve(p.add(u.sunDir.mul(w.add(h).mul(0.5)))));
+        q.vShadowPos.assign(this.look.curve(p.add(u.sunDir.mul(w.add(h).mul(0.5)))));
         normalLocal.assign(dir);
       }
-      return select(on, curve(p), vec3(0));
+      return select(on, this.look.curve(p), vec3(0));
     })();
     // alpha: the cross-fade between elevations is the union of the silhouettes (mixing their alphas would keep only
     // the overlap and thin the forest out); coverage-preserving by the sampled mip (impostorCoverage)
@@ -245,15 +247,15 @@ export const billboardMethods = {
 
   /**
    * The baked frame sizes, for the instance pass (_impostorKept: until then no impostor is thinned out), and each
-   * type's side / top coverage scale (VARIANTS' impCov; live: harness --typematch=cover adjusts them).
+   * type's side / top coverage scale (the demo's impCov in VARIANTS; live: harness --typematch=cover adjusts them).
    */
-  impostorsBaked(this: NaniteForest, atlas: ImpostorAtlas, covs: TreeVariant['impCov'][]): void {
+  impostorsBaked(this: NaniteRenderer, atlas: ImpostorAtlas, covs: [number, number][]): void {
     atlas.frames.forEach((f, k) => this.impFrameValues[k]?.set(f.w, f.h, covs[k][0], covs[k][1]));
   },
 
   /** atlas: createAtlas's (bakeImpostors and impostorCoverage fill it): per tree type a tile per elevation. */
-  /** `gains`: per tree type, { side: [r, g, b], top: [r, g, b] } colour gains (VARIANTS[i].impGain). */
-  buildImpostorMesh(this: NaniteForest, atlas: ImpostorAtlas, gains: TreeVariant['impGain'][]): THREE.Mesh {
+  /** `gains`: per type, { side: [r, g, b], top: [r, g, b] } colour gains (the demo's VARIANTS[i].impGain). */
+  buildImpostorMesh(this: NaniteRenderer, atlas: ImpostorAtlas, gains: ImpostorGains[]): THREE.Mesh {
     const u = this.u;
     const list = storage(this.main.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, (pivot) => u.camPos.sub(pivot).normalize(), true);
@@ -281,9 +283,7 @@ export const billboardMethods = {
     // (the tiles between: side and top gains mixed by elevation)
     const gS = gainSide.element(tile), gT = gainTop.element(tile);
     const gain = q.elev.reduce<Vec3>((acc, e, i) => acc.add(mix(gS, gT, e.div(90)).mul(q.a[i])), vec3(0)).div(wSum);
-    // (autumn on the leaf texels only: the atlas has bark too, and leaves are the green ones)
-    const green = albedo.mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
-    const col = autumnColour(green, q.vAutumn, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b))));
+    const col = this.look.impostorColour(albedo, gain, vTint, q.vAutumn);
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
@@ -307,7 +307,7 @@ export const billboardMethods = {
    * the shadow map. Without it, the ground and trees around them fell back to an average shadow, which changed at
    * the geometry switch and with the zoom.
    */
-  buildImpostorShadowMesh(this: NaniteForest, atlas: ImpostorAtlas): THREE.Mesh {
+  buildImpostorShadowMesh(this: NaniteRenderer, atlas: ImpostorAtlas): THREE.Mesh {
     const list = storage(this.shadow.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, () => this.u.sunDir, false);
     const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
@@ -322,7 +322,7 @@ export const billboardMethods = {
   },
 
   /** One instance per impostor the view listed this frame (the draw args in its counters, IMP_ARGS). */
-  _impostorGeometry(this: NaniteForest, view: View): THREE.BufferGeometry {
+  _impostorGeometry(this: NaniteRenderer, view: View): THREE.BufferGeometry {
     const geo = new THREE.BufferGeometry();
     geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(4 * 3), 3));
     geo.setAttribute('normal', new THREE.BufferAttribute(new Float32Array(4 * 3), 3));

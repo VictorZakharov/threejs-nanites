@@ -23,7 +23,7 @@ import {
 } from './grass-keep.ts';
 import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
 import type { Bool, Float, Vec2, Vec3 } from './types.ts';
-import type { ForestUniforms } from './nanite/types.ts';
+import type { ForestUniforms } from './forest/look.ts';
 
 const params = new URLSearchParams(location.search);
 const TILES = Number(params.get('grasstiles') ?? 8); // tiles a side per ring

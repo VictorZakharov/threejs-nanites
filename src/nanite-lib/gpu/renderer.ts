@@ -1,8 +1,8 @@
-// GPU-driven cluster LOD renderer ("nanite") for the forest.
+// GPU-driven cluster LOD renderer ("nanite"): many instances of a few mesh types, each type a cluster DAG.
 //
 // Per frame, entirely on the GPU (no readback):
 //   1. reset      zero the indirect dispatch/draw counters
-//   2. instances  one thread per tree: frustum + distance cull, then from its distance work out how many of its
+//   2. instances  one thread per instance: frustum + distance cull, then from its distance work out how many of its
 //                 clusters could possibly be selected (clusters are sorted by parent error, so it's a prefix found by
 //                 binary search) and emit 64-cluster work items for them
 //   3. clusters   (indirect dispatch) one thread per candidate cluster: DAG cut test
@@ -12,8 +12,11 @@
 //                 tiny triangles go to the software rasterizer instead (src/nanite/softraster.js).
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
+//
+// What's the application's comes in through `look` (gpu/look.ts: a world-space curve, vertex motion, colours) and the
+// types, instances and textures it passes (NaniteType, NaniteInstances, NaniteTextures in gpu/types.ts).
 import * as THREE from 'three/webgpu';
-import { uniform, bitcast, uint } from 'three/tsl';
+import { uniform, bitcast, float } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
 import { Splats } from './splats.ts';
@@ -22,37 +25,37 @@ import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
 import { billboardMethods } from './billboards.ts';
-import { bufferMethods, type ForestArrays } from './buffers.ts';
+import { bufferMethods, type NaniteArrays } from './buffers.ts';
 import { computeBatch } from '../three-gaps.ts';
 import { InstanceChunks, CHUNK } from './chunks.ts';
-import { viewerPos, PLANET_RADIUS } from '../planet.ts';
-import type { BuiltTree } from '../trees.ts';
-import type { TreeInstances } from '../placement.ts';
+import { defaultLook, type NaniteLook } from './look.ts';
+import type { DagStats } from '../dag/types.ts';
 import type { Float, Uint, UVec4 } from '../types.ts';
-import type { Counters, ForestStats, ForestTextures, ForestUniforms, View } from './types.ts';
+import type { Counters, NaniteInstances, NaniteStats, NaniteTextures, NaniteType, NaniteUniforms, View } from './types.ts';
 import type { Hzb } from './hzb.ts';
 
-type TypeStats = BuiltTree['stats'] & { name: string; radius: number };
+type TypeStats = DagStats & { name: string; radius: number };
 
 const CAST_CULL = new URLSearchParams(location.search).get('castcull') !== '0'; // (?castcull=0: every caster in the map)
 const CAST_SLACK = 60; // m: how much lower than a tree's base its shadow may land (a slope)
 
 // The stage modules' methods, attached to the prototype at the end of this file.
-export interface NaniteForest
+export interface NaniteRenderer
   extends Omit<typeof cullingMethods, never>, Omit<typeof hzbMethods, never>, Omit<typeof drawMethods, never>, Omit<typeof billboardMethods, never>,
     Omit<typeof bufferMethods, never> {}
 
-export class NaniteForest {
+export class NaniteRenderer {
   readonly renderer: THREE.WebGPURenderer;
   frozen = false;
   /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (main.ts). */
   occlusionOn = true;
   /** The shadow view ran this frame (its stats are stale otherwise: shadows off, or the average shadow from high up). */
   shadowActive = false;
-  readonly u: ForestUniforms;
-  readonly textures: ForestTextures;
+  readonly u: NaniteUniforms;
+  readonly textures: NaniteTextures;
+  readonly look: NaniteLook;
   // GPU data (see _buildBuffers in buffers.ts and the accessors)
-  arrays!: ForestArrays; // (their CPU copies: a late model is written into them)
+  arrays!: NaniteArrays; // (their CPU copies: a late model is written into them)
   vtx!: StorageBufferNode<'vec4'>;
   idx!: StorageBufferNode<'uint'>;
   cData!: StorageBufferNode<'vec4'>;
@@ -66,10 +69,7 @@ export class NaniteForest {
   // then wide: no impostor is thinned out, see _impostorKept)
   impFrameValues!: THREE.Vector4[];
   impFrame!: UniformArrayNode<'vec4'>;
-  windOf!: UniformArrayNode<'float'>; // per type: 1 trees, 0 models (statues don't sway)
   instanceCount = 0;
-  treeCount = 0; // (of instanceCount: then the bushes, then statueCount models)
-  statueCount = 0;
   stats!: { clusters: number; verts: number; tris: number; types: TypeStats[] };
   hzb!: Hzb;
   hzbReady = false;
@@ -84,8 +84,10 @@ export class NaniteForest {
   readonly shadow: View;
   readonly group: THREE.Group;
 
-  constructor(renderer: THREE.WebGPURenderer, trees: BuiltTree[], instances: TreeInstances, textures: ForestTextures) {
+  /** `types`: the mesh types, in the order the instances' b.z refers to them; `look`: see gpu/look.ts. */
+  constructor(renderer: THREE.WebGPURenderer, types: NaniteType[], instances: NaniteInstances, textures: NaniteTextures, look: NaniteLook = defaultLook()) {
     this.renderer = renderer;
+    this.look = look;
     this.u = {
       camPos: uniform(new THREE.Vector3()), // LOD is always computed from the camera, also for the shadow view
       projScale: uniform(1000),
@@ -94,19 +96,18 @@ export class NaniteForest {
       impostorPx: uniform(20), // trees drawn shorter than this (pixels) become impostor quads
       firstModel: uniform(0, 'uint'), // instances from here on (the statues) are never impostors (see switchPx)
       time: uniform(0),
-      prevTime: uniform(0), // (last frame's: wind motion vectors)
-      wind: uniform(1),
+      prevTime: uniform(0), // (last frame's: motion vectors)
       debug: uniform(0, 'uint'),
       occlusion: uniform(1, 'uint'), // two-phase occlusion culling on/off
       sunDir: uniform(new THREE.Vector3(0, 1, 0)), // towards the sun (the shadow camera's view, reversed)
       castLen: uniform(0), // how far a caster's shadow can reach from it (m; 0: no test, ?castcull=0; see CastTest)
     };
     this.textures = textures;
-    this._buildBuffers(trees, instances);
+    this._buildBuffers(types, instances);
     this._buildHzb();
     // (the main view's counters: its draw args, stats, retest and software-raster counts in one buffer, see CTR_SIZE)
     this.mainCtr = makeCounters();
-    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS }; // (for the harness probes)
+    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS: look.curveRadius }; // (for the harness probes)
     this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/nanite/softraster.js)
     this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (src/nanite/splats.ts)
     this.main = this._buildView('main', 1);
@@ -128,7 +129,7 @@ export class NaniteForest {
   _a(i: Uint) {
     return this.inst.element(i.mul(2));
   }
-  /** Tree i's rotation (cos, sin), type and wind phase. */
+  /** Tree i's rotation (cos, sin), type and the application's float (the forest's wind phase). */
   _b(i: Uint) {
     return this.inst.element(i.mul(2).add(1));
   }
@@ -136,9 +137,9 @@ export class NaniteForest {
   _cd(c: Uint, k: number) {
     return this.cData.element(c.mul(CD_STRIDE).add(k));
   }
-  /** The wind on a tree of this type (its b.z): 0 when off, and for models (statues don't sway). */
-  _sway(type: Float): Float {
-    return this.u.wind.mul(this.windOf.element(uint(type)));
+  /** How far the look's motion can move a part (see NaniteLook.motionMargin): 0 without one. */
+  _margin(height: Float, top: Float, s: Float, type: Float): Float {
+    return this.look.motionMargin ? this.look.motionMargin(height, top, s, type) : float(0);
   }
   /** Cluster c's (first index, triangles, level, kind). */
   _meta(c: Uint) {
@@ -161,7 +162,7 @@ export class NaniteForest {
     // the chunks of instances in view (the instance pass runs a thread per instance slot of each)
     if (view === this.main) this.mainFrustum.copy(f);
     const cast = view === this.shadow && this.u.castLen.value > 0 ? { frustum: this.mainFrustum, dir: this.u.sunDir.value, len: this.u.castLen.value } : null;
-    const seen = this.chunks.visible(f, viewerPos.value, view.lodPos.value, this.u.maxDist.value, view.chunkValues, cast);
+    const seen = this.chunks.visible(f, this.look.viewer, view.lodPos.value, this.u.maxDist.value, view.chunkValues, cast);
     computeBatch(r, [
       ...view.sets.map((set) => set.reset), // (phase 2 draws nothing unless occlusion() runs)
       ...(view.retest ? [view.retest.reset] : []),
@@ -211,8 +212,8 @@ export class NaniteForest {
   }
 
   /** Reads back the counters (async, for the overlay/harness), summed over the view's sets. */
-  async readStats(view: View = this.main): Promise<ForestStats> {
-    const out: ForestStats = { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0, occluded: 0, occludedImpostors: 0, phase2: 0 };
+  async readStats(view: View = this.main): Promise<NaniteStats> {
+    const out: NaniteStats = { barkClusters: 0, leafClusters: 0, barkTris: 0, leafTris: 0, instances: 0, items: 0, impostors: 0, occluded: 0, occludedImpostors: 0, phase2: 0 };
     if (!view.ran) return out;
     const get = (a: THREE.BufferAttribute) => this.renderer.getArrayBufferAsync(a);
     const sets = view.sets.filter((s, k) => k === 0 || s.ran);
@@ -237,4 +238,4 @@ export class NaniteForest {
 }
 
 // the methods live in modules by stage
-Object.assign(NaniteForest.prototype, cullingMethods, hzbMethods, drawMethods, billboardMethods, bufferMethods);
+Object.assign(NaniteRenderer.prototype, cullingMethods, hzbMethods, drawMethods, billboardMethods, bufferMethods);

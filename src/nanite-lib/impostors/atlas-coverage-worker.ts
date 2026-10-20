@@ -1,6 +1,6 @@
-// The impostor atlas's coverage-preserving alpha scales (impostors.ts, impostorCoverage) off the main thread: per tile
+// The impostor atlas's coverage-preserving alpha scales (atlas.ts, impostorCoverage) off the main thread: per tile
 // and mip level, the alpha scale that keeps the full-size tile's fraction of texels above the cut-off.
-import { select } from './texture-pixels.ts';
+import { select } from '../alpha.ts';
 
 /** The atlas read back (RGBA, half floats or bytes), its width, how many tiles, the cut-off and the tile size. */
 export interface CoverageJob {

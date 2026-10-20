@@ -13,20 +13,14 @@
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
-import { Fn, If, Discard, texture, vec3, vec4, float, attribute, smoothstep, normalLocal, select, uint, uniform, uniformArray } from 'three/tsl';
+import { Fn, If, Discard, texture, vec4, attribute, normalLocal, uint, uniform, uniformArray } from 'three/tsl';
 import type { UniformArrayNode } from 'three/webgpu';
-import type { BuiltTree } from './trees.ts';
+import { dagCut, type MeshPart } from '../dag/cut.ts';
+import type { NaniteLook } from '../gpu/look.ts';
+import type { NaniteType } from '../gpu/types.ts';
 import type { CoverageJob } from './atlas-coverage-worker.ts';
-import type { Float, Uint, Vec4 } from './types.ts';
-import { workerError } from './worker-error.ts';
-
-/** A triangle mesh (positions, normals, uvs, indices) in the source meshes' form. */
-interface MeshPart {
-  pos: Float32Array;
-  nrm: Float32Array;
-  uv: Float32Array;
-  idx: Uint32Array;
-}
+import type { Float, Uint, Vec4 } from '../types.ts';
+import { workerError } from '../worker-error.ts';
 
 /** The bake's inputs: the texture arrays, each variant's layers, the leaves' coverage-preserving alpha. */
 export interface BakeTextures {
@@ -111,34 +105,8 @@ export function atlasLayout(n: number): { cols: number; rows: number } {
   return { cols: Math.ceil(tiles / rows), rows };
 }
 
-/**
- * The triangles of one tree at a uniform DAG cut: every cluster whose own error is within `err` (object space,
- * metres) and whose parent's isn't, as the runtime cut selects them at a distance where `err` projects to tau.
- * Returns { bark, leaves }, each { pos, nrm, uv, idx } (vertices shared, from the packed [x y z u nx ny nz v]).
- */
-export function dagCut(t: BuiltTree, err: number): { bark: MeshPart; leaves: MeshPart } {
-  const nv = t.vtx.length / 8;
-  const pos = new Float32Array(nv * 3), nrm = new Float32Array(nv * 3), uv = new Float32Array(nv * 2);
-  for (let i = 0; i < nv; i++) {
-    const v = t.vtx.subarray(i * 8, i * 8 + 8);
-    pos.set([v[0], v[1], v[2]], i * 3);
-    nrm.set([v[4], v[5], v[6]], i * 3);
-    uv.set([v[3], v[7]], i * 2);
-  }
-  const lists: number[][] = [[], []]; // bark, leaves
-  const n = t.meta.length / 4;
-  for (let c = 0; c < n; c++) {
-    const own = t.rec[c * 16 + 12], parent = t.rec[c * 16 + 13];
-    if (!(own <= err && parent > err)) continue;
-    const o = t.meta[c * 4], tris = t.meta[c * 4 + 1], kind = t.meta[c * 4 + 3];
-    for (let k = 0; k < tris * 3; k++) lists[kind].push(t.idx[o + k]);
-  }
-  const part = (l: number[]): MeshPart => ({ pos, nrm, uv, idx: new Uint32Array(l) });
-  return { bark: part(lists[0]), leaves: part(lists[1]) };
-}
-
 /** The full-detail source meshes in dagCut's form (leaf cards are quads of 4 vertices). */
-function fullDetail({ bark, leaves }: BuiltTree['src']): { bark: MeshPart; leaves: MeshPart } {
+function fullDetail({ bark, leaves }: NaniteType['src']): { bark: MeshPart; leaves: MeshPart } {
   const nq = leaves.pos.length / 3 / 4;
   const idx = new Uint32Array(nq * 6);
   for (let q = 0; q < nq; q++) idx.set([q * 4, q * 4 + 1, q * 4 + 2, q * 4, q * 4 + 2, q * 4 + 3], q * 6);
@@ -150,12 +118,13 @@ function fullDetail({ bark, leaves }: BuiltTree['src']): { bark: MeshPart; leave
  * [-1, 1]). The impostors are lit at runtime like the real trees (same sun, sky light, shadow and fog), so they
  * match from every side and under any light; a baked *lit* picture was brighter than the real trees on their shady
  * side and popped at the switch.
- * @param trees  results of buildAllTrees (each with .src source meshes, the packed DAG and .variant)
- * @param tex    { bark, leaf } array textures, barkLayers / leafLayers per variant, leafAlpha(a, layer) node fn
+ * @param trees  the renderer's types (each with .src source meshes and the packed DAG)
+ * @param tex    { bark, leaf } array textures, barkLayers / leafLayers per type, leafAlpha(a, layer) node fn
+ * @param look   the renderer's look: the bark's and the leaves' colours (solidColour, bakeCardColour)
  * @param cutPx  bake each tree at the DAG cut it has when it's this many pixels tall (at tau 1); 0 = full detail
  * @returns { texture, normals, frames: [{ w, h }], renderTarget } frame size (m) of each tile's quad (aspect 1:2)
  */
-export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, trees: BuiltTree[], tex: BakeTextures, cutPx = 0): void {
+export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, trees: NaniteType[], tex: BakeTextures, look: Pick<NaniteLook, 'solidColour' | 'bakeCardColour'>, cutPx = 0): void {
   const n = trees.length;
   const { cols, rows } = atlasLayout(n);
   const rt = atlas.renderTarget, rtN = atlas.normalsTarget;
@@ -173,9 +142,9 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
   renderer.autoClear = false;
 
   trees.forEach((t, i) => {
-    // models are never impostors (switchPx): their tiles stay empty (Lucy's took ~0.45 s of a phone's main thread for
-    // her 1M triangles' cut, and she may not have arrived yet: BuiltTree.later)
-    if (t.variant.model) return void setFrame(atlas, i, 1, 2);
+    // models are never impostors (switchPx): their tiles stay empty (the demo's Lucy took ~0.45 s of a phone's main
+    // thread for her 1M triangles' cut, and she may not have arrived yet: NaniteType.later)
+    if (t.noImpostor) return void setFrame(atlas, i, 1, 2);
     // (frame size from the full-detail tree: the same tile whichever cut is baked)
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
@@ -190,7 +159,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
     const barkMat = new THREE.MeshBasicNodeMaterial();
     // (the layer and tint as uniforms: every tree's materials compile to the same four shaders; as constants, each
     // tree had its own, ~36 pipelines compiled one after another, ~1 s of loading)
-    barkMat.colorNode = vec4(texture(tex.bark, attribute('uv', 'vec2')).depth(uniform(tex.barkLayers[i])).rgb.mul(vec3(0.9, 0.86, 0.8)), 1);
+    barkMat.colorNode = vec4(look.solidColour(texture(tex.bark, attribute('uv', 'vec2')).depth(uniform(tex.barkLayers[i])).rgb), 1);
     const barkNrm = new THREE.MeshBasicNodeMaterial();
     barkNrm.colorNode = normalOut(1);
     scenes[0].add(new THREE.Mesh(barkGeo, barkMat));
@@ -207,9 +176,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
       const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(layerU);
       const alpha = tex.leafAlpha(l.a, uint(layerU));
       // the leaf material's colour without the per-tree tint (applied at runtime)
-      const layerTint = uniform(layer === 2 ? new THREE.Vector3(0.5, 0.82, 0.85) : layer === 3 ? new THREE.Vector3(0.62, 0.78, 1.0) : new THREE.Vector3(1, 1, 1));
-      const inner = smoothstep(-0.6, 0.8, normalLocal.y).mul(0.4).add(0.6);
-      const col = l.rgb.mul(layerTint).mul(inner).mul(1.2);
+      const col = look.bakeCardColour(l.rgb, layer);
       // cut out and write alpha 1: the MSAA resolve then gives true coverage (and coverage-premultiplied colour)
       const cutout = (out: Vec4) => Fn(() => {
         If(alpha.lessThan(0.5), () => Discard());
@@ -264,15 +231,6 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
   renderer.toneMapping = prevTone;
   renderer.setRenderTarget(prevTarget);
   renderer.setClearColor(prevClear, prevAlpha);
-}
-
-/** Maps a type (uint node) to a value from a JS array via a select chain. */
-export function lookup(values: number[]): (type: Uint) => Float {
-  return (type) => {
-    let node: Float = float(values[values.length - 1]);
-    for (let i = values.length - 2; i >= 0; i--) node = select(type.equal(uint(i)), float(values[i]), node);
-    return node;
-  };
 }
 
 /**

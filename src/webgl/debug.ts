@@ -3,7 +3,7 @@
 // 4 = type (unlit flat ids: src/type-masks.ts hides the ground and grass, drops the fog, tone mapping and god rays).
 // No 1 (clusters) and 5 (rasterizer): the near trees are whole DAG cuts, and there's no software rasterizer.
 import { fract, mix, select, uniform, vec3 } from 'three/tsl';
-import { TYPE_IDS } from '../nanite/shading.ts';
+import { TYPE_IDS } from '../nanite-lib/index.ts';
 import { iAf, typeOfF, hashOf } from './instanced.ts';
 import type { Vec3 } from '../types.ts';
 

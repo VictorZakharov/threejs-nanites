@@ -3,7 +3,7 @@
 // loading screen's colours. Esc while flying releases the mouse (the browser's own) and opens it; Resume or a click
 // outside flies again.
 import type { FlyControls } from './controls.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 import type { GodRays } from './godrays.ts';
 import type { AutoQuality } from './hud.ts';

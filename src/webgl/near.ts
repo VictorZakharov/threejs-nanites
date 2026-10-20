@@ -12,8 +12,8 @@ import {
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { heightAt } from '../terrain.ts';
-import { dagCut } from '../impostors.ts';
-import { barkColour, leafColour, makeLeafAlpha, a2cDither, LEAF_DITHER } from '../nanite/shading.ts';
+import { dagCut, makeLeafAlpha, a2cDither, LEAF_DITHER } from '../nanite-lib/index.ts';
+import { barkColour, leafColour } from '../forest/look.ts';
 import { autumnOf } from '../autumn.ts';
 import { isBush, isModel, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';

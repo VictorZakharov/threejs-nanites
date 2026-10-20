@@ -1,4 +1,4 @@
-// NaniteForest methods: the max-depth pyramid (HZB) and the phase 2 occlusion passes.
+// NaniteRenderer methods: the max-depth pyramid (HZB) and the phase 2 occlusion passes.
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniform, uniformArray, instanceIndex, uint, float, vec4, max, min, clamp, log2, exp2,
@@ -6,7 +6,7 @@ import {
 } from 'three/tsl';
 import type { ComputeNode, StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { WG, HZB_LEVELS, HZB_LEVEL0_MAX, HZB_FLOATS, minU } from './constants.ts';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { U } from './types.ts';
 import { computeBatch } from '../three-gaps.ts';
@@ -42,7 +42,7 @@ const HZB_CLOSE = Number(new URLSearchParams(location.search).get('hzbclose') ??
 
 export const hzbMethods = {
   // ------------------------------------------------------------------ HZB (max-depth pyramid of the main view)
-  _buildHzb(this: NaniteForest): void {
+  _buildHzb(this: NaniteRenderer): void {
     // level 0 is half resolution (each texel = 2x2 pixels x all MSAA samples)
     const attr = new THREE.StorageBufferAttribute(new Float32Array(HZB_FLOATS), 1);
     const levelValues = Array.from({ length: HZB_LEVELS }, () => new THREE.Vector4());
@@ -61,7 +61,7 @@ export const hzbMethods = {
   },
 
   /** True if a world-space sphere (planet-curved centre) lies entirely behind the HZB. */
-  _hzbOccluded(this: NaniteForest, c: Vec3, r: Float): Bool {
+  _hzbOccluded(this: NaniteRenderer, c: Vec3, r: Float): Bool {
     const h = this.hzb;
     const res = uint(0).toVar();
     const cv = h.view.mul(vec4(c, 1)).xyz.toVar();
@@ -104,7 +104,7 @@ export const hzbMethods = {
   },
 
   /** The depth buffer the HZB is built from (the main view's render target). */
-  setDepthSource(this: NaniteForest, depthTexture: THREE.DepthTexture, samples: number): void {
+  setDepthSource(this: NaniteRenderer, depthTexture: THREE.DepthTexture, samples: number): void {
     const h = this.hzb;
     h.passes = [];
     for (let L = 0; L < HZB_LEVELS; L++) {
@@ -151,14 +151,14 @@ export const hzbMethods = {
   },
 
   /** Will occlusion() run phase 2 this frame (at this drawing-buffer size)? */
-  willOcclude(this: NaniteForest, width: number, height: number): boolean {
+  willOcclude(this: NaniteRenderer, width: number, height: number): boolean {
     const retest = this.main.retest;
     return !this.frozen && this.hzbReady && this.u.occlusion.value !== 0 && Boolean(retest?.treesPass && retest.clustersPass) &&
       Math.ceil(width / 2) * Math.ceil(height / 2) <= HZB_LEVEL0_MAX; // (a huge screen: phase 1 only)
   },
 
   /** Phase 2 (main view): build the HZB from the phase 1 depth, then cull set B against it. */
-  occlusion(this: NaniteForest, camera: THREE.Camera, width: number, height: number): void {
+  occlusion(this: NaniteRenderer, camera: THREE.Camera, width: number, height: number): void {
     const v = this.main, retest = v.retest;
     // (must agree with the instance pass's impRetest: it left the impostors to this pass)
     if (!this.willOcclude(width, height) || !retest?.treesPass || !retest.clustersPass) return;

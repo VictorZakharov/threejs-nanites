@@ -1,16 +1,15 @@
-// The forest's GPU data (NaniteForest's methods, attached in forest.ts): every variant's vertices, triangles and
-// clusters in a few merged buffers, the instances, and per type where its clusters are. A model still downloading
-// (BuiltTree.later: Lucy, ~5 MB) has its share reserved, with no clusters, and is filled in when it arrives.
+// The renderer's GPU data (NaniteRenderer's methods, attached in renderer.ts): every type's vertices, triangles and
+// clusters in a few merged buffers, the instances, and per type where its clusters are. A type still downloading
+// (NaniteType.later: the demo's Lucy, ~5 MB) has its share reserved, with no clusters, and is filled in when it arrives.
 import * as THREE from 'three/webgpu';
 import { storage, uniformArray } from 'three/tsl';
 import { CD_STRIDE } from './constants.ts';
 import { InstanceChunks } from './chunks.ts';
-import type { NaniteForest } from './forest.ts';
-import type { BuiltTree } from '../trees.ts';
-import type { TreeInstances } from '../placement.ts';
+import type { NaniteRenderer } from './renderer.ts';
+import type { NaniteInstances, NaniteType } from './types.ts';
 
 /** The CPU copies of the merged buffers (a late model is written into them) and where each type's share starts. */
-export interface ForestArrays {
+export interface NaniteArrays {
   vtx: Float32Array;
   idx: Uint32Array;
   cData: Float32Array;
@@ -23,7 +22,7 @@ export interface ForestArrays {
  * Writes a type's clusters (sorted by parent error, descending: for a given distance the selectable ones are then a
  * prefix), triangles and vertices at the given offsets; returns its bounding radius round its axis.
  */
-function pack(t: BuiltTree, a: ForestArrays, { co, vo, io }: ForestArrays['at'][number]): number {
+function pack(t: NaniteType, a: NaniteArrays, { co, vo, io }: NaniteArrays['at'][number]): number {
   const n = t.meta.length / 4;
   const order = Array.from({ length: n }, (_, i) => i).sort((x, y) => t.rec[y * 16 + 13] - t.rec[x * 16 + 13]);
   let radius = 0;
@@ -45,9 +44,9 @@ function pack(t: BuiltTree, a: ForestArrays, { co, vo, io }: ForestArrays['at'][
 }
 
 export const bufferMethods = {
-  _buildBuffers(this: NaniteForest, trees: BuiltTree[], instances: TreeInstances): void {
+  _buildBuffers(this: NaniteRenderer, trees: NaniteType[], instances: NaniteInstances): void {
     let nClusters = 0, nVerts = 0, nIdx = 0;
-    const at: ForestArrays['at'] = [];
+    const at: NaniteArrays['at'] = [];
     for (const t of trees) {
       at.push({ co: nClusters, vo: nVerts, io: nIdx });
       nClusters += t.later?.clusters ?? t.meta.length / 4;
@@ -58,7 +57,7 @@ export const bufferMethods = {
     // per vertex: (x y z u), (nx ny nz v); per cluster CD_STRIDE vec4s: lod sphere, parent lod sphere, cull sphere,
     // (err, parent err, level, kind), and its meta as uint bits (first index, triangles, level, kind)
     const cBuf = new ArrayBuffer(nClusters * CD_STRIDE * 16);
-    const a: ForestArrays = { vtx: new Float32Array(nVerts * 8), idx: new Uint32Array(nIdx), cData: new Float32Array(cBuf), cMeta: new Uint32Array(cBuf), at };
+    const a: NaniteArrays = { vtx: new Float32Array(nVerts * 8), idx: new Uint32Array(nIdx), cData: new Float32Array(cBuf), cMeta: new Uint32Array(cBuf), at };
     this.arrays = a;
     const typeInfo: THREE.Vector4[] = [];
     this.stats = { clusters: nClusters, verts: nVerts, tris: nIdx / 3, types: [] };
@@ -66,7 +65,7 @@ export const bufferMethods = {
       // (a late model: no clusters yet, so nothing of it is drawn; its radius a bound for the chunks' boxes)
       const radius = t.later ? t.radius : pack(t, a, at[k]);
       typeInfo.push(new THREE.Vector4(at[k].co, t.later ? 0 : t.meta.length / 4, radius, t.height));
-      this.stats.types.push({ name: t.variant.preset, ...t.stats, radius: +radius.toFixed(1) });
+      this.stats.types.push({ name: t.name, ...t.stats, radius: +radius.toFixed(1) });
     });
     const sb = (arr: Float32Array | Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
     this.vtx = storage(sb(a.vtx, 4), 'vec4', nVerts * 2).toReadOnly();
@@ -74,18 +73,15 @@ export const bufferMethods = {
     this.cData = storage(sb(a.cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeValues = typeInfo;
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
-    this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo);
+    this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo, this.look.curveRadius);
     this.instA = instances.a;
     this.instB = instances.b;
     this.impFrameValues = typeInfo.map(() => new THREE.Vector4(1e9, 0, 1, 1));
     this.impFrame = uniformArray<'vec4'>(this.impFrameValues, 'vec4');
-    this.windOf = uniformArray<'float'>(trees.map((t) => (t.variant.model ? 0 : 1)), 'float');
 
     this.instanceCount = instances.a.length / 4;
-    this.treeCount = instances.trees;
-    this.statueCount = instances.statues;
-    this.u.firstModel.value = this.instanceCount - this.statueCount;
-    // per tree two vec4s: a = (x, y, z, scale), b = (cos, sin, type, wind phase)
+    this.u.firstModel.value = instances.firstModel ?? this.instanceCount;
+    // per instance two vec4s: a = (x, y, z, scale), b = (cos, sin, type, the application's float)
     const inst = new Float32Array(this.instanceCount * 8), ia = instances.a, ib = instances.b;
     for (let i = 0, o = 0, s = 0; i < this.instanceCount; i++, o += 8, s += 4) {
       inst[o] = ia[s]; inst[o + 1] = ia[s + 1]; inst[o + 2] = ia[s + 2]; inst[o + 3] = ia[s + 3];
@@ -94,12 +90,12 @@ export const bufferMethods = {
     this.inst = storage(sb(inst, 4), 'vec4', this.instanceCount * 2).toReadOnly();
   },
 
-  /** Fills in a late model (BuiltTree.later) once it's arrived: its share of the buffers, then its clusters. */
-  fillType(this: NaniteForest, t: BuiltTree): void {
+  /** Fills in a late type (NaniteType.later) once it's arrived: its share of the buffers, then its clusters. */
+  fillType(this: NaniteRenderer, t: NaniteType): void {
     const a = this.arrays, at = a.at[t.id], ti = this.typeValues[t.id];
     const n = t.meta.length / 4, nv = t.vtx.length / 8, ni = t.idx.length;
     const next = a.at[t.id + 1] ?? { co: a.cData.length / (CD_STRIDE * 4), vo: a.vtx.length / 8, io: a.idx.length };
-    if (at.co + n > next.co || at.vo + nv > next.vo || at.io + ni > next.io) throw new Error(`${t.variant.preset}: bigger than its header said`);
+    if (at.co + n > next.co || at.vo + nv > next.vo || at.io + ni > next.io) throw new Error(`${t.name}: bigger than its header said`);
     const radius = pack(t, a, at);
     const upload = (node: { value: THREE.BufferAttribute }, start: number, count: number): void => {
       node.value.addUpdateRange(start, count);

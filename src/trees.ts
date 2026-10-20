@@ -1,4 +1,4 @@
-import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type ModelHeader } from './nanite-lib/index.ts';
+import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type ModelHeader, type NaniteType } from './nanite-lib/index.ts';
 import type { LoadingScreen } from './loading.ts';
 import { workerError } from './worker-error.ts';
 
@@ -31,10 +31,8 @@ export type DagJob = DagRequest | (Omit<DagRequest, 'bark' | 'leaves'> & { grow:
 /** What it sends back: with `grow`, the tree's source meshes and how long growing it took (ms). */
 export type DagReply = (DagResult & { src?: TreeSource; growMs?: number }) | { id: number; error: string };
 
-/** A variant with its cluster DAG, ready for the renderer. */
-export interface BuiltTree extends DagResult {
-  radius: number;
-  height: number;
+/** A variant with its cluster DAG, ready for the renderer (a NaniteType: named by its preset, models never impostors). */
+export interface BuiltTree extends NaniteType {
   variant: TreeVariant;
   src: TreeSource;
   /**
@@ -43,6 +41,9 @@ export interface BuiltTree extends DagResult {
    */
   later?: { verts: number; indices: number; clusters: number; tree: Promise<BuiltTree> };
 }
+
+/** The renderer's names for a variant's type. */
+const typeOf = (v: TreeVariant): { name: string; noImpostor: boolean } => ({ name: v.preset, noImpostor: isModel(v) });
 
 /** A bound on a model's radius around its axis from its header's box (positions at height 1, base at y = 0). */
 function boundRadius(h: ModelHeader, height: number): number {
@@ -94,7 +95,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
       const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download, ms)
       const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(({ dag, src }): BuiltTree => {
         ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
-        return { ...dag, id, radius: src.radius, height: src.height, variant: v, src };
+        return { ...dag, id, radius: src.radius, height: src.height, variant: v, ...typeOf(v), src };
       });
       tree.catch(() => {}); // (surfaces where the forest awaits it)
       const h = await header;
@@ -102,7 +103,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
       const none = new Float32Array(0);
       return {
         id, vtx: none, idx: new Uint32Array(0), rec: none, meta: new Uint32Array(0), stats: { ...h.stats, ms: 0 },
-        radius: boundRadius(h, v.height), height: v.height, variant: v,
+        radius: boundRadius(h, v.height), height: v.height, variant: v, ...typeOf(v),
         src: { bark: { pos: none, nrm: none, uv: none, idx: new Uint32Array(0) }, leaves: { pos: none, nrm: none, uv: none, vpl: 4 }, radius: 0, height: v.height },
         later: { verts: h.vertices, indices: h.indices, clusters: h.clusters, tree },
       };
@@ -121,7 +122,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
             `${Math.max(st.barkLevels, st.leafLevels) + 1} levels, leaf growth ${st.leafGrowth.slice(1).map((g) => g.toFixed(2)).join(' ')} (${st.ms} ms)`,
         );
         finished();
-        resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
+        resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, ...typeOf(v), src });
       };
       w.onerror = (e) => reject(workerError(`dag-worker (${v.preset})`, e));
       const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);

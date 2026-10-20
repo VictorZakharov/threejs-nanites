@@ -5,7 +5,7 @@
 // and the compute passes the same way (compileComputeAsync, collected by a dry run of the frame's culling).
 // `?precompile=0` for the old way: everything compiled as it's first drawn (warmUp alone).
 import * as THREE from 'three/webgpu';
-import { PHASE2_LAYER } from './nanite/constants.ts';
+import { PHASE2_LAYER } from './nanite-lib/index.ts';
 import { gpuBackend } from './three-gaps.ts';
 import type { LoadingScreen } from './loading.ts';
 

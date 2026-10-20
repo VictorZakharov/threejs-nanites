@@ -1,15 +1,15 @@
-// Types shared by the forest renderer's modules (src/nanite/).
+// Types shared by the renderer's modules (src/nanite-lib/gpu/), and its inputs.
 import type * as THREE from 'three/webgpu';
 import type { ComputeNode, StorageBufferNode, UniformArrayNode, UniformNode } from 'three/webgpu';
 import type { Bool, Float, Uint, Vec2, Vec3 } from '../types.ts';
 import type { makeCounters } from './constants.ts';
-import type { createLighting } from '../lighting.ts';
+import type { DagResult, DagStats, BarkSource, LeafSource } from '../dag/types.ts';
 
 /** A uniform holding a JS value. */
 export type U<T extends string, V> = UniformNode<T, V>;
 
-/** The forest's uniforms (NaniteForest.u), plus the ones the software rasterizer adds. */
-export interface ForestUniforms {
+/** The renderer's uniforms (NaniteRenderer.u), plus the ones the software rasterizer adds. */
+export interface NaniteUniforms {
   camPos: U<'vec3', THREE.Vector3>;
   projScale: U<'float', number>;
   tau: U<'float', number>;
@@ -18,7 +18,6 @@ export interface ForestUniforms {
   firstModel: U<'uint', number>;
   time: U<'float', number>;
   prevTime: U<'float', number>;
-  wind: U<'float', number>;
   debug: U<'uint', number>;
   occlusion: U<'uint', number>;
   sunDir: U<'vec3', THREE.Vector3>;
@@ -27,8 +26,12 @@ export interface ForestUniforms {
   swArea?: U<'float', number>;
 }
 
-/** The bark and leaf texture arrays, and which layer each tree type samples (src/main.ts). */
-export interface ForestTextures {
+/**
+ * The texture arrays of the two kinds of geometry, solid triangles ("bark") and alpha-tested cards ("leaf"), and
+ * which layer each type samples. The leaf array's userData holds its mip `levels` and coverage-preserving
+ * `alphaScales` (coverageScales in alpha.ts, per layer and level).
+ */
+export interface NaniteTextures {
   bark: THREE.DataArrayTexture;
   leaf: THREE.DataArrayTexture;
   barkLayerOf: (type: Uint) => Float;
@@ -104,7 +107,7 @@ export interface View extends ViewBase {
   ran?: boolean;
 }
 
-/** A cluster vertex as drawn (see _vertex): curved world position with this and last frame's wind. */
+/** A cluster vertex as drawn (see _vertex): curved world position with this and last frame's motion. */
 export interface ClusterVertex {
   world: Vec3;
   prevWorld: Vec3;
@@ -113,14 +116,43 @@ export interface ClusterVertex {
   type: Uint;
 }
 
-/** Shadows and fog for materials that compute their own world position (src/main.ts, from lighting.ts). */
+/**
+ * Shadows and fog for the materials that compute their own world position (the software rasterizer's and the splats'
+ * resolves), so they match the application's materials: `fadeShadow(pos)` is the receivedShadowNode function.
+ */
 export interface Shading {
-  fadeShadow(pos: Vec3): ReturnType<ReturnType<typeof createLighting>['makeFadeShadow']>;
+  fadeShadow(pos: Vec3): unknown;
   fog(pos: Vec3, viewZ: Float): { color: Vec3; factor: Float };
 }
 
-/** Per-frame counters read back for the HUD and the harness (NaniteForest.readStats). */
-export interface ForestStats {
+/** One mesh type: its cluster DAG (dag/build.ts or a model file), its bounds round its vertical axis and its sources. */
+export interface NaniteType extends DagResult {
+  name: string;
+  radius: number;
+  height: number;
+  /** Never drawn as an impostor (with the instances from `firstModel` on: the renderer's instances are in type order). */
+  noImpostor?: boolean;
+  /** The full-detail source meshes (the impostor bake's frame, and its full-detail bake). */
+  src: { bark: BarkSource; leaves: LeafSource };
+  /**
+   * Still downloading (its arrays empty, its radius a bound): the sizes reserved for it in the renderer's buffers, and
+   * the type once it's in (NaniteRenderer.fillType).
+   */
+  later?: { verts: number; indices: number; clusters: number; tree: Promise<NaniteType> };
+}
+
+/**
+ * The instances, in two arrays of 4 floats each: a = (x, y, z, scale), b = (cos, sin, type, user) (a rotation round
+ * the vertical axis; `user` is the application's, read by its hooks). From `firstModel` on they're never impostors.
+ */
+export interface NaniteInstances {
+  a: Float32Array;
+  b: Float32Array;
+  firstModel?: number;
+}
+
+/** Per-frame counters read back for the HUD and the harness (NaniteRenderer.readStats). */
+export interface NaniteStats {
   barkClusters: number;
   leafClusters: number;
   barkTris: number;

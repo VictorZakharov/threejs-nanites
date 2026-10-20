@@ -1,10 +1,9 @@
 // Coarse culling for the instance passes: the instances in runs of up to CHUNK consecutive ones (compact: the planting
-// puts each tile's plants in Morton order, src/planting.ts), each with a box around its trees' bounding spheres. Per
-// frame and view the CPU tests the boxes against the view (frustum, fog distance, the planet's curvature) and the
+// puts each tile's plants in Morton order, src/planting.ts), each with a box around its instances' bounding spheres. Per
+// frame and view the CPU tests the boxes against the view (frustum, distance, the look's curvature) and the
 // instance pass runs over the visible chunks' instances only. It was a thread per instance, 2.5M, for the camera and
 // again for the sun's shadow map, which covers a few hundred metres.
 import * as THREE from 'three/webgpu';
-import { PLANET_RADIUS } from '../planet.ts';
 
 export const CHUNK = 2048; // instances (a power of two: the pass splits its thread index with a shift)
 export const CHUNK_SHIFT = 11;
@@ -29,9 +28,14 @@ export class InstanceChunks {
   readonly size: Uint32Array;
   readonly box: Float32Array; // per chunk: min x y z, max x y z (the spheres, uncurved)
   readonly maxHeight: number; // the tallest plant's height (m)
+  readonly radius: number; // the curvature's (NaniteLook.curveRadius)
 
-  /** `a`, `b`: the instances (a: x y z scale, b: .., .., type, ..); `types`: (.., .., radius, height) per type. */
-  constructor(a: Float32Array, b: Float32Array, types: THREE.Vector4[]) {
+  /**
+   * `a`, `b`: the instances (a: x y z scale, b: .., .., type, ..); `types`: (.., .., radius, height) per type;
+   * `radius`: the curvature's R (points drop by d^2 / 2R from the viewer; Infinity: flat).
+   */
+  constructor(a: Float32Array, b: Float32Array, types: THREE.Vector4[], radius = Infinity) {
+    this.radius = radius;
     // (a bigger forest: wider runs, so they fit the uniform array)
     let extent = EXTENT, r = InstanceChunks.runs(a, b, types, extent);
     while (r.start.length > MAX_CHUNKS) r = InstanceChunks.runs(a, b, types, (extent *= 1.5));
@@ -107,7 +111,7 @@ export class InstanceChunks {
    */
   visible(frustum: THREE.Frustum, viewer: THREE.Vector3, lodPos: THREE.Vector3, maxDist: number, out: THREE.Vector4[], cast: CastTest | null = null): number {
     let m = 0;
-    const b = this.box, inv2R = 1 / (2 * PLANET_RADIUS), max2 = maxDist * maxDist;
+    const b = this.box, inv2R = 1 / (2 * this.radius), max2 = maxDist * maxDist;
     const { x: lx, y: ly, z: lz } = lodPos, { x: vx, z: vz } = viewer;
     const planes = frustum.planes;
     for (let c = 0, o = 0; c < this.count; c++, o += 6) {

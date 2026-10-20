@@ -1,16 +1,15 @@
-// NaniteForest methods: the culling passes (per view: instances -> work items -> clusters -> draw lists).
+// NaniteRenderer methods: the culling passes (per view: instances -> work items -> clusters -> draw lists).
 import * as THREE from 'three/webgpu';
 import {
   Fn, If, Loop, storage, uniform, uniformArray, instanceIndex, workgroupId, localId, numWorkgroups, uint, vec3,
   uvec2, atomicAdd, atomicStore, atomicLoad, select, max, min, length, dot,
 } from 'three/tsl';
-import { curve } from '../planet.ts';
 import { switchPx } from './shading.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
-  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, windMargin, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
+  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
 } from './constants.ts';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
 import type { CullSet, Retest, TypeInfo, View, ViewBase } from './types.ts';
 
@@ -33,7 +32,7 @@ export const cullingMethods = {
    * occ: null (no occlusion), 'retest' (phase 1: failures go to the retest list), 'final' (phase 2); k: the set's
    * index in the view (its slice of the view's counters).
    */
-  _buildSet(this: NaniteForest, v: ViewBase, tau: Float, occ: Occ, k: number): CullSet {
+  _buildSet(this: NaniteRenderer, v: ViewBase, tau: Float, occ: Occ, k: number): CullSet {
     const sb = (arr: Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
     const u = this.u;
     const base = k * SET_STRIDE;
@@ -130,11 +129,11 @@ export const cullingMethods = {
         // DAG cut: fine enough itself, but the parent group is too coarse
         const cut = projErr(lod, e.x).lessThanEqual(tau).and(projErr(par, e.y).greaterThan(tau));
         If(cut, () => {
-          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
+          const cw = this.look.curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
           const keep = v.sphereVisible(cw, cs.w.mul(s)).toVar();
           if (occ) {
             If(keep.and(u.occlusion.equal(1)), () => {
-              If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w, cs.y.add(cs.w), s, this._sway(b.z)))), () => {
+              If(this._hzbOccluded(cw, cs.w.mul(s).add(this._margin(ti.w, cs.y.add(cs.w), s, b.z))), () => {
                 keep.assign(false);
                 if (occ === 'retest') v.retest?.cluster(inst, c);
               });
@@ -153,7 +152,7 @@ export const cullingMethods = {
   },
 
   /** The main view's occlusion retest lists (phase 1 failures, tested again in phase 2) and their small passes. */
-  _buildRetest(this: NaniteForest, ctr: ViewBase['ctr']): Retest {
+  _buildRetest(this: NaniteRenderer, ctr: ViewBase['ctr']): Retest {
     const sb = (arr: Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
     const n = this.instanceCount;
     const ctrA = ctr.atomic;
@@ -193,7 +192,7 @@ export const cullingMethods = {
     };
   },
 
-  _buildView(this: NaniteForest, name: string, tauMul: number): View {
+  _buildView(this: NaniteRenderer, name: string, tauMul: number): View {
     const u = this.u;
     const main = name === 'main';
     const planeValues = Array.from({ length: 6 }, () => new THREE.Vector4());
@@ -272,7 +271,7 @@ export const cullingMethods = {
       const ti = this.typeInfo.element(uint(b.z));
       const s = a.w;
       const center = a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0));
-      const centerC = curve(center).toVar(); // where the planet's curvature puts it on screen
+      const centerC = this.look.curve(center).toVar(); // where the look's curve puts it on screen
       const r = ti.z.mul(s);
       const dCam = length(center.sub(v.lodPos)).toVar();
       const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1)); // projected tree height
@@ -305,7 +304,7 @@ export const cullingMethods = {
         }
         If(visible.and(far.not()), () => {
           if (retest) {
-            If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(windMargin(ti.w, ti.w, s, this._sway(this._b(i).z))))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
+            If(u.occlusion.equal(1).and(this._hzbOccluded(centerC, r.add(this._margin(ti.w, ti.w, s, this._b(i).z)))), () => retest.tree(i)).Else(() => setA.emit(i, ti, s, dCam, r));
           } else {
             setA.emit(i, ti, s, dCam, r);
           }
@@ -323,7 +322,7 @@ export const cullingMethods = {
           const e = retest.treesRO.element(k);
           const i = e.bitAnd(IMP_BIT - 1);
           const { ti, s, centerC, r, dCam, px } = treeInfo(i);
-          const hidden = this._hzbOccluded(centerC, r.add(windMargin(ti.w, ti.w, s, this._sway(this._b(i).z))));
+          const hidden = this._hzbOccluded(centerC, r.add(this._margin(ti.w, ti.w, s, this._b(i).z)));
           If(e.greaterThanEqual(IMP_BIT), () => {
             // an impostor: listed if it's not hidden
             If(hidden, () => {
@@ -346,8 +345,8 @@ export const cullingMethods = {
           const ti = this.typeInfo.element(uint(b.z));
           const s = a.w;
           const cs = this._cd(c, 2);
-          const cw = curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
-          If(this._hzbOccluded(cw, cs.w.mul(s).add(windMargin(ti.w, cs.y.add(cs.w), s, this._sway(b.z)))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
+          const cw = this.look.curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
+          If(this._hzbOccluded(cw, cs.w.mul(s).add(this._margin(ti.w, cs.y.add(cs.w), s, b.z))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });
       })().compute(LIST_CAP, [WG]).setName('retest clusters');
     }

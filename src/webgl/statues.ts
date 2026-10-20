@@ -3,7 +3,7 @@
 // CPU every frame: there are a dozen), with the forest's bark material (her stone layer, no wind). Never impostors,
 // as on WebGPU.
 import * as THREE from 'three/webgpu';
-import { dagCut } from '../impostors.ts';
+import { dagCut } from '../nanite-lib/index.ts';
 import type { BuiltTree } from '../trees.ts';
 import type { TreeInstances } from '../placement.ts';
 import { setLevel } from './debug.ts';

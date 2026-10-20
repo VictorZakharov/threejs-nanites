@@ -4,11 +4,11 @@
 import * as THREE from 'three/webgpu';
 import type { mrt } from 'three/tsl';
 import { heightAt, terrainForAltitude } from './terrain.ts';
-import { PHASE2_LAYER } from './nanite/constants.ts';
-import { mipBias } from './nanite/shading.ts';
+import { PHASE2_LAYER } from './nanite-lib/index.ts';
+import { mipBias } from './nanite-lib/index.ts';
 import { viewerPos, detailPos, detailShift } from './planet.ts';
 import { MAX_ALTITUDE, forestRadius } from './placement.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { FlyControls } from './controls.ts';
 import type { TouchControls } from './touch.ts';
 import type { createLighting } from './lighting.ts';

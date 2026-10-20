@@ -23,12 +23,11 @@ import {
 } from 'three/tsl';
 import type { ComputeNode, StorageBufferNode } from 'three/webgpu';
 import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, SPLAT_BIT, minU, minI, maxI } from './constants.ts';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
 import { setEmissive, asReceivedShadow, floatBits, computeBatch } from '../three-gaps.ts';
-import { autumnOf } from '../autumn.ts';
-import { makeLeafAlphaLod, leafColour, barkColour, treeTint, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER, mipBias } from './shading.ts';
+import { makeLeafAlphaLod, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER, mipBias } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
@@ -50,7 +49,7 @@ interface ScreenTriangle {
 type Slopes = { dx: Vec2; dy: Vec2 };
 
 export class SoftRaster {
-  readonly forest: NaniteForest;
+  readonly nanite: NaniteRenderer;
   readonly on = uniform(1, 'uint'); // u.sw, and the screen fits the visibility buffer
   readonly size = uniform(new THREE.Vector2(1, 1)); // drawing buffer pixels
   readonly viewProj = uniform(new THREE.Matrix4());
@@ -61,7 +60,7 @@ export class SoftRaster {
   readonly dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
   readonly depthAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
   /**
-   * Off for now (set per frame, see SW_ALTITUDE in main.ts): near the ground it doesn't pay. It costs ~0.36 ms a frame
+   * Off for now (set per frame by the application: the demo's SW_ALTITUDE): near the ground it doesn't pay. It costs ~0.36 ms a frame
    * whatever it takes (clear, two walks, the resolve) and redoes each triangle's vertices twice; the far trees it's
    * for are mostly hidden down there (on High at 1080p: 0.3-0.4 ms slower on the ground, 0.4-0.8 faster from 45 m up).
    */
@@ -78,14 +77,14 @@ export class SoftRaster {
   readonly idPass: ComputeNode;
   ran = false;
 
-  constructor(forest: NaniteForest) {
-    this.forest = forest;
-    const u = forest.u;
+  constructor(nanite: NaniteRenderer) {
+    this.nanite = nanite;
+    const u = nanite.u;
     const sw: U<'uint', number> = uniform(Number(new URLSearchParams(location.search).get('sw') ?? 1), 'uint'); // on/off (?sw=0)
     const swArea = uniform(Number(new URLSearchParams(location.search).get('swarea') ?? 4)); // see wants()
     u.sw = sw;
     u.swArea = swArea;
-    const ctr = forest.mainCtr;
+    const ctr = nanite.mainCtr;
     this.ctr = ctr;
 
     const list = storage(this.listAttr, 'uvec2', LIST_CAP);
@@ -132,7 +131,7 @@ export class SoftRaster {
       });
     })().compute(MAX_PIXELS, [64]);
 
-    this.leafAlpha = makeLeafAlphaLod(forest.textures.leaf);
+    this.leafAlpha = makeLeafAlphaLod(nanite.textures.leaf);
     this.depthPass = this._rasterPass('depth');
     this.idPass = this._rasterPass('id');
   }
@@ -144,7 +143,7 @@ export class SoftRaster {
   _triangle(inst: Uint, c: Uint, tri: Uint, leaf: Bool): ScreenTriangle {
     const V: ClusterVertex[] = [], P: Vec2[] = [], W: Float[] = [];
     for (let j = 0; j < 3; j++) {
-      const vx = this.forest._vertex(inst, c, tri.mul(3).add(j), leaf);
+      const vx = this.nanite._vertex(inst, c, tri.mul(3).add(j), leaf);
       const clip = this.viewProj.mul(vec4(vx.world, 1)).toVar();
       const sx = clip.x.div(clip.w).mul(0.5).add(0.5).mul(this.size.x);
       const sy = clip.y.div(clip.w).mul(-0.5).add(0.5).mul(this.size.y);
@@ -179,7 +178,7 @@ export class SoftRaster {
   }
 
   _rasterPass(mode: 'depth' | 'id'): ComputeNode {
-    const f = this.forest;
+    const f = this.nanite;
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
 
     const depthA = storage(this.depthAttr, 'uint', MAX_PIXELS).toAtomic();
@@ -258,7 +257,7 @@ export class SoftRaster {
     const r = renderer;
     this.viewProj.value.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse);
     // (and the splatted impostors, splats.ts: every depth before any id)
-    const sp = this.forest.splats;
+    const sp = this.nanite.splats;
     const splat = (pass: ComputeNode | null): [ComputeNode, THREE.IndirectStorageBufferAttribute][] => (pass && sp.on.value === 1 ? [[pass, sp.dispatchAttr]] : []);
     computeBatch(r, [
       this.args, ...(sp.args && sp.on.value === 1 ? [sp.args] : []), [this.clear, width * height],
@@ -270,7 +269,7 @@ export class SoftRaster {
   begin(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, width: number, height: number): void {
     this.size.value.set(width, height);
     this.near.value = camera.near;
-    this.on.value = this.forest.u.sw?.value === 1 && !this.idle && width * height <= MAX_PIXELS ? 1 : 0;
+    this.on.value = this.nanite.u.sw?.value === 1 && !this.idle && width * height <= MAX_PIXELS ? 1 : 0;
     if (this.resolveMesh) this.resolveMesh.visible = this.on.value === 1; // (not even a fullscreen pass of discards)
     renderer.compute(this.reset);
     this.ran = true;
@@ -278,10 +277,10 @@ export class SoftRaster {
 
   /**
    * The fullscreen resolve quad (phase 2 layer). `shading`: { fadeShadow(pos) => receivedShadowNode, fog(pos, viewZ)
-   * => { color, factor } } from main.js (lighting.js), so shadows and fog match the hardware-drawn trees.
+   * => { color, factor } } from the application (the demo's lighting.ts), so shadows and fog match the hardware draws.
    */
   buildResolveMesh(shading: Shading): THREE.Mesh {
-    const f = this.forest, u = f.u, tex = f.textures;
+    const f = this.nanite, u = f.u, tex = f.textures;
     const ids = storage(this.idAttr, 'uint', MAX_PIXELS).toReadOnly();
     const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
     const pix = uvec2(screenCoordinate.xy);
@@ -305,7 +304,7 @@ export class SoftRaster {
     const bark = texture(tex.bark, uv).depth(tex.barkLayerOf(type)).level(this._lod(slopes, tex.bark.image.width)).rgb;
     const leafLayer = tex.leafLayerOf(type);
     const leafRgb = texture(tex.leaf, uv).depth(leafLayer).level(this._lod(slopes, tex.leaf.image.width)).rgb;
-    const albedo = select(leaf, leafColour(leafRgb, leafLayer, treeTint(inst), autumnOf(f._b(inst).w)), barkColour(bark));
+    const albedo = select(leaf, f.look.cardColour(leafRgb, leafLayer, f.look.tint(inst), f.look.cardValue(inst, f._b(inst))), f.look.solidColour(bark));
     const dbg = f._debugColour(inst, c, type);
 
     const mat = new THREE.MeshLambertNodeMaterial();

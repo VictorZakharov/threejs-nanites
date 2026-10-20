@@ -11,7 +11,7 @@
 //          material does, and writes its view depth (atomicMin), one depth for the whole quad
 //   id     the same walk; where its depth won: atomicMax of SPLAT_BIT + its slot
 //   resolve  a fullscreen quad (phase 2 layer) shades the pixels whose id has SPLAT_BIT as the impostor material
-//          does: albedo and normal atlases relit with Lambert, impGain, tint, autumn, the same shadow and fog.
+//          does: albedo and normal atlases relit with Lambert, the gains, the look's colour, the same shadow and fog.
 // The splats go in the impostor list from its top down (another buffer would be a 9th in the instance pass).
 import * as THREE from 'three/webgpu';
 import {
@@ -20,16 +20,14 @@ import {
   normalize, cross, abs, asin, cos, sin, log2, texture, atomicMin, atomicMax, atomicLoad, floatBitsToUint,
 } from 'three/tsl';
 import type { ComputeNode } from 'three/webgpu';
-import { curve } from '../planet.ts';
-import { ELEVATIONS, IMPOSTOR_CUT, TILE_W, TILE_H, atlasLayout } from '../impostors.ts';
-import type { ImpostorAtlas } from '../impostors.ts';
+import { ELEVATIONS, IMPOSTOR_CUT, TILE_W, TILE_H, atlasLayout } from '../impostors/atlas.ts';
+import type { ImpostorAtlas } from '../impostors/atlas.ts';
 import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impostorCov, impostorShare } from './billboards.ts';
 import { MIN_PX, PHASE2_LAYER, SPLAT, SPLAT_BIT, WG, minU, minI, maxI } from './constants.ts';
 import { MAX_PIXELS } from './softraster.ts';
-import { treeTint, ditherAlt, typeId, mipBias } from './shading.ts';
-import { autumnOf, autumnColour } from '../autumn.ts';
+import { ditherAlt, typeId, mipBias } from './shading.ts';
 import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Uint, Vec2, Vec3 } from '../types.ts';
 import type { Shading } from './types.ts';
 
@@ -71,7 +69,7 @@ interface Quad {
 }
 
 export class Splats {
-  readonly forest: NaniteForest;
+  readonly nanite: NaniteRenderer;
   /** On this frame (see begin). */
   readonly on = uniform(0, 'uint');
   /** Switched on (`?splat=0` off, the profile's switch; 0 until the atlas is baked: main.ts). */
@@ -91,13 +89,13 @@ export class Splats {
   idPass: ComputeNode | null = null;
   resolveMesh: THREE.Mesh | null = null;
 
-  constructor(forest: NaniteForest) {
-    this.forest = forest;
+  constructor(nanite: NaniteRenderer) {
+    this.nanite = nanite;
   }
 
   /** Tree inst's impostor: where its quad is and how big (the impostor draw's vertex shader, _impostorQuad). */
   shape(inst: Uint): Shape {
-    const f = this.forest, u = f.u;
+    const f = this.nanite, u = f.u;
     const a = f._a(inst), b = f._b(inst);
     const type = uint(b.z);
     const fr = f.impFrame.element(type);
@@ -124,18 +122,18 @@ export class Splats {
 
   /** The shape's quad on screen (as the impostor draw places it: its corners through the same camera). */
   quad(sh: Shape): Quad {
-    const sw = this.forest.sw;
+    const sw = this.nanite.sw;
     const enlarge = max(float(MIN_PX).div(max(sh.wPx, 1e-3)), 1);
     const g = sh.grow.mul(enlarge);
     const w = sh.w0.mul(g).toVar(), h = sh.h0.mul(g).toVar();
     const right = vec3(sh.dir.z, 0, sh.dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize().toVar();
     const up = cross(sh.dir, right).toVar();
     const flip = hash(sh.inst).greaterThan(0.5); // (mirrored as in the impostor draw)
-    const clip = (cx: number, cy: number) => sw.viewProj.mul(vec4(curve(sh.pivot.add(right.mul(w.mul(cx - 0.5))).add(up.mul(h.mul(cy - 0.5)))), 1));
+    const clip = (cx: number, cy: number) => sw.viewProj.mul(vec4(this.nanite.look.curve(sh.pivot.add(right.mul(w.mul(cx - 0.5))).add(up.mul(h.mul(cy - 0.5)))), 1));
     const screen = (c: ReturnType<typeof clip>): Vec2 => vec2(c.x.div(c.w).mul(0.5).add(0.5).mul(sw.size.x), c.y.div(c.w).mul(-0.5).add(0.5).mul(sw.size.y));
     const o = screen(clip(0, 0)).toVar();
     const ex = screen(clip(1, 0)).sub(o).toVar(), ey = screen(clip(0, 1)).sub(o).toVar();
-    const depth = sw.viewProj.mul(vec4(curve(sh.pivot), 1)).w.toVar();
+    const depth = sw.viewProj.mul(vec4(this.nanite.look.curve(sh.pivot), 1)).w.toVar();
     const keep = sh.shared.and(sh.wPx.greaterThanEqual(MIN_PX).or(hash(sh.inst.add(7)).lessThan(keepShare(sh.wPx))));
     return { o, ex, ey, det: ex.x.mul(ey.y).sub(ex.y.mul(ey.x)).toVar(), depth, keep, right, up, rightN: select(flip, right.negate(), right), w, h, flip };
   }
@@ -155,7 +153,7 @@ export class Splats {
 
   /** Builds the passes and the resolve (before the atlas is baked: it's filled in place); `shadow`: the impostors' shadow node. */
   build(atlas: ImpostorAtlas, shading: Shading & { shadow(pos: Vec3): unknown }): THREE.Mesh {
-    const f = this.forest, n = f.instanceCount;
+    const f = this.nanite, n = f.instanceCount;
     const ctr = f.mainCtr;
     const count = minU(ctr.ro.element(SPLAT), n);
     const disp = storage(this.dispatchAttr, 'uint', 4);
@@ -237,7 +235,7 @@ export class Splats {
 
   /** The fullscreen quad shading the splatted pixels (phase 2 layer), as the impostor material (buildImpostorMesh). */
   _buildResolve(atlas: ImpostorAtlas, samples: ReturnType<Splats['_atlasSampler']>, shading: Shading & { shadow(pos: Vec3): unknown }): THREE.Mesh {
-    const f = this.forest, u = f.u, sw = f.sw, n = f.instanceCount;
+    const f = this.nanite, u = f.u, sw = f.sw, n = f.instanceCount;
     const ids = storage(sw.idAttr, 'uint', MAX_PIXELS).toReadOnly();
     const list = storage(f.main.impListAttr, 'uint', n).toReadOnly();
     const pix = uvec2(screenCoordinate.xy);
@@ -259,12 +257,9 @@ export class Splats {
     const gains = f.impGains!;
     const gS = gains.side.element(sh.type), gT = gains.top.element(sh.type);
     const gain = tiles.elev.reduce<Vec3>((acc, e, i) => acc.add(mix(gS, gT, e.div(90)).mul(tiles.a[i])), vec3(0)).div(wSum);
-    const tint = treeTint(sh.inst);
-    const autumn = select(f.textures.leafLayerOf(sh.type).equal(3), float(0), autumnOf(f._b(sh.inst).w));
-    const green = albedo.mul(vec3(tint.mul(0.92), tint, tint.mul(0.8))).mul(gain);
-    const col = autumnColour(green, autumn, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b))));
+    const col = f.look.impostorColour(albedo, gain, f.look.tint(sh.inst), f.look.impostorValue(sh.inst, f._b(sh.inst), sh.type));
     const onQuad = sh.pivot.add(q.right.mul(t.x.sub(0.5).mul(q.w))).add(q.up.mul(t.y.sub(0.5).mul(q.h)));
-    const world = curve(onQuad);
+    const world = this.nanite.look.curve(onQuad);
 
     const mat = new THREE.MeshLambertNodeMaterial();
     mat.vertexNode = vec4(positionGeometry.xy, 0, 1);
@@ -276,7 +271,7 @@ export class Splats {
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(sh.dir.mul(1e-3)), 0)).xyz);
     setEmissive(mat, select(u.debug.equal(5), SPLAT_DEBUG, select(u.debug.equal(4), typeId(sh.type), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)))));
     // (the shadow map on its sun side, past its own caster quad: see vShadowPos)
-    mat.receivedShadowPositionNode = curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5))));
+    mat.receivedShadowPositionNode = this.nanite.look.curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5))));
     mat.receivedShadowNode = asReceivedShadow(shading.shadow(world));
     const clip = sw.viewProj.mul(vec4(world, 1));
     mat.depthNode = clip.z.div(clip.w);
@@ -295,7 +290,7 @@ export class Splats {
 
   /** Per frame, after SoftRaster.begin (its visibility buffer is needed): on or off, and the resolve with it. */
   begin(): void {
-    this.on.value = this.enabled.value === 1 && !this.idle && this.forest.sw.on.value === 1 ? 1 : 0;
+    this.on.value = this.enabled.value === 1 && !this.idle && this.nanite.sw.on.value === 1 ? 1 : 0;
     if (this.resolveMesh) this.resolveMesh.visible = this.on.value === 1;
   }
 }

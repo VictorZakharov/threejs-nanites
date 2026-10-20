@@ -10,7 +10,7 @@ import { mrt, output as colourOutput, vec4 } from 'three/tsl';
 import { GodRays } from '../godrays.ts';
 import { TAA } from '../taa.ts';
 import { createResolution, type Resolution } from '../resolution.ts';
-import { mipBias } from '../nanite/shading.ts';
+import { mipBias } from '../nanite-lib/index.ts';
 
 /** Whether this browser's WebGL 2 can draw into half-float targets (?glfloat=0: as if it couldn't). */
 export function canRenderFloat(params: URLSearchParams): boolean {

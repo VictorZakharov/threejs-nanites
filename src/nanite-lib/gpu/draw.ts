@@ -1,18 +1,16 @@
-// NaniteForest methods: the cluster meshes (vertex pulling from the draw lists) and their materials.
+// NaniteRenderer methods: the cluster meshes (vertex pulling from the draw lists) and their materials.
 import * as THREE from 'three/webgpu';
 import {
   Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
   normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
   cameraViewMatrix,
 } from 'three/tsl';
-import { curve } from '../planet.ts';
 import { FADE_HI, MAX_TRIS, LIST_CAP, ARGS, minU } from './constants.ts';
-import type { NaniteForest } from './forest.ts';
+import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { ClusterVertex, CullSet, View } from './types.ts';
 import { setEmissive } from '../three-gaps.ts';
-import { autumnOf } from '../autumn.ts';
-import { makeLeafAlpha, a2cDither, leafColour, barkColour, treeTint, dither, typeId, switchPx, mipBias } from './shading.ts';
+import { makeLeafAlpha, a2cDither, dither, typeId, switchPx, mipBias } from './shading.ts';
 
 /**
  * The leaf draws' index buffer, shared by every leaf cluster: a cluster's cards are quads from its first vertex
@@ -31,11 +29,11 @@ const LEAF_INDEX = new THREE.BufferAttribute(Uint16Array.from({ length: MAX_TRIS
 export const drawMethods = {
   // ------------------------------------------------------------------ draw
   /**
-   * Vertex k (its slot in the cluster's index list) of cluster c of tree inst: planet-curved world position (with
-   * wind), normal (tree rotation only) and uv. `leaf`: true / false, or a bool node when it's only known per cluster.
-   * `prevWorld`: the same with last frame's wind (for the wind motion vectors of temporal anti-aliasing).
+   * Vertex k (its slot in the cluster's index list) of cluster c of tree inst: curved world position (with the
+   * look's motion), normal (the instance's rotation only) and uv. `leaf`: true / false, or a bool node when it's only
+   * known per cluster. `prevWorld`: the same with last frame's motion (the motion vectors of temporal anti-aliasing).
    */
-  _vertex(this: NaniteForest, inst: Uint, c: Uint, k: Uint, leaf: boolean | Bool, vertex?: Uint): ClusterVertex {
+  _vertex(this: NaniteRenderer, inst: Uint, c: Uint, k: Uint, leaf: boolean | Bool, vertex?: Uint): ClusterVertex {
     const u = this.u;
     const vi = vertex ?? this.idx.element(this._meta(c).x.add(k)); // (`vertex`: the vertex itself, not slot k)
     const va = this._vtx(vi, 0), vb = this._vtx(vi, 1);
@@ -45,32 +43,19 @@ export const drawMethods = {
     const s = a.w;
     const rot = (v: Vec3): Vec3 => vec3(v.x.mul(b.x).sub(v.z.mul(b.y)), v.y, v.x.mul(b.y).add(v.z.mul(b.x)));
     const p = rot(va.xyz).mul(s);
-    // wind: whole tree bends with height^2, leaves flutter on top
-    const h = clamp(va.y.div(ti.w), 0, 1);
-    const windAt = (time: Float): Vec3 => {
-      const t = time.mul(1.1).add(b.w);
-      const gust = sin(t.add(a.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(a.z.mul(0.021))).mul(0.25)).add(0.35);
-      const sway = u.wind.mul(this.windOf.element(type)); // (0 for models)
-      const bend = h.mul(h).mul(gust).mul(sway).mul(0.06).mul(ti.w).mul(s);
-      let off: Vec3 = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
-      if (leaf !== false) {
-        const ph = dot(va.xyz, vec3(1.7, 2.3, 1.1));
-        const fl = sin(time.mul(7.0).add(ph)).mul(0.04).mul(sway).mul(s);
-        const flutter = vec3(fl, fl.mul(0.5), fl.mul(-0.7));
-        off = off.add(leaf === true ? flutter : select(leaf, flutter, vec3(0)));
-      }
-      return off;
-    };
     const base = a.xyz.add(p);
+    const curve = this.look.curve;
+    // the look's motion (the forest's wind), at this and last frame's time
+    const motion = this.look.motion?.({ local: va.xyz, height: ti.w, a, b, type, card: leaf });
     return {
-      world: curve(base.add(windAt(u.time))),
-      prevWorld: curve(base.add(windAt(u.prevTime))),
+      world: curve(motion ? base.add(motion(u.time)) : base),
+      prevWorld: curve(motion ? base.add(motion(u.prevTime)) : base),
       normal: rot(vb.xyz), uv: vec2(va.w, vb.w), type,
     };
   },
 
   /** Share of tree inst drawn as geometry (1, or less in the impostor cross-fade band): by its projected height. */
-  _geometryShare(this: NaniteForest, inst: Uint, view?: View): Float {
+  _geometryShare(this: NaniteRenderer, inst: Uint, view?: View): Float {
     const u = this.u;
     const lodPos = (view ?? this.main).lodPos;
     const a = this._a(inst), b = this._b(inst);
@@ -85,7 +70,7 @@ export const drawMethods = {
    * Debug colours: 1 = cluster, 2 = DAG level, 3 = tree instance, 4 = tree type (unlit, see TYPE_IDS),
    * 5 = rasterizer (hardware grey-green; the software rasterizer's pixels are orange, see softraster.js).
    */
-  _debugColour(this: NaniteForest, inst: Uint, c: Uint, type: Uint): Vec3 {
+  _debugColour(this: NaniteRenderer, inst: Uint, c: Uint, type: Uint): Vec3 {
     const u = this.u;
     const level = this._meta(c).z;
     const dbgSeed = select(u.debug.equal(1), c, select(u.debug.equal(2), level.mul(7919).add(3), inst));
@@ -94,7 +79,7 @@ export const drawMethods = {
     return select(u.debug.equal(5), vec3(0.25, 0.4, 0.25), select(u.debug.equal(4), typeId(type), select(u.debug.equal(2), levelRamp, palette)));
   },
 
-  _buildMesh(this: NaniteForest, kind: 0 | 1, view: View, set: CullSet, shadowOnly: boolean): THREE.Mesh {
+  _buildMesh(this: NaniteRenderer, kind: 0 | 1, view: View, set: CullSet, shadowOnly: boolean): THREE.Mesh {
     const u = this.u;
     const textures = this.textures;
     const list = storage(set.listAttr, 'uvec2', LIST_CAP * 2).toReadOnly(); // (bark, then leaves)
@@ -108,7 +93,7 @@ export const drawMethods = {
     const vLayer = varying(float(0), 'vLayer');
     const vDebug = varying(vec3(0), 'vDebug');
     const vTint = varying(float(1), 'vTint');
-    const vAutumn = varying(float(0), 'vAutumn');
+    const vAutumn = varying(float(0), 'vAutumn'); // (the look's cardValue: the forest's autumn level)
     const vFade = varying(float(1), 'vFade'); // share of this tree drawn as geometry (impostor cross-fade)
     // clip positions with this and last frame's wind (same camera): the wind's motion on screen, for TAA
     const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
@@ -131,8 +116,8 @@ export const drawMethods = {
       vLayer.assign(layer(type));
       if (!shadowOnly) {
         vFade.assign(this._geometryShare(inst, view));
-        vTint.assign(treeTint(inst));
-        vAutumn.assign(autumnOf(this._b(inst).w));
+        vTint.assign(this.look.tint(inst));
+        vAutumn.assign(this.look.cardValue(inst, this._b(inst)));
         vDebug.assign(this._debugColour(inst, c, type));
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         vClip.assign(viewProj.mul(vec4(vx.world, 1)));
@@ -153,7 +138,7 @@ export const drawMethods = {
       if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).bias(mipBias).a, layerI));
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 });
-      const col = barkColour(texture(textures.bark, vUv).depth(layerI).bias(mipBias).rgb);
+      const col = this.look.solidColour(texture(textures.bark, vUv).depth(layerI).bias(mipBias).rgb);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), float(1), float(0)));
       mat.emissiveNode = select(u.debug.equal(4), vDebug, vec3(0));
     } else {
@@ -163,7 +148,7 @@ export const drawMethods = {
       const tex = texture(textures.leaf, vUv).depth(layerI).bias(mipBias);
       // (without MSAA, under TAA: alpha to coverage against a moving dither, see a2cDither)
       const alpha = textures.leafDither ? a2cDither(leafAlpha(tex.a, layerI)) : leafAlpha(tex.a, layerI);
-      const col = leafColour(tex.rgb, layerI, vTint, vAutumn);
+      const col = this.look.cardColour(tex.rgb, layerI, vTint, vAutumn);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)
       mat.normalNode = normalViewGeometry;

@@ -3,7 +3,7 @@
 // select chain (one shader for every type), the per-tree jitter of the level radii and the dithered cross-fade over
 // the bands where a tree goes from one level to the next (or to its impostor).
 import { attribute, float, fract, screenCoordinate, select, sin, dot, uniform, varying, vec2, vec3 } from 'three/tsl';
-import { ditherAt, ditherShift } from '../nanite/shading.ts';
+import { ditherAt, ditherShift } from '../nanite-lib/index.ts';
 import type { Bool, Float, Vec3, Vec4 } from '../types.ts';
 
 export const iA = attribute<'vec4'>('iA', 'vec4'), iB = attribute<'vec4'>('iB', 'vec4');

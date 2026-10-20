@@ -20,7 +20,7 @@ import {
   screenUV, screenSize, abs,
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
-import { ditherShift } from './nanite/shading.ts';
+import { ditherShift } from './nanite-lib/index.ts';
 import type { Float, IVec2, Vec2, Vec3 } from './types.ts';
 
 const halton = (i: number, b: number): number => {
