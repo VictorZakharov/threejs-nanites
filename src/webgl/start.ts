@@ -35,6 +35,8 @@ import type { DemoState } from '../harness-api.ts';
 import type { FloorMaps } from '../ground/floor.ts';
 import type { LayerData } from '../texture-pixels.ts';
 import type { Float } from '../types.ts';
+import { typeMaskMode } from '../type-masks.ts';
+import { debug, DEBUG_MODES } from './debug.ts';
 
 /** The warning's second line (the loading screen's error panel, with a Continue button). */
 export const WEBGL_HINT = 'Nanite Forest is built for WebGPU: Chrome or Edge on desktop and Android, Safari or desktop Firefox where they have it (not Firefox on Android yet). Without it, it can run in a reduced WebGL mode: simpler trees and lighter grass, and it may look different or be slow.';
@@ -146,6 +148,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true, motion: Boolean(out?.taa.enabled),
   });
   demo.grass = grass; // (in the scene after the first frame: below)
+  const typeMasks = typeMaskMode({ renderer, hide: [terrain, grass.group], rays: out?.rays ?? { enabled: false }, fogNear, fogFar });
   lap('Grass');
   await covered;
 
@@ -258,6 +261,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     terrainForAltitude(terrain, altitude);
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
+    typeMasks(debug.value === 4); // (debug 4: src/type-masks.ts)
     if (!out) renderer.getDrawingBufferSize(size);
     const smap = sun.shadow.mapSize.x;
     fitShadowMap(size.x * size.y);
@@ -279,15 +283,15 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
 
   installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update(),
     heightOf: (i) => trees[instances.b[i * 4 + 2]].height * instances.a[i * 4 + 3], taa: out?.taa, rays: out?.rays });
-  // the key help without the keys of what isn't here (debug colours, freeze culling; anti-aliasing and god rays
+  // the key help without the keys of what isn't here (freeze culling; anti-aliasing and god rays
   // without the float target)
-  const absent = out ? ['L', 'F'] : ['T', 'R', 'L', 'F'];
+  const absent = out ? ['F'] : ['T', 'R', 'F'];
   for (const k of [...document.querySelectorAll('#help i')]) if (absent.includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
   const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, output: out?.res.output ?? size, taa: () => Boolean(out?.taa.enabled), adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
-  createMenu({ controls, u: { tau }, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
+  createMenu({ controls, u: { tau, debug }, debugModes: DEBUG_MODES, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);

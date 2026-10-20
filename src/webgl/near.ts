@@ -16,6 +16,7 @@ import { autumnOf } from '../autumn.ts';
 import { isBush, isModel, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { isTouchDevice } from '../touch.ts';
+import { withDebug, setLevel } from './debug.ts';
 import { iA, iB, typeOf, pick, jitterCPU, hashOf, rotY, BAND, across, fadeCode, fadeKeep } from './instanced.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { Float, Vec3 } from '../types.ts';
@@ -88,7 +89,9 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   const barkMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 }); // (as draw.ts)
   barkMat.positionNode = treeVertex(false);
   barkMat.normalNode = normalViewGeometry;
-  barkMat.colorNode = vec4(barkColour(texture(tex.bark, attribute('uv', 'vec2')).depth(pick(tex.barkLayer)).rgb).mul(tint()), keep());
+  const bark = withDebug(barkColour(texture(tex.bark, attribute('uv', 'vec2')).depth(pick(tex.barkLayer)).rgb).mul(tint()), vec3(0));
+  barkMat.colorNode = vec4(bark.colour, keep());
+  barkMat.emissiveNode = bark.emissive;
   barkMat.receivedShadowNode = shading.treeShadow;
   if (shading.taa) barkMat.mrtNode = motion();
   const leafMat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
@@ -99,8 +102,9 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   const col = leafColour(l.rgb, layer, tint(), autumnOf(iB.w));
   // (under TAA alpha to coverage against the moving dither, as draw.ts: a2cDither)
   const alpha = shading.taa && LEAF_DITHER ? a2cDither(leafAlpha(l.a, layer)) : leafAlpha(l.a, layer);
-  leafMat.colorNode = vec4(col, alpha.mul(keep()));
-  setEmissive(leafMat, col.mul(0.12)); // light passing through the leaves (as draw.ts)
+  const leaf = withDebug(col, col.mul(0.12)); // (emissive: light passing through the leaves, as draw.ts)
+  leafMat.colorNode = vec4(leaf.colour, alpha.mul(keep()));
+  setEmissive(leafMat, leaf.emissive);
   leafMat.receivedShadowNode = shading.treeShadow;
   if (shading.taa) leafMat.mrtNode = motion();
 
@@ -130,6 +134,7 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
           mesh.castShadow = mesh.receiveShadow = true;
           mesh.layers.enable(1); // (the shadow camera's layer: lighting.ts)
           mesh.name = `webgl-${kind ? 'leaves' : 'bark'}-${v}-${k}`;
+          setLevel(mesh, k, LEVELS.length);
           group.add(mesh);
         }
         return g;

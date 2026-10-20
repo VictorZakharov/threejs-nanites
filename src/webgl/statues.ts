@@ -6,6 +6,7 @@ import * as THREE from 'three/webgpu';
 import { dagCut } from '../impostors.ts';
 import type { BuiltTree } from '../trees.ts';
 import type { TreeInstances } from '../placement.ts';
+import { setLevel } from './debug.ts';
 
 /** The cuts: her height on screen (px) each is made for, finest first (a statue under the next one's uses the next). */
 const PX = [900, 250, 70];
@@ -18,7 +19,7 @@ export function createWebGLStatues(model: BuiltTree, type: number, inst: TreeIns
   for (let i = first; i < inst.a.length / 4; i++) if (Math.floor(inst.b[i * 4 + 2]) === type) statues.push(i);
   const n = statues.length;
   let shared: Record<string, THREE.BufferAttribute> | null = null; // (every cut indexes the same vertices)
-  const levels = PX.map((px) => {
+  const levels = PX.map((px, k) => {
     const { bark } = dagCut(model, model.height / px);
     shared ??= { position: new THREE.BufferAttribute(bark.pos, 3), normal: new THREE.BufferAttribute(bark.nrm, 3), uv: new THREE.BufferAttribute(bark.uv, 2) };
     const g = new THREE.InstancedBufferGeometry();
@@ -34,6 +35,7 @@ export function createWebGLStatues(model: BuiltTree, type: number, inst: TreeIns
     mesh.castShadow = mesh.receiveShadow = true;
     mesh.layers.enable(1); // (the shadow camera's layer: lighting.ts)
     mesh.name = `webgl-statue-${px}`;
+    setLevel(mesh, k, PX.length);
     group.add(mesh);
     return { g, a, b, tris: bark.idx.length / 3 };
   });

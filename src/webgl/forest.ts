@@ -19,6 +19,7 @@ import { isBush, VARIANTS, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { isTouchDevice } from '../touch.ts';
 import { iA, iB, typeOf, pick, jitter, hashOf, BAND, fadeKeep } from './instanced.ts';
+import { withDebug, setLevel } from './debug.ts';
 import { createNearTrees, NEAR_R, type NearTextures } from './near.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { Float, Vec3 } from '../types.ts';
@@ -150,8 +151,9 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   // (under TAA each pixel drawn with the probability of its coverage against the moving dither, which TAA averages;
   // without, the cut-out by the scaled alpha)
   const alpha = dithered ? select(t.a.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : cutAlpha;
-  impMat.colorNode = vec4(colour, alpha.mul(kept(vCov)));
-  setEmissive(impMat, colour.mul(0.12));
+  const shade = withDebug(colour, colour.mul(0.12));
+  impMat.colorNode = vec4(shade.colour, alpha.mul(kept(vCov)));
+  setEmissive(impMat, shade.emissive);
   impMat.positionNode = quadPosition(false);
   impMat.receivedShadowNode = shading.impShadow;
   impMat.receivedShadowPositionNode = vShadowPos;
@@ -196,6 +198,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
     g.setAttribute('iB', new THREE.InstancedBufferAttribute(B, 4));
     g.instanceCount = l.length;
     const mesh = new THREE.Mesh(g, impMat);
+    setLevel(mesh, 1, 1);
     mesh.frustumCulled = false;
     mesh.receiveShadow = true;
     mesh.name = 'webgl-impostors';
