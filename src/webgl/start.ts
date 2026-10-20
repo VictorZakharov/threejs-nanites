@@ -166,7 +166,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   demo.music = music;
 
   // quality: the resolution (auto.scale of maxPr) and the near trees' detail (`tau`: forest.setDetail), the menu's
-  // presets; auto quality steers the resolution by the frame time (no GPU timers here), down to half over the budget
+  // presets; auto quality steers the resolution by the frame time, down to half over the budget, then the detail
   const budget = Number(params.get('budget') ?? (touch0 ? 33 : 17)); // ms a frame
   const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: scale0, gpuMs: 0, busy: false };
   const tau = { value: 1 };
@@ -185,10 +185,12 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   // or 2 s after a step (a resize is a slow frame itself); up only if the larger size should stay under 85%.
   // A step down is a trial: if it didn't make frames 10% faster (the frame time was the CPU's or the display's, not
   // the pixels'), it goes back and the resolution holds for 30 s (as auto-quality.ts on WebGPU).
-  let detail = tau.value, hold = 3, median = 0, span = 0, times: number[] = [];
-  let trial: { from: number; before: number } | null = null;
+  let detail = tau.value, hold = 3, resHold = 0, detailHold = 0, median = 0, span = 0, times: number[] = [];
+  let trial: { from: number; before: number } | null = null, detailTrial: { from: number; before: number } | null = null;
   const steer = (dt: number): void => {
     if (tau.value !== detail) forest.setDetail((detail = tau.value)); // (the menu, or the [ ] keys)
+    resHold -= dt;
+    detailHold -= dt;
     if ((hold -= dt) > 0) return void ((times = []), (span = 0)); // (the frames held off don't count)
     times.push(dt * 1000);
     if ((span += dt) < 1) return;
@@ -196,20 +198,42 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     auto.frameMs = median;
     times = [];
     span = 0;
-    if (!auto.on) return void (trial = null);
+    if (!auto.on) return void (trial = detailTrial = null);
     const s = auto.scale;
     if (trial) {
       const failed = median > trial.before * 0.9;
       if (failed) auto.trials?.push(`step down saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
       if (failed) ev(`that step saved ${Math.round((1 - median / trial.before) * 100)}%: back, held 30 s`);
-      if (failed) (setScale(trial.from), (hold = 30));
+      if (failed) (setScale(trial.from), (hold = 2), (resHold = 30));
       trial = null;
       if (failed) return;
     }
+    if (detailTrial) { // (likewise: a coarser detail that saved under 5% goes back, held 30 s)
+      const failed = median > detailTrial.before * 0.95;
+      if (failed) ev(`that detail step saved ${Math.round((1 - median / detailTrial.before) * 100)}%: back, held 30 s`);
+      if (failed) (stepDetail(detailTrial.from), (detailHold = 30));
+      detailTrial = null;
+      if (failed) return;
+    }
+    // at half the resolution (or with it held: its last step saved too little) and still over, the near trees'
+    // detail (tau: their radii x 1 / sqrt(tau)), up to maxTau; coming back, the detail first (the reverse order)
+    const over = median > budget * 1.15;
+    if ((s <= 0.501 || resHold > 0) && over && tau.value < auto.maxTau && detailHold <= 0) {
+      detailTrial = { from: tau.value, before: median };
+      return void stepDetail(Math.min(auto.maxTau, tau.value * 1.5));
+    }
+    if (tau.value > 1 && median < budget * 0.6 && detailHold <= 0) return void stepDetail(Math.max(1, tau.value / 1.5));
+    if (resHold > 0) return;
     const down = median > budget * 1.15 ? Math.max(0.5, s * 0.85) : s;
     const up = Math.min(1, s * 1.1), upCost = median * (up / s) ** 2; // (the cost goes with the pixels)
-    const next = down < s ? down : median < budget * 0.7 && upCost < budget * 0.85 ? up : s;
+    const next = down < s ? down : median < budget * 0.7 && upCost < budget * 0.85 && tau.value <= 1 ? up : s;
     if (Math.abs(next - s) > 0.01) (next < s && (trial = { from: s, before: median }), setScale(next), (hold = 2));
+  };
+  const stepDetail = (t: number): void => {
+    auto.trials?.push(`${(performance.now() / 1000).toFixed(2)} s: detail ${tau.value.toFixed(2)} -> ${t.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
+    ev(`detail ${tau.value.toFixed(2)} -> ${t.toFixed(2)} (median frame ${median.toFixed(1)} ms)`);
+    tau.value = t; // (steer applies it next frame: forest.setDetail)
+    hold = 2;
   };
   // shadows off: no pass and no light lost (switching the shadow map off would recompile every shader)
   let shadowsOn = renderer.shadowMap.enabled;
