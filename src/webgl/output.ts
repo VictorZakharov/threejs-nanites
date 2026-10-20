@@ -27,6 +27,8 @@ export interface WebGLOutput {
   readonly res: Resolution;
   /** The scene's pixels (what the culling and the impostors' sizes go by). */
   readonly size: THREE.Vector2;
+  /** Whether the scene target has the wind's motion (the trees' and the grass's materials write it then). */
+  readonly wind: boolean;
   /** Before anything is culled: this frame's sub-pixel jitter (and the dither's shift), the textures' mip bias. */
   begin(camera: THREE.PerspectiveCamera): void;
   /** The scene into its target, the god rays, the TAA resolve, the output pass. */
@@ -36,13 +38,18 @@ export interface WebGLOutput {
 }
 
 export function createWebGLOutput(renderer: THREE.WebGPURenderer, camera: THREE.PerspectiveCamera, sunDir: THREE.Vector3, params: URLSearchParams): WebGLOutput {
-  // (samples 0: WebGL's backend takes 1 as multisampled, and blitting its depth failed)
-  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 0, depthBuffer: true, count: 2 });
+  // (samples 0: WebGL's backend takes 1 as multisampled, and blitting its depth failed). One output: no wind motion
+  // for the TAA (WebGPU's second target, the trees' sway on screen; here under ~1 px a frame near, so the swaying
+  // leaves only soften a little). With it every program wrote two outputs, and ANGLE (Chrome / Edge on Windows)
+  // built each again at its first draw in the GPU process, though compiled ahead: the forest floor coming in froze the
+  // view ~1.4 s, the grass ~0.3 s, the first frame ~1 s; and the second target cost ~1 ms GPU (?glwind=1: as before).
+  const WIND = params.get('glwind') === '1';
+  const sceneRT = new THREE.RenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 0, depthBuffer: true, count: WIND ? 2 : 1 });
   sceneRT.textures[0].name = 'output';
-  sceneRT.textures[1].name = 'wind';
+  if (WIND) sceneRT.textures[1].name = 'wind';
   sceneRT.depthTexture = new THREE.DepthTexture(1, 1, THREE.FloatType);
-  const sceneMRT = mrt({ output: colourOutput, wind: vec4(0) }); // (still everywhere but the trees and the grass)
-  sceneMRT.setClearColor('wind', 0x000000, 0);
+  const sceneMRT = WIND ? mrt({ output: colourOutput, wind: vec4(0) }) : null; // (still everywhere but the trees and the grass)
+  sceneMRT?.setClearColor('wind', 0x000000, 0);
   // light shafts through the canopy (R or ?rays=0), added to the scene in the TAA resolve
   const rays = new GodRays(renderer, sceneRT.depthTexture, sunDir, { enabled: params.get('rays') !== '0' });
   const taa = new TAA(renderer, sceneRT, 1, { enabled: params.get('taa') !== '0', extra: rays.at });
@@ -51,7 +58,7 @@ export function createWebGLOutput(renderer: THREE.WebGPURenderer, camera: THREE.
   const res = createResolution(renderer, camera, sceneRT, params);
   res.fit();
   return {
-    taa, rays, res, size: res.render,
+    taa, rays, res, size: res.render, wind: WIND,
     begin(cam) {
       res.fit();
       taa.jitter(cam, res.render.x, res.render.y);

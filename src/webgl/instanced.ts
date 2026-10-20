@@ -33,14 +33,10 @@ export const rotY = (v: Vec3, b: Vec4): Vec3 => vec3(v.x.mul(b.x).sub(v.z.mul(b.
 
 /** The cross-fade band round each level's radius R: R x (1 +- BAND) (?glband=, 0: none, popping). */
 export const BAND = Number(new URLSearchParams(location.search).get('glband') ?? 0.06);
-/** How far across the band at radius R a tree at distance d is (0 inside, 1 past it). */
-export const across = (d: number, R: number): number => (BAND <= 0 ? (d < R ? 0 : 1) : Math.min(1, Math.max(0, (d - R * (1 - BAND)) / (2 * BAND * R))));
 /**
- * A near copy's cross-fade, in iB.z's fraction: 0 drawn whole; `out` (the level it leaves, in the band at its outer
- * radius) where the dither is over t, else (the one it enters) where it's under t: the two copies split the pixels.
+ * An impostor's share of the last band, `code` 0.3 + 0.2 t (t: how far across it): it keeps the pixels where the
+ * dither is under t, the last near level the rest (near.ts). 0 or under 0.01: drawn whole.
  */
-export const fadeCode = (t: number, out: boolean): number => (out ? 0.05 + 0.2 * t : 0.3 + 0.2 * t);
-/** Whether this pixel of the copy is drawn (fragment stage; `code` the fraction, read in the vertex stage). */
 export function fadeKeep(code: Float): Bool {
   const out = code.lessThan(0.275), t = select(out, code.sub(0.05), code.sub(0.3)).div(0.2);
   const d = dither();

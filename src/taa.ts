@@ -135,7 +135,7 @@ export class TAA {
     this.displayNode = t.div(t.oneMinus());
     // (?taadebug=1: shows the trees' wind motion instead, x red / y green, x200)
     if (params.get('taadebug') === '2') this.displayNode = this.outputTex.rgb;
-    if (params.get('taadebug') === '1') this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenUV.mul(this.u.renderSize))).xyz).mul(200);
+    if (params.get('taadebug') === '1' && sceneRT.textures[1]) this.displayNode = abs(textureLoad(sceneRT.textures[1], ivec2(screenUV.mul(this.u.renderSize))).xyz).mul(200);
   }
 
   _resolveNode(sceneRT: THREE.RenderTarget, samples: number) {
@@ -181,7 +181,10 @@ export class TAA {
       // the CPU in double precision (rebuilding the world position in float32 from a depth near 1 was off by up to
       // half a pixel with the camera standing still: 3 km away through the 5x zoom, every frame blurred the
       // history and the clipping then thinned the distant crowns)
-      const ndc = vec4(screenUV.x.mul(2).sub(1), screenUV.y.mul(-2).add(1), zMin, 1);
+      // (WebGL's clip space has z in -1..1, the depth buffer 0..1: the WebGL mode's reprojection was off by the
+      // depth wherever the camera moved, and the view from 150 m flickered ~35x more than WebGPU's: plazahigh --dolly)
+      const zNdc = this.renderer.coordinateSystem === THREE.WebGLCoordinateSystem ? zMin.mul(2).sub(1) : zMin;
+      const ndc = vec4(screenUV.x.mul(2).sub(1), screenUV.y.mul(-2).add(1), zNdc, 1);
       const w4 = u.invViewProj.mul(ndc);
       const world = w4.xyz.div(w4.w);
       const drop = (pos: Vec3, v: Vec3): Float => {
@@ -194,7 +197,7 @@ export class TAA {
       const prevClip = u.reproject.mul(ndc).add(u.prevViewProj.mul(vec4(0, lift, 0, 0)));
       // (minus the trees' own motion in the wind: depth only knows where the scenery was)
       const prevUv = vec2(prevClip.x.div(prevClip.w).mul(0.5).add(0.5), prevClip.y.div(prevClip.w).mul(-0.5).add(0.5))
-        .sub(textureLoad(wind, p).xy);
+        .sub(wind ? textureLoad(wind, p).xy : vec2(0)); // (none in the WebGL mode: src/webgl/output.ts)
       const onScreen = prevUv.x.greaterThanEqual(0).and(prevUv.x.lessThanEqual(1)).and(prevUv.y.greaterThanEqual(0)).and(prevUv.y.lessThanEqual(1));
       // history, clipped towards the mean into the box (clipping, not clamping: no colour shift at the box corners)
       const hist = toYCoCg(enc(this._catmullRom(prevUv)));

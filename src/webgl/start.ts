@@ -133,6 +133,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     impShadow: asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))))),
     wind: windU,
     taa: Boolean(out?.taa.enabled),
+    motion: Boolean(out?.wind),
     sunDir,
   });
   scene.add(forest.group);
@@ -146,7 +147,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   // grass round the viewer (src/grass.ts: the keep test in the vertex shader, fewer blades than on WebGPU)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: o.terrainSize, segments: TERRAIN_SEGMENTS,
-    cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true, motion: Boolean(out?.taa.enabled),
+    cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true, motion: Boolean(out?.wind),
   });
   demo.grass = grass; // (in the scene after the first frame: below)
   const typeMasks = typeMaskMode({ renderer, hide: [terrain, grass.group], rays: out?.rays ?? { enabled: false }, fogNear, fogFar });
@@ -330,7 +331,27 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
   out?.bind(); // (the programs depend on the target's outputs: compiled for the scene's, which it keeps between frames)
+  // the forest floor and the grass after the first frame (their compiles ~1.8 and ~1.7 s on the dev machine), the
+  // plain ground till then; ?glearly=1: compiled alongside and drawn in the first frame
+  const late = params.get('glearly') !== '1';
+  let tg = performance.now();
+  const proxy = new THREE.Mesh(nearGround.geometry, floorMat);
+  proxy.receiveShadow = true;
+  const since = (): string => (late ? `${Math.round(performance.now() - tg)} ms after the first frame` : `${Math.round(performance.now() - tg)} ms into the compiles`);
+  const floorLater = (): Promise<void> => (params.get('glfloor') === '0' ? Promise.resolve() : Promise.all([o.floorMaps.ready, renderer.compileAsync(proxy, camera, scene)]).then(() => {
+    nearGround.material = floorMat;
+    ui.note(`Forest floor in, ${since()}`);
+    ev('forest floor in (the plain ground before)');
+  }));
+  // (?glgrass=0: no grass)
+  const grassLater = (): Promise<void> => (params.get('glgrass') === '0' ? Promise.resolve() : renderer.compileAsync(grass.group, camera, scene).then(() => {
+    scene.add(grass.group);
+    ui.note(`Grass in, ${since()}`);
+    ev('grass in');
+  }));
+  const early = late ? null : [floorLater(), grassLater()];
   await renderer.compileAsync(scene, camera).catch((e) => ui.note(`compileAsync: ${e}`));
+  if (early) await Promise.all(early).catch((e) => ui.note(`Floor or grass: ${e}`));
   terrainForAltitude(terrain, 0);
   lap('Compiled');
   frame(0);
@@ -339,22 +360,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   shownAt = performance.now();
   ev(`shown: ${size.x}x${size.y}, resolution ${Math.round(auto.scale * 100)}%, shadow map ${sun.shadow.mapSize.x}`);
   if (hud.perf) hud.perf.extra = () => ['startup (s from the reveal: resolution steps, resizes, slow frames)', ...events.map((e) => `  ${e}`)].join('\n');
-  // the forest floor after the first frame, its shader compiled meanwhile (~1.8 s of the dev machine's on its own):
-  // till then the plain ground from high up (?glfloor=0: for good)
-  const tg = performance.now();
-  const proxy = new THREE.Mesh(nearGround.geometry, floorMat);
-  proxy.receiveShadow = true;
-  const floorIn = params.get('glfloor') === '0' ? Promise.resolve() : Promise.all([o.floorMaps.ready, renderer.compileAsync(proxy, camera, scene)]).then(() => {
-    nearGround.material = floorMat;
-    ui.note(`Forest floor in, ${Math.round(performance.now() - tg)} ms after the first frame`);
-    ev('forest floor in (the plain ground before)');
-  });
-  // the grass too (~1.7 s of compiles on the dev machine; ?glgrass=0: none)
-  const grassIn = params.get('glgrass') === '0' ? Promise.resolve() : renderer.compileAsync(grass.group, camera, scene).then(() => {
-    scene.add(grass.group);
-    ui.note(`Grass in, ${Math.round(performance.now() - tg)} ms after the first frame`);
-    ev('grass in');
-  });
+  if (late) tg = performance.now();
+  const floorIn = early ? early[0] : floorLater(), grassIn = early ? early[1] : grassLater();
   // (?startloop=1 under the harness: the page's own first 10 s, the floor coming in meanwhile, as a person sees them)
   const startLoop = harness && params.get('startloop') === '1';
   if (harness && !startLoop) await Promise.all([floorIn, grassIn, statuesIn]);
