@@ -4,7 +4,7 @@
 // 16 bits, and its cluster DAG (src/dag-build.ts) built here at --height (metres, the variant's: the LOD errors are
 // in metres), all meshopt-compressed. The site only decodes it (src/models.ts); the file is read back to check.
 //
-//   node tools/nanite-model.ts <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z]
+//   node tools/nanite-model.ts <in.ply> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
@@ -17,7 +17,7 @@ const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const input = process.argv[2];
 if (!input || !args.name) {
-  console.log('usage: node tools/nanite-model.ts <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z]');
+  console.log('usage: node tools/nanite-model.ts <in.ply> --name=NAME [--tris=1000000] [--height=1] [--up=z] [--attr=1,1]');
   process.exit(1);
 }
 const target = Number(args.tris ?? 1e6);
@@ -198,7 +198,10 @@ const { buildDag } = await import('../src/dag-build.ts');
 const { dequantize, decodeModel } = await import('../src/models.ts');
 const height = Number(args.height ?? 1);
 const src = modelSource(dequantize(q, unique, lo, hi), idx, height);
-const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves });
+// --attr=n,uv: the simplifier's normal and uv weights x these (src/dag-build.ts BARK_WEIGHTS): heavier normals switch
+// later, so the shading jumps less at each switch, for more triangles
+const attr = (args.attr ?? '1,1').split(',').map(Number) as [number, number];
+const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves, barkAttr: attr });
 const clusters = dag.meta.length / 4;
 log(`DAG at ${height} m: ${clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);
 const bytes = (a: ArrayBufferView): Uint8Array => new Uint8Array(a.buffer, a.byteOffset, a.byteLength);
@@ -207,7 +210,7 @@ const rb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.rec), clusters, 64);
 const mb = MeshoptEncoder.encodeVertexBuffer(bytes(dag.meta), clusters, 16);
 const head = Buffer.from(JSON.stringify({
   format: 'nanite-model 2', vertices: unique, lo, hi, height, vertexBytes: vb.length, indices: dag.idx.length, indexBytes: ib.length,
-  clusters, recBytes: rb.length, metaBytes: mb.length, stats: dag.stats, source: args.source ?? '',
+  clusters, recBytes: rb.length, metaBytes: mb.length, stats: dag.stats, attr, source: args.source ?? '',
 }));
 const pad = (4 - (head.length % 4)) % 4;
 const file = Buffer.concat([Buffer.from(new Uint32Array([head.length + pad]).buffer), head, Buffer.alloc(pad, 32), ...[vb, ib, rb, mb].map((b) => Buffer.from(b))]);

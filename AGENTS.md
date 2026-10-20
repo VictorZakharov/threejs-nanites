@@ -452,14 +452,25 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   rule: each switch moves the image by at most tau; `?barkerr=sum` for the old sum, meshoptimizer's demo, the drift
   from full detail): the sum kept far trees' bark levels too fine (a 30 px oak: 2900 bark triangles, now ~350;
   `--probe=lodcut`), 35M software triangles at the user's zoomed spot (now 9M), with the same popping; -0.3..1 ms
-  on every view. Lucy's `.nm` too (issue #20; `npm run model -- lucy.ply --name=lucy --tris=1000000 --height=4`, the
-  scan in `tools/tmp/models/`, with the normals fixed, Models above): the same mesh and size, her cut about half
-  and far less far off (`lodcut` at tau 1: 400 px 110k -> 53k triangles, 100 px 35k -> 18k, 10 px 7.3k -> 252;
-  WebGL's 900 / 250 / 70 px cuts 197k / 64k / 24k -> 99k / 34k / 15k; her root's error 2.4 -> 0.43 m: the zero
-  normals had inflated the coarse levels' attribute error). Frames on `plaza` -0.2M triangles, -86k shadow,
-  `plazatop` -108k software; GPU time, load and images the same (means within 0.1/255, up close indistinguishable).
-  Her `--sweep=lod` (`taa=0`) jumps more, `statue` 688 -> 830 (worst 35 -> 42/255), `plaza` 139 -> 262 (23 -> 28),
-  but `--dolly` with TAA is unchanged (`plaza` 61103 -> 61083, before the normals fix).
+  on every view. Lucy's `.nm` too (issue #20; `npm run model -- lucy.ply --name=lucy --tris=1000000 --height=4
+  --attr=2,1`, the scan in `tools/tmp/models/`, with the normals fixed, Models above). `--attr` scales the
+  simplifier's normal / uv weights (the file's header keeps it): the max rule at weight 1 halved her cut but popped
+  more than the sum had; by the normals' weight, `--sweep=lod` (`taa=0`) jumps on `statue` / `plaza` and the `lodcut`
+  at tau 1 for 400 / 100 / 10 px:
+
+  | file | statue (worst /255) | plaza (worst) | triangles |
+  |---|---|---|---|
+  | sum, weight 1 (before #20) | 688 (35) | 139 (23) | 110k / 35k / 7.3k |
+  | max, 1 | 830 (42) | 262 (28) | 53k / 18k / 252 |
+  | max, 2 (shipped) | 676 (34) | 161 (20) | 86k / 28k / 1.5k |
+  | max, 3 | 666 (34) | 119 (25) | 121k / 35k / 7.9k |
+  | max, 4 | 586 (34) | 76 (17) | 164k / 45k / 11.6k |
+  | max, 8 | 515 (34) | 29 (17) | 316k / 76k / 16.5k |
+
+  At 2: WebGL's 900 / 250 / 70 px cuts 197k / 64k / 24k -> 180k / 52k / 21k; `plaza` 2.49M -> 2.42M triangles,
+  `plazatop` 240k -> 233k software; GPU time, load and images the same as the sum's (means within 0.1/255). Her
+  root's error with the zero normals (Models above) was 2.4 m with the sum, 0.8 with max; they had inflated the
+  coarse levels' attribute error. `--dolly` with TAA didn't tell weight 1 from the sum (`plaza` 61103 / 61083).
 - Leaf PNGs have white RGB under transparent texels; `fillTransparent` (`texture-pixels.ts`, in the texture worker) replaces it with
   the average leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
