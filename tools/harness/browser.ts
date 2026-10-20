@@ -111,6 +111,15 @@ export async function openPage(
     seen.add(key);
     if (m.type() === 'error' || m.type() === 'warning' || verbose) console.log('  page' + line.slice(0, 1500));
   });
+  // (a worker whose script didn't arrive fails with a message-less error: these name the file)
+  const netFail = (line: string): void => {
+    logs.push(line);
+    console.log('  page' + line);
+  };
+  page.on('requestfailed', (r) => netFail(`[requestfailed] ${r.url()}: ${r.failure()?.errorText ?? '?'}`));
+  page.on('response', (r) => {
+    if (r.status() >= 400) netFail(`[http ${r.status()}] ${r.url()}`);
+  });
   page.on('pageerror', (e) => {
     logs.push('[pageerror] ' + e.message);
     console.log('  [pageerror] ' + e.stack);

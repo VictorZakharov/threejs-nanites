@@ -8,6 +8,7 @@ import { AUTUMN } from './autumn.ts';
 import type { CoverJob } from './cover.ts';
 import { clearingAt, densityFor, forestTiles, tryBush, tryTree, type PlantConfig, type TilePlants } from './planting.ts';
 import type { PlantReply, PlantRequest } from './plant-worker.ts';
+import { workerError } from './worker-error.ts';
 
 const params = new URLSearchParams(location.search);
 
@@ -54,7 +55,7 @@ export function forestDensity({ a, b, trees }: TreeInstances, map: CoverMap): Pr
       map.texture.needsUpdate = true;
       resolve();
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => reject(workerError('cover-worker', e));
     w.postMessage(job, [job.a.buffer, job.b.buffer]);
   });
 }
@@ -104,7 +105,7 @@ export async function plantForest(count: number): Promise<TreeInstances> {
         else resolve();
       }
     };
-    worker.onerror = (e) => reject(new Error(e.message));
+    worker.onerror = (e) => reject(workerError(`plant-worker ${w + 1}/${nWorkers}`, e));
     worker.postMessage({ cfg, tiles: tiles.filter((_, k) => k % nWorkers === w) } satisfies PlantRequest);
   })));
 

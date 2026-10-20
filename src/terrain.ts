@@ -3,6 +3,7 @@ import { attribute, mix, vec3, vec4, positionWorld, positionLocal, float, mx_noi
 import type { Float, Vec2, Vec3 } from './types.ts';
 import { curve } from './planet.ts';
 import { fbm, heightAt } from './noise.ts';
+import { workerError } from './worker-error.ts';
 
 // (the noise and the height live in noise.ts: plain TypeScript, shared with the planting workers)
 export { fbm, heightAt };
@@ -38,7 +39,7 @@ function terrainGeometry(size: number, seg: number, lowerInside = 0, detail = fa
       geo.boundingSphere = new THREE.Sphere(new THREE.Vector3(d.sphere[0], d.sphere[1], d.sphere[2]), d.sphere[3]);
       resolve({ geo, texels: d.texels });
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => reject(workerError(`terrain-worker (${seg} cells over ${size} m)`, e));
     const job: GridJob = { size, seg, lowerInside, detail };
     w.postMessage(job);
   });

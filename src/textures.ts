@@ -3,6 +3,7 @@ import * as THREE from 'three/webgpu';
 import { float, select, uint } from 'three/tsl';
 import type { Float, Uint } from './types.ts';
 import type { LayerData, LayerJob } from './texture-pixels.ts';
+import { workerError } from './worker-error.ts';
 
 /** Starts loading one layer in a worker (texture-worker.ts): `url` relative to the page, or 'stone' (stone.ts). */
 export function loadLayer(url: string, size: number, leaf = false): Promise<LayerData> {
@@ -13,7 +14,7 @@ export function loadLayer(url: string, size: number, leaf = false): Promise<Laye
       if ('error' in e.data) reject(new Error(e.data.error));
       else resolve(e.data);
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => reject(workerError(`texture-worker (${url})`, e));
     const job: LayerJob = { url: url === 'stone' ? url : new URL(url, document.baseURI).href, size, leaf };
     w.postMessage(job);
   });

@@ -5,6 +5,7 @@
 import { MeshoptDecoder } from 'meshoptimizer';
 import { modelSource, type ModelSource } from './model-source.ts';
 import type { DagResult, DagStats } from './dag-types.ts';
+import { workerError } from './worker-error.ts';
 
 export interface ModelHeader {
   format: string;
@@ -104,8 +105,9 @@ export function loadModel(url: string, height: number): { header: Promise<ModelH
       } else resolve(e.data);
     };
     w.onerror = (e) => {
-      fail(new Error(e.message));
-      reject(new Error(e.message));
+      const err = workerError(`model-worker (${url})`, e);
+      fail(err);
+      reject(err);
     };
     w.postMessage({ url: new URL(url, document.baseURI).href, height });
   });
