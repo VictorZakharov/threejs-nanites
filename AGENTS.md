@@ -270,11 +270,17 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   queues behind them. Starting the terrain's compile before its grids (a stand-in geometry) finished no earlier.
   `--probe=nodebuild` times each material's compile and the main thread's share (small: it's the GPU process).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
-  reads a PLY, stands it up (longest axis, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
+  reads a PLY, glTF / GLB or OBJ by its extension (issue #19; the readers are `tools/model-input/`, no new
+  dependencies: a glTF's meshes merged with their node transforms, mirrored ones' winding turned, meshopt-compressed
+  and quantized buffers read, Draco refused; an OBJ's faces by their `v` positions; materials ignored), stands it up
+  (longest axis, a glTF's y, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
   are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2;
-  the encoding is the library's `nanite-lib/model/encode.ts`, the tool reads the PLY and writes the file), then
-  decodes the file as the site does and checks it matches. `nanite-lib/model/decode.ts` only decodes (in its
+  the encoding is the library's `nanite-lib/model/encode.ts`, the tool reads the mesh and writes the file), then
+  decodes the file as the site does and checks it matches. glTF and OBJ split vertices at uv / normal seams and
+  between meshes: the readers weld equal positions (`generatePositionRemap`), or the simplifier opens the seams as
+  cracks; PLY is read as it was (Lucy's file comes out the same, but for the header's build time). The tool imports
+  the model modules directly: the library's `index.ts` pulls in GPU code that reads `location`. `nanite-lib/model/decode.ts` only decodes (in its
   `model-worker.ts`; no DAG build at load:
   one file for every device; phones had a 20k-tri copy because of the 3 s build, the user asked why two). The DAG's
   vertices are the model's own, so `nanite-lib/model/source.ts` rebuilds normals (summed in doubles: order-independent) and

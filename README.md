@@ -168,8 +168,8 @@ breakdown to it.
 All of a stage's compute dispatches run in one compute pass. Each shader binds at most 8 storage buffers (WebGPU's
 guaranteed minimum; a Mac allowed no more).
 
-**Any mesh:** `npm run model -- scan.ply --name=NAME --tris=1000000 --height=4`:
-- Stands a PLY up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
+**Any mesh:** `npm run model -- scan.ply --name=NAME --tris=1000000 --height=4` (PLY, glTF / GLB or OBJ):
+- Stands the mesh up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
   (`public/models/NAME.nm`; the site only decodes it).
 - A variant with `model: 'models/NAME.nm'` (`src/trees.ts`) then gets cluster LOD, shadows and occlusion like a tree.
 - The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 6.5 MB file with
