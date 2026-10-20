@@ -37,6 +37,7 @@ import type { LayerData } from '../texture-pixels.ts';
 import type { Float } from '../types.ts';
 import { typeMaskMode } from '../type-masks.ts';
 import { debug, DEBUG_MODES } from './debug.ts';
+import { runProfile, type ProfileProgress } from '../profile.ts';
 
 /** The warning's second line (the loading screen's error panel, with a Continue button). */
 export const WEBGL_HINT = 'Nanite Forest is built for WebGPU: Chrome or Edge on desktop and Android, Safari or desktop Firefox where they have it (not Firefox on Android yet). Without it, it can run in a reduced WebGL mode: simpler trees and lighter grass, and it may look different or be slow.';
@@ -291,7 +292,16 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, output: out?.res.output ?? size, taa: () => Boolean(out?.taa.enabled), adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
-  createMenu({ controls, u: { tau, debug }, debugModes: DEBUG_MODES, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
+  // GPU profile (src/profile.ts: the steps there are here), from the menu; demo.profile() for the harness
+  const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
+    {
+      auto, trees: forest.group, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, terrain: [terrain, sky],
+      shadowsOn: () => shadowsOn, setShadows, setScale, upscale: out ? { on: () => out.res.upscale, set: (v) => out.res.setUpscale(v) } : undefined,
+    },
+    (label, i, n, left) => (hud.perf?.status(`PROFILING ${i + 1}/${n}: ${label.toUpperCase()}`), progress?.(label, i, n, left)),
+  );
+  demo.profile = profile;
+  createMenu({ controls, u: { tau, debug }, debugModes: DEBUG_MODES, profile: timed ? profile : undefined, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
@@ -333,6 +343,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
       auto.busy = false;
       if (r === undefined || !(r > 0)) return;
       auto.gpuMs = auto.renderMs = auto.gpuMs ? auto.gpuMs * 0.9 + r * 0.1 : r;
+      auto.onSample?.(r, 0); // (the GPU profile's raw samples)
     });
   };
   let prev = performance.now();
@@ -353,6 +364,14 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     renderer.setAnimationLoop(null);
   }
   demo.loopTest = (ms: number, on = true) => runLoop(renderer, auto, loop, ms, on, () => drawnWidth);
+  demo.withLoop = async <T>(run: () => Promise<T>): Promise<T> => {
+    renderer.setAnimationLoop(loop);
+    try {
+      return await run();
+    } finally {
+      renderer.setAnimationLoop(null);
+    }
+  };
   hud.update();
   demo.ready = true;
 }
