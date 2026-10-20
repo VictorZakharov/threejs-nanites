@@ -6,12 +6,13 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, cameraPosition, cameraViewMatrix, clamp, cross, float, fract, mix, normalize, select, sin, smoothstep, texture,
-  uniform, varying, vec2, vec3, vec4, vertexIndex, asin, cos, max, length,
+  uniform, varying, vec2, vec3, vec4, vertexIndex, asin, cos, max, length, screenCoordinate,
 } from 'three/tsl';
 import { curve, dropAtCPU } from '../planet.ts';
 import { heightAt } from '../terrain.ts';
 import { ELEVATIONS, atlasLayout, IMPOSTOR_CUT, type ImpostorAtlas } from '../impostors.ts';
-import { GROW } from '../nanite/billboards.ts';
+import { GROW, IMP_DITHER, IMP_COV } from '../nanite/billboards.ts';
+import { ditherAlt } from '../nanite/shading.ts';
 import { autumnOf, autumnColour } from '../autumn.ts';
 import { isBush, VARIANTS, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';
@@ -32,7 +33,8 @@ const deg = Math.PI / 180;
 /** `treeShadow`: the trees' received shadow (lighting.ts makeFadeShadow); `impShadow` the impostors'. */
 export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: NearTextures, atlas: ImpostorAtlas, shading: {
   treeShadow: () => THREE.Node; impShadow: () => THREE.Node;
-  wind: { time: THREE.UniformNode<'float', number>; wind: THREE.UniformNode<'float', number> }; // (the clock, the switch)
+  wind: { time: THREE.UniformNode<'float', number>; prevTime: THREE.UniformNode<'float', number>; wind: THREE.UniformNode<'float', number> };
+  taa: boolean; // (under TAA: alpha by coverage against the moving dither, as billboards.ts IMP_DITHER)
 }) {
   const group = new THREE.Group();
   group.name = 'webgl-forest';
@@ -90,7 +92,8 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
     const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(hh)));
     return select(show, curve(p), vec3(0));
   })();
-  const impMat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
+  const dithered = shading.taa && IMP_DITHER;
+  const impMat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: dithered ? 0.5 : IMPOSTOR_CUT });
   const row = vTile.div(cols).floor(), col = vTile.sub(row.mul(cols));
   const uv = vUv.add(vec2(col, row)).div(vec2(cols, rows));
   const t = texture(atlas.texture, uv), nt = texture(atlas.normals, uv).xyz;
@@ -100,8 +103,10 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   const gain = mix(pick3(VARIANTS.map((v) => v.impGain.side)), pick3(VARIANTS.map((v) => v.impGain.top)), vElev.div(90));
   const green = t.rgb.div(max(t.a, 1e-3)).mul(vec3(vTint.mul(0.92), vTint, vTint.mul(0.8))).mul(gain);
   const colour = autumnColour(green, vAutumn, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b))));
-  // (the alpha a little fuller from afar: the far mips' leaves are averaged into a haze the cut-out would thin)
-  impMat.colorNode = vec4(colour, t.a.mul(1.25).mul(select(fadeKeep(vCode), float(1), float(0))));
+  // (under TAA each pixel drawn with the probability of its coverage against the moving dither, which TAA averages;
+  // without, the cut-out, a little fuller from afar: the far mips' leaves are averaged into a haze it would thin)
+  const alpha = dithered ? select(t.a.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : t.a.mul(1.25);
+  impMat.colorNode = vec4(colour, alpha.mul(select(fadeKeep(vCode), float(1), float(0))));
   setEmissive(impMat, colour.mul(0.12));
   impMat.positionNode = impPosition;
   impMat.receivedShadowNode = shading.impShadow;

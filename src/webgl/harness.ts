@@ -20,7 +20,9 @@ interface WebGLHarnessContext {
   size: THREE.Vector2;
   tris(): number;
   updateHud(): void;
-  heightOf(i: number): number; // (instance i's height, m: the `lone` views) // (the scene details in screenshots: as this frame)
+  heightOf(i: number): number;
+  taa?: unknown; // (the output's TAA and god rays: --probe=cost switches them)
+  rays?: unknown; // (instance i's height, m: the `lone` views) // (the scene details in screenshots: as this frame)
 }
 
 export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): void {
@@ -28,7 +30,7 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
   const gl = (renderer.backend as unknown as { gl: WebGL2RenderingContext }).gl;
   const finish = (): void => gl.finish();
   Object.assign(demo, {
-    renderer, scene: ctx.scene, camera, controls, instances, webgl: true,
+    renderer, scene: ctx.scene, camera, controls, instances, webgl: true, taa: ctx.taa, rays: ctx.rays,
     info: () => ({ backend: 'WebGL 2', output: `${size.x}x${size.y}`, trees: instances.a.length / 4, ...forest.stats() }),
     setView(v: HarnessView) {
       const all = instances.a.length / 4;

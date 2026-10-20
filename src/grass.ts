@@ -55,8 +55,10 @@ export interface GrassContext {
   renderer: THREE.WebGPURenderer; // (the keep passes)
   /** No compute (the WebGL mode, src/webgl/): every cell of the tiles in view is drawn, its keep test in the vertex
    * shader and the dropped blades collapsed onto their root (the vertex invocations cost, kept or not: hence fewer
-   * blades there); no motion vectors (no TAA). */
+   * blades there). */
   webgl?: boolean;
+  /** The blades' wind motion for the TAA resolve (default: on WebGPU; the WebGL mode's when it has TAA). */
+  motion?: boolean;
 }
 
 /** Where the outermost ring's blades turn to the ground's colour (and the ground's darkening under them fades):
@@ -105,6 +107,7 @@ export function createGrass(ctx: GrassContext) {
   if (!(scale > 0)) return { group, update() {}, async stats() { return []; } };
   const webgl = Boolean(ctx.webgl);
   const dense = denseOf(webgl);
+  const motion = ctx.motion ?? !webgl;
 
   // terrain heights as a float texture: the terrain mesh's vertices, read back exactly
   const n = ctx.segments + 1;
@@ -190,7 +193,7 @@ export function createGrass(ctx: GrassContext) {
       const seen = face.mul(sign(face.dot(viewerPos.sub(base.add(local)))));
       vLight.assign(vec2(clamp(seen.dot(sunDir).negate(), 0, 1).mul(f.through), f.rootDark));
       vColour.assign(f.tip);
-      if (!webgl) { // (the TAA's motion vectors)
+      if (motion) { // (the TAA's motion vectors)
         const prevWorld = curve(base.add(local).add(windAt(u.prevTime)));
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         vClip.assign(viewProj.mul(vec4(world, 1)));
@@ -213,9 +216,9 @@ export function createGrass(ctx: GrassContext) {
     mat.colorNode = mix(body.mul(edge).add(rib.mul(0.12)), vec3(0.45, 0.4, 0.2), dryTip);
     mat.normalNode = normalViewGeometry; // (keep the up-bent normal on both faces: the default flips it on the back)
     mat.receivedShadowNode = ctx.receivedShadow as typeof mat.receivedShadowNode;
-    if (!webgl) {
-      const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
-      mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
+    if (motion) {
+      const mv = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
+      mat.mrtNode = mrt({ wind: vec4(mv, 0, 1) });
     }
     const geo = bladeGeometry(ring.segs, webgl);
     if (!webgl) geo.setIndirect(counters.attr, k * ARGS * 4); // (byte offset: the keep pass counts the blades)

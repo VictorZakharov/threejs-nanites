@@ -16,7 +16,9 @@ interface WebGLHudContext {
   forest: ReturnType<typeof createWebGLForest>;
   auto: AutoQuality;
   tau: { value: number };
-  size: THREE.Vector2; // (the drawing buffer's)
+  size: THREE.Vector2; // (the scene's pixels)
+  output: THREE.Vector2; // (the canvas's: the same without the TAA's upscaling)
+  taa(): boolean;
   adapterName: string;
   harness: boolean;
   shadowsOn(): boolean;
@@ -35,7 +37,7 @@ export function createWebGLHud(ctx: WebGLHudContext) {
     return {
       gpu: { render: auto.gpuMs, compute: 0, total: auto.gpuMs, budget: auto.budget }, // (0 without timers: shown as --)
       quality: { tau: tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
-      resolution: { width: size.x, height: size.y, outWidth: size.x, outHeight: size.y, msaa: 4, taa: false },
+      resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: ctx.taa() ? 1 : 4, taa: ctx.taa() },
       scene: {
         trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: ctx.statues(), impostors: s.impostors,
         clusters: 0, swClusters: 0, tris: tris - s.impostors * 2, swTris: 0, impostorTris: s.impostors * 2, shadowTris: 0, // (tris: the shadow map's included)

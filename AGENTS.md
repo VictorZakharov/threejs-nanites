@@ -149,8 +149,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   presets set the resolution and the near radii, x 1 / sqrt(tau)). The trees sway as `_vertex`'s wind (the menu's
   Wind switch, G). The statues (`webgl/statues.ts`) are drawn once Lucy has arrived, at three DAG cuts (900 / 250 /
   70 px tall, sharing her vertices) picked per statue every frame by her height on screen, with the bark material
-  (her stone layer, untinted, no wind): never impostors, as on WebGPU (+0.13 ms on `plaza`). Missing: TAA and
-  upscaling, god rays, occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
+  (her stone layer, untinted, no wind): never impostors, as on WebGPU (+0.13 ms on `plaza`). The output is
+  main.ts's (`webgl/output.ts`): the scene into a half-float target with the wind output (0 samples: three's WebGL
+  backend takes 1 as multisampled, and its depth blit failed), god rays, the TAA with upscaling (`resolution.ts`:
+  the canvas at the display's ratio, auto quality's scale moves the scene's target, so no canvas resize), the output
+  pass; the near trees and grass write their wind motion, leaves and impostors take the dithered alpha. The renderer
+  stays bound to the scene target between frames: compiles in flight read its outputs. Without the frames read
+  darker than WebGPU's: with `rays=0` on WebGPU the means matched within ~2/255, and now they match with the rays.
+  Where the GPU can't render to float targets, or with `?gltaa=0` / `?taa=0`, the old 4x MSAA canvas, no rays. The
+  TAA resolve costs ~1.2-1.6 ms on the dev GPU at the phone's 1152x2496 output (`--probe=cost --query=cost=taa`).
+  Missing: occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
   is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
   step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames
   stepped it down and back up twice, resizes the user saw as flickers in Firefox. `--probe=webglloop --query=webgl=1`

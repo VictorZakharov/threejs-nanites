@@ -5,12 +5,13 @@
 // impostor the same way. The materials sway like draw.ts's (_vertex's wind).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, attribute, clamp, dot, float, normalLocal, normalViewGeometry, positionLocal, select, sin, texture, varying, vec3, vec4,
+  Fn, attribute, clamp, dot, float, normalLocal, normalViewGeometry, positionLocal, select, sin, texture, varying, vec2, vec3, vec4,
+  cameraProjectionMatrix, cameraViewMatrix, mrt,
 } from 'three/tsl';
 import { curve } from '../planet.ts';
 import { heightAt } from '../terrain.ts';
 import { dagCut } from '../impostors.ts';
-import { barkColour, leafColour, makeLeafAlpha } from '../nanite/shading.ts';
+import { barkColour, leafColour, makeLeafAlpha, a2cDither, LEAF_DITHER } from '../nanite/shading.ts';
 import { autumnOf } from '../autumn.ts';
 import { isBush, isModel, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';
@@ -43,29 +44,42 @@ export interface NearTextures {
 
 export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: NearTextures, group: THREE.Group, shading: {
   treeShadow: () => THREE.Node;
-  wind: { time: THREE.UniformNode<'float', number>; wind: THREE.UniformNode<'float', number> }; // (the clock, the switch)
+  wind: { time: THREE.UniformNode<'float', number>; prevTime: THREE.UniformNode<'float', number>; wind: THREE.UniformNode<'float', number> };
+  taa: boolean; // (under TAA: the leaves' alpha dithered by coverage, the wind's motion written for the resolve)
 }) {
   const count = inst.a.length / 4 - inst.statues;
   // (the normal turned with the tree, as draw.ts does; leaves keep it on both faces: flipped, back faces went black)
   // wind as draw.ts's _vertex: the whole tree bends with height^2, leaves flutter on top; none for the statues
   const heightOf = pick(trees.map((t) => t.height)), windOf = pick(trees.map((t) => (isModel(t.variant) ? 0 : 1)));
   const vFade = varying(float(0), 'vGlFade'); // (the copy's cross-fade code: instanced.ts)
+  const vClip = varying(vec4(0, 0, 0, 1), 'vGlClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vGlPrevClip');
   const treeVertex = (leaf: boolean): Vec3 => Fn(() => {
     normalLocal.assign(rotY(attribute<'vec3'>('normal', 'vec3'), iB));
     vFade.assign(iB.z.sub(typeOf));
-    const s = iA.w, time = shading.wind.time;
+    const s = iA.w;
     const h = clamp(positionLocal.y.div(heightOf), 0, 1);
-    const t = time.mul(1.1).add(iB.w);
-    const gust = sin(t.add(iA.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(iA.z.mul(0.021))).mul(0.25)).add(0.35);
     const sway = shading.wind.wind.mul(windOf);
-    const bend = h.mul(h).mul(gust).mul(sway).mul(0.06).mul(heightOf).mul(s);
-    let off: Vec3 = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
-    if (leaf) {
-      const fl = sin(time.mul(7.0).add(dot(positionLocal, vec3(1.7, 2.3, 1.1)))).mul(0.04).mul(sway).mul(s);
-      off = off.add(vec3(fl, fl.mul(0.5), fl.mul(-0.7)));
+    const windAt = (time: Float): Vec3 => {
+      const t = time.mul(1.1).add(iB.w);
+      const gust = sin(t.add(iA.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(iA.z.mul(0.021))).mul(0.25)).add(0.35);
+      const bend = h.mul(h).mul(gust).mul(sway).mul(0.06).mul(heightOf).mul(s);
+      let off: Vec3 = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
+      if (leaf) {
+        const fl = sin(time.mul(7.0).add(dot(positionLocal, vec3(1.7, 2.3, 1.1)))).mul(0.04).mul(sway).mul(s);
+        off = off.add(vec3(fl, fl.mul(0.5), fl.mul(-0.7)));
+      }
+      return off;
+    };
+    const base = rotY(positionLocal, iB).mul(s).add(iA.xyz);
+    const world = curve(base.add(windAt(shading.wind.time)));
+    if (shading.taa) { // (the wind's motion on screen, for the TAA resolve: draw.ts's)
+      const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
+      vClip.assign(viewProj.mul(vec4(world, 1)));
+      vPrevClip.assign(viewProj.mul(vec4(curve(base.add(windAt(shading.wind.prevTime))), 1)));
     }
-    return curve(rotY(positionLocal, iB).mul(s).add(iA.xyz).add(off));
+    return world;
   })();
+  const motion = () => mrt({ wind: vec4(vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5)), 0, 1) });
   const leafAlpha = makeLeafAlpha(tex.leaf, attribute('uv', 'vec2'));
   const tint = (): Float => select(windOf.greaterThan(0.5), hashOf(iA).mul(0.35).add(0.8), float(1)); // (the statues' stone untinted)
   const keep = (): Float => select(fadeKeep(vFade), float(1), float(0));
@@ -76,15 +90,19 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   barkMat.normalNode = normalViewGeometry;
   barkMat.colorNode = vec4(barkColour(texture(tex.bark, attribute('uv', 'vec2')).depth(pick(tex.barkLayer)).rgb).mul(tint()), keep());
   barkMat.receivedShadowNode = shading.treeShadow;
+  if (shading.taa) barkMat.mrtNode = motion();
   const leafMat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
   const layer = pick(tex.leafLayer).toVar(); // (a var: uint() of the select chain itself lost its conversion in GLSL)
   leafMat.positionNode = treeVertex(true);
   leafMat.normalNode = normalViewGeometry;
   const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(layer);
   const col = leafColour(l.rgb, layer, tint(), autumnOf(iB.w));
-  leafMat.colorNode = vec4(col, leafAlpha(l.a, layer).mul(keep()));
+  // (under TAA alpha to coverage against the moving dither, as draw.ts: a2cDither)
+  const alpha = shading.taa && LEAF_DITHER ? a2cDither(leafAlpha(l.a, layer)) : leafAlpha(l.a, layer);
+  leafMat.colorNode = vec4(col, alpha.mul(keep()));
   setEmissive(leafMat, col.mul(0.12)); // light passing through the leaves (as draw.ts)
   leafMat.receivedShadowNode = shading.treeShadow;
+  if (shading.taa) leafMat.mrtNode = motion();
 
   interface Slot { a: THREE.InstancedBufferAttribute; b: THREE.InstancedBufferAttribute; geos: THREE.InstancedBufferGeometry[]; n: number }
   const slots: Slot[][] = trees.map(() => []);

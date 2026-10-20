@@ -1,8 +1,8 @@
-// What a part of the scene costs on the GPU, in one page: `?cost=` names objects of the scene (default `grass`), and
-// each is switched off and on in alternating blocks of `?costframes=` (40) frames, 6 of each, the median GPU ms of
-// each state (render + compute timer queries; the WebGL mode's too). Back-to-back runs of the same build swung ~2x
-// on the dev GPU (WebGL ground 7 or 13 ms), so separate harness variants can't measure a few ms: alternating blocks
-// in one page can.
+// What a part of the scene costs on the GPU, in one page: `?cost=` names objects of the scene (default `grass`), or
+// `taa` / `rays` (the demo's TAA and god rays: their `enabled`), each switched off and on in alternating blocks of
+// `?costframes=` (40) frames, 6 of each, the median GPU ms of each state (render + compute timer queries; the WebGL
+// mode's too). Back-to-back runs of the same build swung ~2x on the dev GPU (WebGL ground 7 or 13 ms), so separate
+// harness variants can't measure a few ms: alternating blocks in one page can.
 import type { Demo } from '../../src/harness-api.ts';
 
 async (demo: Demo) => {
@@ -14,7 +14,8 @@ async (demo: Demo) => {
   const median = (a: number[]): number => +[...a].sort((x, y) => x - y)[a.length >> 1].toFixed(2);
   const out: Record<string, unknown> = {};
   for (const name of names) {
-    const obj = demo.scene.getObjectByName(name);
+    const sw = demo[name] as { enabled?: boolean } | undefined; // (taa, rays)
+    const obj = sw && typeof sw.enabled === 'boolean' ? { get visible() { return sw.enabled!; }, set visible(v: boolean) { sw.enabled = v; } } : demo.scene.getObjectByName(name);
     if (!obj) { out[name] = 'not in the scene'; continue; }
     const was = obj.visible, on: number[] = [], off: number[] = [];
     for (let round = 0; round < 12; round++) {

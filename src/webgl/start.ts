@@ -22,6 +22,7 @@ import { createMusic } from '../music.ts';
 import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
 import { createWebGLStatues } from './statues.ts';
+import { createWebGLOutput, floatTargets } from './output.ts';
 import { installWebGLHarness } from './harness.ts';
 import { createWebGLHud } from './hud.ts';
 import { runLoop } from './harness.ts';
@@ -60,11 +61,14 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const { ui, demo, params, harness } = o;
   await ui.update(0.02, 'Starting WebGL 2');
   const touch0 = isTouchDevice(params);
-  // (GPU timers where the browser has EXT_disjoint_timer_query_webgl2: Chrome does, Firefox doesn't)
-  const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: true, powerPreference: 'high-performance', trackTimestamp: params.get('gltimer') !== '0' });
+  // the scene into a half-float target, then god rays, TAA and upscaling (src/webgl/output.ts); else straight to an
+  // MSAA canvas. (GPU timers where the browser has EXT_disjoint_timer_query_webgl2: Chrome does, Firefox doesn't)
+  const piped = floatTargets(params);
+  const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: !piped, powerPreference: 'high-performance', trackTimestamp: params.get('gltimer') !== '0' });
   await renderer.init();
-  const maxPr = Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5); // (the resolution's 100%: auto.scale 1)
+  const maxPr = Number(params.get('pr') ?? Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5)); // (the resolution's 100%: auto.scale 1)
   renderer.setPixelRatio(touch0 ? Math.min(maxPr, 1) : maxPr);
+  const scale0 = renderer.getPixelRatio() / maxPr; // (a phone starts lower)
   renderer.setSize(window.innerWidth, window.innerHeight);
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
   renderer.toneMappingExposure = 0.9;
@@ -84,6 +88,10 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const clouds = createClouds();
   scene.add(clouds.group);
   clouds.group.visible = params.get('clouds') !== '0';
+  // (the scene's pixel ratio at scale 1 is maxPr, as without the pipeline; the canvas at the display's)
+  const resParams = new URLSearchParams(params);
+  resParams.set('pr', String(maxPr));
+  const out = piped ? createWebGLOutput(renderer, camera, sunDir, resParams) : null;
 
   await ui.update(0.04, 'Raising hills, sky and sun');
   const terrain = await o.terrainReady;
@@ -121,6 +129,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     treeShadow: asReceivedShadow(makeFadeShadow(treeFarShadow)),
     impShadow: asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))))),
     wind: windU,
+    taa: Boolean(out?.taa.enabled),
   });
   scene.add(forest.group);
   lap('Forest meshes');
@@ -133,7 +142,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   // grass round the viewer (src/grass.ts: the keep test in the vertex shader, fewer blades than on WebGPU)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: o.terrainSize, segments: TERRAIN_SEGMENTS,
-    cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true,
+    cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true, motion: Boolean(out?.taa.enabled),
   });
   scene.add(grass.group);
   demo.grass = grass;
@@ -155,7 +164,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   // quality: the resolution (auto.scale of maxPr) and the near trees' detail (`tau`: forest.setDetail), the menu's
   // presets; auto quality steers the resolution by the frame time (no GPU timers here), down to half over the budget
   const budget = Number(params.get('budget') ?? (touch0 ? 33 : 17)); // ms a frame
-  const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: renderer.getPixelRatio() / maxPr, gpuMs: 0, busy: false };
+  const auto: AutoQuality = { on: params.get('auto') !== '0' && !harness, budget, maxTau: 8, scale: scale0, gpuMs: 0, busy: false };
   const tau = { value: 1 };
   // what happened when, from the reveal (the report's startup timeline: what a flicker could be)
   let shownAt = 0;
@@ -211,12 +220,15 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   let time = 0, frameTris = 0, drawnWidth = 0;
   const waypoint = createWaypoint(harness && params.get('waypoint') !== '1'); // (to the plaza; as main.ts)
   const compass = createCompass(waypoint.target, harness && params.get('waypoint') !== '1');
-  const size = new THREE.Vector2();
+  const size = out ? out.size : new THREE.Vector2(); // (the scene's pixels)
+  let applied = 1;
   function frame(dt: number): void {
     // a new resolution right before this frame draws: resizing the canvas clears it, and set after a frame (auto
-    // quality, the menu) the browser showed that frame blank, a flicker at every step (the user)
-    if (Math.abs(renderer.getPixelRatio() - maxPr * auto.scale) > 1e-6) renderer.setPixelRatio(maxPr * auto.scale);
-    if (renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
+    // quality, the menu) the browser showed that frame blank, a flicker at every step (the user). With the output
+    // pipeline it's the scene's target that's resized, the canvas stays at the display's.
+    if (out && applied !== auto.scale) out.res.setScale((applied = auto.scale));
+    if (!out && Math.abs(renderer.getPixelRatio() - maxPr * auto.scale) > 1e-6) renderer.setPixelRatio(maxPr * auto.scale);
+    if (!out && renderer.domElement.clientWidth !== window.innerWidth || renderer.domElement.clientHeight !== window.innerHeight) {
       ev(`canvas resized ${renderer.domElement.clientWidth}x${renderer.domElement.clientHeight} -> ${window.innerWidth}x${window.innerHeight}`);
       renderer.setSize(window.innerWidth, window.innerHeight);
       camera.aspect = window.innerWidth / window.innerHeight;
@@ -238,6 +250,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     clouds.update(time, camera);
     litter.update(camera.position, camera.position.y - gy);
     camera.updateMatrixWorld();
+    out?.begin(camera); // (the TAA's jitter: before anything is culled)
     waypoint.update(camera);
     compass.update(camera, controls.walking);
     const altitude = Math.max(0, camera.position.y - gy);
@@ -245,7 +258,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     terrainForAltitude(terrain, altitude);
     fogFar.value = Math.min(70000, 4000 + altitude * 14);
     fogNear.value = Math.min(6000, 400 + altitude * 3);
-    renderer.getDrawingBufferSize(size);
+    if (!out) renderer.getDrawingBufferSize(size);
     const smap = sun.shadow.mapSize.x;
     fitShadowMap(size.x * size.y);
     if (sun.shadow.mapSize.x !== smap) ev(`shadow map ${smap} -> ${sun.shadow.mapSize.x}`);
@@ -254,23 +267,25 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     grass.update(camera);
     statues?.update(camera, size.y);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
-    renderer.render(scene, camera);
+    if (out) out.draw(scene, camera);
+    else renderer.render(scene, camera);
     frameTris = renderer.info.render.triangles;
     drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
   installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update(),
-    heightOf: (i) => trees[instances.b[i * 4 + 2]].height * instances.a[i * 4 + 3] });
+    heightOf: (i) => trees[instances.b[i * 4 + 2]].height * instances.a[i * 4 + 3], taa: out?.taa, rays: out?.rays });
   // the key help without the keys of what isn't here (anti-aliasing, god rays, debug colours, freeze culling)
   for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
-  const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
+  const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, output: out?.res.output ?? size, taa: () => Boolean(out?.taa.enabled), adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
-  createMenu({ controls, u: { tau }, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
+  createMenu({ controls, u: { tau }, taa: out?.taa, rays: out?.rays, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
+  out?.bind(); // (the programs depend on the target's outputs: compiled for the scene's, which it keeps between frames)
   await renderer.compileAsync(scene, camera).catch((e) => ui.note(`compileAsync: ${e}`));
   terrainForAltitude(terrain, 0);
   lap('Compiled');
