@@ -158,7 +158,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   darker than WebGPU's: with `rays=0` on WebGPU the means matched within ~2/255, and now they match with the rays.
   Where the GPU can't render to float targets, or with `?gltaa=0` / `?taa=0`, the old 4x MSAA canvas, no rays. The
   TAA resolve costs ~1.2-1.6 ms on the dev GPU at the phone's 1152x2496 output (`--probe=cost --query=cost=taa`).
-  Missing: occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
+  The impostors are drawn as on WebGPU: shadow casters (each 1 km cell's quads turned to the sun, `GROW_SHADOW`, in
+  the shadow map only, thinned by the camera's tests as WebGPU's shadow view lists them, culled to cells in the
+  shadow map whose shadows can reach the view; `?glimpshadow=0` none), the shadow map looked up past their own
+  caster (`receivedShadowPositionNode`), the per-type coverage holes and far drop (`impCov`), and the cut-out alpha
+  scaled per mip by `impostorCoverage`'s scales (from a float texture: 360 floats are more uniform vectors than a
+  WebGL 2 fragment shader is sure to have). Without the casters the forest from 450 m was ~17/255 brighter and the
+  meadows had no tree shadows; with the casters but the raw alpha, ~5/255 darker at 1.1 km. Now `slope`, `d1100`,
+  `topdown700`, `fogline` and `phone9k` are within ~3/255 of WebGPU. The casters cost ~1.5 ms on the dev GPU from
+  450 m-1.1 km; the shadow pass is skipped from high up as on WebGPU (`shadowFarOnly`). Missing: occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
   is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
   step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames
   stepped it down and back up twice, resizes the user saw as flickers in Firefox. `--probe=webglloop --query=webgl=1`

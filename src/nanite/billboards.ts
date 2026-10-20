@@ -51,7 +51,7 @@ export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,0.9,
 const GROW_MAX = Math.max(...GROW);
 // the shadow quads' (?shadowgrow=): the real trees' shadows come from coarser LODs (SHADOW_TAU_MUL), fat leaf cards;
 // with the camera's sizes the ground under the impostors was ~4/255 too light from 1 km up
-const GROW_SHADOW = (new URLSearchParams(location.search).get('shadowgrow') ?? '1,1.05,1.45,1.5').split(',').map(Number);
+export const GROW_SHADOW = (new URLSearchParams(location.search).get('shadowgrow') ?? '1,1.05,1.45,1.5').split(',').map(Number);
 /**
  * Tree type `fr`'s coverage scale seen from `elev` degrees up: its side and top factors (`impCov` in VARIANTS, in
  * its impFrame's z, w), mixed by the elevation like impGain. The real crowns are see-through from afar (sub-pixel
@@ -63,8 +63,8 @@ export const impostorCov = (fr: Vec4, elev: Float): Float => mix(fr.z, fr.w, cla
 // Far below the switch (quads under DROP[0] px wide, all of it from DROP[1]) a type's coverage scale becomes the share
 // of its trees drawn, solid, instead (`?impdrop=hi,lo`, 0 = off): a few pixels wide that looks the same, and those
 // quads aren't listed (a phone pays by their count). Each tree fades out over DROP_FADE of the share, no pops.
-const DROP = (new URLSearchParams(location.search).get('impdrop') ?? '8,4').split(',').map(Number);
-const DROP_FADE = 0.2;
+export const DROP = (new URLSearchParams(location.search).get('impdrop') ?? '8,4').split(',').map(Number);
+export const DROP_FADE = 0.2;
 /**
  * Tree `inst`'s share drawn (`k`, 0: not at all) and the coverage scale it's drawn with (`cov`, k included), from its
  * type's coverage scale `cov` and its quad's width `wPx` (before the MIN_PX enlargement).

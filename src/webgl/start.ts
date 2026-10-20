@@ -83,7 +83,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
-  const { sky, sun, sunDir, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap } = createLighting(scene, { harness });
+  const { sky, sun, sunDir, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly } = createLighting(scene, { harness });
   sky.renderOrder = 2;
   const clouds = createClouds();
   scene.add(clouds.group);
@@ -130,6 +130,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     impShadow: asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))))),
     wind: windU,
     taa: Boolean(out?.taa.enabled),
+    sunDir,
   });
   scene.add(forest.group);
   lap('Forest meshes');
@@ -263,7 +264,11 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     fitShadowMap(size.x * size.y);
     if (sun.shadow.mapSize.x !== smap) ev(`shadow map ${smap} -> ${sun.shadow.mapSize.x}`);
     follow(camera, gy, demo.shadowShift);
-    forest.update(camera, size.y, fogFar.value);
+    // (from high up the average shadow everywhere, no shadow pass: lighting.ts FAR_TEXEL, as main.ts)
+    const castShadows = shadowFarOnly() ? false : shadowsOn;
+    sun.shadow.autoUpdate = castShadows;
+    sun.shadow.camera.updateMatrixWorld();
+    forest.update(camera, size.y, fogFar.value, castShadows ? sun.shadow.camera : null);
     grass.update(camera);
     statues?.update(camera, size.y);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
