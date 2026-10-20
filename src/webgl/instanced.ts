@@ -2,8 +2,8 @@
 // attributes (iA: position and scale; iB: rotation cos/sin, type, wind phase + autumn), the type's values by a
 // select chain (one shader for every type), the per-tree jitter of the level radii and the dithered cross-fade over
 // the bands where a tree goes from one level to the next (or to its impostor).
-import { attribute, float, fract, select, sin, dot, varying, vec2, vec3 } from 'three/tsl';
-import { dither } from '../nanite/shading.ts';
+import { attribute, float, fract, screenCoordinate, select, sin, dot, uniform, varying, vec2, vec3 } from 'three/tsl';
+import { ditherAt, ditherShift } from '../nanite/shading.ts';
 import type { Bool, Float, Vec3, Vec4 } from '../types.ts';
 
 export const iA = attribute<'vec4'>('iA', 'vec4'), iB = attribute<'vec4'>('iB', 'vec4');
@@ -33,12 +33,21 @@ export const rotY = (v: Vec3, b: Vec4): Vec3 => vec3(v.x.mul(b.x).sub(v.z.mul(b.
 
 /** The cross-fade band round each level's radius R: R x (1 +- BAND) (?glband=, 0: none, popping). */
 export const BAND = Number(new URLSearchParams(location.search).get('glband') ?? 0.06);
+/** 1 while the shadow camera (orthographic; the view's is perspective) draws the casters, else 0. */
+export const inShadowPass = uniform(0).onObjectUpdate(({ camera }) => ((camera as { isOrthographicCamera?: boolean } | null)?.isOrthographicCamera ? 1 : 0));
+/**
+ * The screen dither, standing still in the shadow pass: moved every frame there (under TAA), every caster's dithered
+ * pixels changed and so did every shadow, a flicker on the ground with the camera still (the user: "flickering
+ * shadows, any shadows, anywhere"; `ground` --dolly --step=0 1154 flicker events, 37 without shadows).
+ */
+export const steadyDither = (): Float => ditherAt(screenCoordinate.xy.sub(ditherShift.mul(inShadowPass)));
+
 /**
  * An impostor's share of the last band, `code` 0.3 + 0.2 t (t: how far across it): it keeps the pixels where the
  * dither is under t, the last near level the rest (near.ts). 0 or under 0.01: drawn whole.
  */
 export function fadeKeep(code: Float): Bool {
   const out = code.lessThan(0.275), t = select(out, code.sub(0.05), code.sub(0.3)).div(0.2);
-  const d = dither();
+  const d = steadyDither();
   return code.lessThan(0.01).or(out.and(d.greaterThanEqual(t))).or(out.not().and(d.lessThan(t)));
 }

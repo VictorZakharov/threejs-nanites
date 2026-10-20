@@ -13,13 +13,13 @@ import {
 import { curve } from '../planet.ts';
 import { heightAt } from '../terrain.ts';
 import { dagCut } from '../impostors.ts';
-import { barkColour, leafColour, makeLeafAlpha, a2cDither, dither, LEAF_DITHER } from '../nanite/shading.ts';
+import { barkColour, leafColour, makeLeafAlpha, a2cDither, LEAF_DITHER } from '../nanite/shading.ts';
 import { autumnOf } from '../autumn.ts';
 import { isBush, isModel, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';
 import { isTouchDevice } from '../touch.ts';
 import { withDebug, setLevel } from './debug.ts';
-import { iA, iB, typeOf, pick, jitter, jitterCPU, hashOf, rotY, BAND } from './instanced.ts';
+import { iA, iB, typeOf, pick, jitter, jitterCPU, hashOf, rotY, BAND, steadyDither, inShadowPass } from './instanced.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { Float, Vec3 } from '../types.ts';
 
@@ -97,7 +97,7 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   const leafAlpha = makeLeafAlpha(tex.leaf, attribute('uv', 'vec2'));
   const tint = (): Float => select(windOf.greaterThan(0.5), hashOf(iA).mul(0.35).add(0.8), float(1)); // (the statues' stone untinted)
   // (this level's pixels: past the outer band's share, within the inner one's; the next level takes the rest)
-  const keep = (): Float => { const dd = dither(); return select(dd.greaterThanEqual(vBand.x).and(dd.lessThan(vBand.y)), float(1), float(0)); };
+  const keep = (): Float => { const dd = steadyDither(); return select(dd.greaterThanEqual(vBand.x).and(dd.lessThan(vBand.y)), float(1), float(0)); };
 
   // (one bark and one leaf material for all: WebGL compiles each program on the main thread, ~0.15 s each)
   const barkMat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 }); // (as draw.ts)
@@ -120,7 +120,8 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   // --dolly --turn ~920 flicker events, WebGPU ~110, cut ~230; the near ones keep it, a cut-out there read ~4/255
   // darker than WebGPU on the ground)
   const la = leafAlpha(l.a, layer);
-  const alpha = shading.taa && LEAF_DITHER ? select(levelK.lessThan(DITHER_FROM - 0.5).and(levelK.greaterThan(-0.5)), a2cDither(la), la) : la;
+  // (and in the shadow map the plain cut-out, as draw.ts's casters: dithered, the shadows flickered)
+  const alpha = shading.taa && LEAF_DITHER ? select(levelK.lessThan(DITHER_FROM - 0.5).and(levelK.greaterThan(-0.5)).and(inShadowPass.lessThan(0.5)), a2cDither(la), la) : la;
   const leaf = withDebug(col, col.mul(0.12)); // (emissive: light passing through the leaves, as draw.ts)
   leafMat.colorNode = vec4(leaf.colour, alpha.mul(keep()));
   setEmissive(leafMat, leaf.emissive);

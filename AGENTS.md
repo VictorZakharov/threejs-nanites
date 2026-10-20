@@ -137,7 +137,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   and the vertex shader works out its band from the camera every frame (`near.ts`, the level by `userData.glK`):
   no pop from one cut to the next, nor at a rescan. From level 2 on the leaves are cut out, not dithered
   (`?glleafdither=`): their coarse cards' dithered edges shimmered from 150 m up (`plazahigh` turning 919 -> 119
-  flicker events, WebGPU ~110); a cut-out near read ~4/255 darker than WebGPU on the ground. ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
+  flicker events, WebGPU ~110); a cut-out near read ~4/255 darker than WebGPU on the ground. In the shadow map (`inShadowPass`: the shadow camera is orthographic) the
+  casters take the plain cut-out and a dither that stands still (`steadyDither`): moved every frame under TAA, every
+  shadow flickered with the camera still (the user; `ground --dolly --step=0` 1154 -> 48 flicker events, 37 without
+  shadows). ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
   `--probe=gltris` lists the triangles by level and kind. The impostors are instanced quads in 1 km cells, culled
   and thinned on the CPU (a cell draws the share of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
   pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
