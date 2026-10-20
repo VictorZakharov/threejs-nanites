@@ -1,6 +1,7 @@
 import type { BarkSource, DagReply, DagResult, LeafMask, LeafSource } from './dag-types.ts';
 import type { LoadingScreen } from './loading.ts';
 import { loadModel, type ModelHeader } from './models.ts';
+import { workerError } from './worker-error.ts';
 
 type RGB = [number, number, number];
 export interface TreeVariant {
@@ -115,7 +116,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
         finished();
         resolve({ ...e.data, radius: src.radius, height: src.height, variant: v, src });
       };
-      w.onerror = (e) => reject(new Error(e.message));
+      w.onerror = (e) => reject(workerError(`dag-worker (${v.preset})`, e));
       const leafErr = Number(q.get('leaferr') ?? NaN), barkAttr = (q.get('barkattr') ?? '').split(',').filter(Boolean).map(Number);
       const attr = barkAttr.length ? { barkAttr: [barkAttr[0], barkAttr[1] ?? barkAttr[0]] } : {};
       const barkErr = q.get('barkerr') === 'sum' ? { barkErr: 'sum' } : {};

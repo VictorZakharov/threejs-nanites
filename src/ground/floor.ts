@@ -11,6 +11,7 @@ import {
 import type { Float, Vec2, Vec3, Vec4 } from '../types.ts';
 import { FLOOR_TILE, HEIGHT_CM, type PBRData } from './floor-maps.ts';
 import { LEAF_KINDS, LEAF_TILE } from './floor-leaves.ts';
+import { workerError } from '../worker-error.ts';
 import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
 import { cobbles, cobbleAverage, cobblePatches } from './cobbles.ts';
@@ -47,7 +48,7 @@ export function loadFloorMaps(): FloorMaps {
       ms[leaf === null ? 0 : leaf + 1] = Math.round(e.data.ms);
       resolve(e.data.out);
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => reject(workerError(`floor-worker (${leaf === null ? 'soil' : LEAF_KINDS[leaf]})`, e));
     w.postMessage({ leaf, size: LEAF_SIZE });
   });
   const floor = job<PBRData>(null);

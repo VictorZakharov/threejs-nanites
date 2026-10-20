@@ -18,6 +18,7 @@ import type { UniformArrayNode } from 'three/webgpu';
 import type { BuiltTree } from './trees.ts';
 import type { CoverageJob } from './atlas-coverage-worker.ts';
 import type { Float, Uint, Vec4 } from './types.ts';
+import { workerError } from './worker-error.ts';
 
 /** A triangle mesh (positions, normals, uvs, indices) in the source meshes' form. */
 interface MeshPart {
@@ -299,7 +300,7 @@ export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: Im
       c.ms = { readback, work: performance.now() - t - readback };
       resolve();
     };
-    w.onerror = (e) => reject(new Error(e.message));
+    w.onerror = (e) => reject(workerError('atlas-coverage-worker', e));
     const job: CoverageJob = { raw: raw as CoverageJob['raw'], W, tiles, cut, tileW: TILE_W, tileH: TILE_H };
     w.postMessage(job, [job.raw.buffer]);
   });
