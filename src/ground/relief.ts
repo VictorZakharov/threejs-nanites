@@ -3,7 +3,7 @@
 // them as the view moves. Only the hollows sink: the tops stay at the terrain's own level, where the grass, the trees
 // and the shadows are. The steps are a uniform (0 = off: the menu switch compiles nothing); the relief fades out with
 // distance, where it's too fine to see.
-import { Fn, Loop, If, Break, float, vec2, uniform, select, smoothstep, max, mix, clamp, cameraPosition, positionWorld, dFdx, dFdy } from 'three/tsl';
+import { Fn, Loop, If, Break, float, vec2, uniform, select, smoothstep, max, mix, clamp, cameraPosition, positionWorld } from 'three/tsl';
 import { detailPos } from '../planet.ts';
 import type * as THREE from 'three/webgpu';
 import type { Float, Vec2 } from '../types.ts';
@@ -22,11 +22,11 @@ export interface Relief {
 
 /**
  * Where the view ray through this pixel meets the relief, as a uv of the maps (uv = world xz / tile). `height` holds
- * the height in its red channel (1 the tops). The gradients are the plain uv's: inside the loop the GPU's are undefined.
+ * the height in its red channel (1 the tops). `dx`, `dy` are the plain uv's gradients, taken before any branch: inside
+ * the loop the GPU's are undefined (and the floor builds this inside its own branch).
  */
-export function reliefUv(height: THREE.Texture, uv: Vec2, r: Relief, sample: (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2) => Float, scale: Float = float(1)): Vec2 {
+export function reliefUv(height: THREE.Texture, uv: Vec2, dx: Vec2, dy: Vec2, r: Relief, sample: (t: THREE.Texture, p: Vec2, dx: Vec2, dy: Vec2) => Float, scale: Float = float(1)): Vec2 {
   return Fn(() => {
-    const dx = dFdx(uv), dy = dFdy(uv);
     const toEyeRaw = cameraPosition.sub(positionWorld);
     const dist = toEyeRaw.length();
     const toEye = toEyeRaw.div(max(dist, 1e-4));
