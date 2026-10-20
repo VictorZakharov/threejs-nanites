@@ -58,14 +58,16 @@ export interface ImpostorAtlas {
   frameW: UniformArrayNode<'float'>;
   frameH: UniformArrayNode<'float'>;
   scales: UniformArrayNode<'float'>; // (coverage.scales)
+  /** 8-bit targets (no float rendering: WebGL 2 without EXT_color_buffer_float): normals stored as n x 0.5 + 0.5. */
+  bytes: boolean;
 }
 
-/** An empty atlas for `n` types (see ImpostorAtlas). */
-export function createAtlas(n: number): ImpostorAtlas {
+/** An empty atlas for `n` types (see ImpostorAtlas); `bytes`: 8-bit targets where float ones can't be drawn into. */
+export function createAtlas(n: number, bytes = false): ImpostorAtlas {
   const { cols, rows } = atlasLayout(n);
   const makeRT = () =>
     new THREE.RenderTarget(TILE_W * cols, TILE_H * rows, {
-      type: THREE.HalfFloatType,
+      type: bytes ? THREE.UnsignedByteType : THREE.HalfFloatType,
       samples: 4,
       generateMipmaps: true,
       minFilter: THREE.LinearMipmapLinearFilter,
@@ -80,6 +82,7 @@ export function createAtlas(n: number): ImpostorAtlas {
     frameW: uniformArray<'float'>(frames.map((f) => f.w), 'float'),
     frameH: uniformArray<'float'>(frames.map((f) => f.h), 'float'),
     scales: uniformArray<'float'>(Array.from(scales), 'float'),
+    bytes,
   };
 }
 
@@ -176,7 +179,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
     const scenes = [new THREE.Scene(), new THREE.Scene()]; // albedo, normals
-    const normalOut = (a: number): Vec4 => vec4(normalLocal.normalize(), a);
+    const normalOut = (a: number): Vec4 => vec4(atlas.bytes ? normalLocal.normalize().mul(0.5).add(0.5) : normalLocal.normalize(), a);
 
     const barkGeo = new THREE.BufferGeometry();
     barkGeo.setAttribute('position', new THREE.BufferAttribute(bark.pos, 3));

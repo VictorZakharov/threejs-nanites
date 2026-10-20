@@ -12,13 +12,19 @@ import { TAA } from '../taa.ts';
 import { createResolution, type Resolution } from '../resolution.ts';
 import { mipBias } from '../nanite/shading.ts';
 
-/** Whether this browser's WebGL 2 can draw into half-float targets (the TAA's and the god rays' scene target). */
-export function floatTargets(params: URLSearchParams): boolean {
-  if (params.get('gltaa') === '0' || params.get('taa') === '0') return false; // (?taa=0: the MSAA canvas, no god rays)
+/** Whether this browser's WebGL 2 can draw into half-float targets (?glfloat=0: as if it couldn't). */
+export function canRenderFloat(params: URLSearchParams): boolean {
+  if (params.get('glfloat') === '0') return false;
   const gl = document.createElement('canvas').getContext('webgl2');
   const ok = Boolean(gl?.getExtension('EXT_color_buffer_float') ?? gl?.getExtension('EXT_color_buffer_half_float'));
   gl?.getExtension('WEBGL_lose_context')?.loseContext();
   return ok;
+}
+
+/** Whether to draw the scene into a half-float target (the TAA's and the god rays'), not the MSAA canvas. */
+export function floatTargets(params: URLSearchParams): boolean {
+  if (params.get('gltaa') === '0' || params.get('taa') === '0') return false; // (?taa=0: the MSAA canvas, no god rays)
+  return canRenderFloat(params);
 }
 
 export interface WebGLOutput {
