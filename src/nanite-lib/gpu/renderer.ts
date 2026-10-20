@@ -20,6 +20,7 @@ import { uniform, bitcast, float } from 'three/tsl';
 import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
 import { Splats } from './splats.ts';
+import { LeafPrepass } from './prepass.ts';
 import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT, LIST_CAP } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
@@ -80,6 +81,8 @@ export class NaniteRenderer {
   readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number; LIST_CAP: number; PLANET_RADIUS: number };
   readonly sw: SoftRaster;
   readonly splats: Splats;
+  /** The leaves' depth prepass where they're dense on screen (prepass.ts). */
+  readonly leafPrepass: LeafPrepass;
   readonly main: View;
   readonly shadow: View;
   readonly group: THREE.Group;
@@ -113,13 +116,16 @@ export class NaniteRenderer {
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();
+    this.leafPrepass = new LeafPrepass(this);
     for (const kind of [0, 1] as const) {
-      this.group.add(this._buildMesh(kind, this.main, this.main.sets[0], false));
+      const m1 = this._buildMesh(kind, this.main, this.main.sets[0], false);
+      this.group.add(m1);
       // phase 2 draws: on layer PHASE2_LAYER, rendered in a second pass after the HZB is built
       const m2 = this._buildMesh(kind, this.main, this.main.sets[1], false);
       m2.layers.set(PHASE2_LAYER);
       m2.name += '-phase2';
       this.group.add(m2);
+      if (kind === 1) for (const [m, set] of [[m1, 0], [m2, 1]] as const) this.group.add(...this.leafPrepass.build(this.main, this.main.sets[set], m));
       this.group.add(this._buildMesh(kind, this.shadow, this.shadow.sets[0], true));
     }
   }
@@ -194,6 +200,7 @@ export class NaniteRenderer {
     this.splats.begin();
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)
     this._cull(this.main, camera);
+    this.leafPrepass.update(size.x * size.y);
     this.shadowActive = Boolean(shadowCamera);
     if (shadowCamera) {
       shadowCamera.updateMatrixWorld();

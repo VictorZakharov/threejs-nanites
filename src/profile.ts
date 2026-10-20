@@ -65,6 +65,15 @@ function steps(ctx: ProfileContext): Step[] {
     forest && { label: 'occlusion off', off: flag(() => forest.occlusionOn && forest.u.occlusion.value > 0, (v) => (forest.occlusionOn = v)) },
     forest && { label: 'sw raster off', off: uflag(forest.u.sw) }, // (the splats too: they need its buffer)
     forest && { label: 'imp splats off', off: uflag(forest.splats.enabled) },
+    // (the leaves' depth prepass the other way round from how it's drawn here: whether its switch picks right)
+    forest && {
+      label: `leaf prepass ${forest.leafPrepass.on ? 'off' : 'on'}`,
+      off: () => {
+        const p = forest.leafPrepass, was = p.mode;
+        p.mode = !p.on;
+        return () => (p.mode = was);
+      },
+    },
     { label: 'terrain+sky off', off: flag(() => terrain.every((o) => o.visible), (v) => terrain.forEach((o) => (o.visible = v))) },
     trees && { label: 'tree draws off', off: flag(() => trees.visible, (v) => (trees.visible = v)) },
     {

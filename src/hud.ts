@@ -83,7 +83,7 @@ export function createHud(ctx: HudContext) {
       // (every triangle drawn: the clusters' in hardware and software, and the impostors' quads, 2 each)
       ['triangles', `${short(tris + (gs.swTris ?? 0) + gs.impostors * 2)} = ${short(tris)} hw + ${short(gs.swTris ?? 0)} sw + ${short(gs.impostors * 2)} impostors`],
       ['error', `${forest.u.tau.value.toFixed(2)} px ${auto.on ? `auto · ${auto.budget} ms` : 'manual'}${forest.frozen ? ' · FROZEN' : ''}`],
-      ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]} · shadows ${ctx.shadowsOn() ? 'on' : 'off'} · taa ${taa.enabled ? 'on' : 'off'}`],
+      ['debug', `${['off', 'clusters', 'DAG level', 'trees', 'tree types', 'rasterizer'][forest.u.debug.value]} · shadows ${ctx.shadowsOn() ? 'on' : 'off'} · taa ${taa.enabled ? 'on' : 'off'} · leaf prepass ${forest.leafPrepass.on ? 'on' : 'off'}`],
     ];
     // (labels in the accent colour, numbers bright: the performance panel's style)
     el.innerHTML = rows.map(([k, v]) => `<i>${k.toUpperCase()}</i>${v.replace(/\d[\d,]*(?:\.\d+)?/g, '<b>$&</b>')}`).join('\n');

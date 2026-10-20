@@ -109,7 +109,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   - `alpha.ts`: the cards' coverage scales and masks.
   - `gpu/`: the per-frame renderer. `renderer.ts` is the `NaniteRenderer` class (buffers, per-frame calls, stats),
     with its methods in modules by stage attached as prototype mixins (`buffers.ts`, `culling.ts`, `hzb.ts`,
-    `draw.ts`, `billboards.ts`), plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts`
+    `draw.ts`, `billboards.ts`), plus `prepass.ts` (the leaves' depth prepass), `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts`
     (material pieces), `chunks.ts` and `constants.ts`. Its inputs are in `types.ts` (`NaniteType`, `NaniteInstances`,
     `NaniteTextures`).
   - `impostors/`: the atlas, its bake and its coverage.
@@ -317,7 +317,19 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): the DAG build packs each leaf cluster's
   vertices contiguously as quads, so the GPU shades the two corners a card's triangles share once (4 vertex shader
   runs a card instead of 6: `plazane` 8.33 -> 7.84 ms, `closeup` -0.65, same image). Their indirect args are 5 uints.
-  A leaf depth prepass (shade only the front leaf) was tried: 0.8 ms slower on the ground, 0.7 faster over the canopy.
+  Leaf depth prepass (`prepass.ts`, issue #12; `?leafpre=1|0`, default auto): where the leaves are dense on screen
+  the leaves are drawn first with only their alpha test (no colour, depth only), then again lit, depth-tested without
+  writing depth and still alpha-tested: only the front card of a pixel is lit, the same image (`img.ts diff` within
+  the floor, `--dolly` the same flicker). It costs the vertices and the alpha test twice, so it's on only above 1.35
+  hardware leaf triangles per scene pixel (off under 1.2, `?leafpredensity=`; the main view's counters read back 4x
+  a second; the HUD's debug line says which). In-page A/B (`--probe=cost --query="cost=forest.leafPrepass.mode&leafpre=1"`,
+  1080p, dev GPU): `canopyzoom --zoom=5` (6.6 per pixel) -0.8..-2 ms of ~14, `canopy` (2.0) -0.75, `treeline` (1.4)
+  -0.5, `fogline` (1.25) -0.1; under 1.2 it cost: `autumnred` (1.15) +0.35, `plazane` (0.8) +0.75, `d550` +0.2. A
+  depth-equal second pass with no alpha test looked ~1 ms faster zoomed but left scattered pixels different (TAA:
+  crowns ~1.5/255 brighter; an `@invariant` position didn't help). The second pass is its own `_buildMesh`: a
+  `NodeMaterial.clone()` drops `alphaTest` (a setter of `Material`'s over `_alphaTest`, which `copy` skips) and lit
+  the leaves darker. Front-to-back chunk order did nothing; more of the zoom's leaves to the software rasterizer
+  (`swarea=16`) moved ~6 ms from render to compute. The Profile GPU has a `leaf prepass` step (the other way round).
   Each stage's compute dispatches run in one compute pass (`computeBatch` in `three-gaps.ts`: a node's own size or
   indirect buffer): one `renderer.compute()` per dispatch was ~36 passes a frame, most a few threads, and their
   overhead was frame time the GPU timers don't show (-0.4..0.8 ms; `orbit` with occlusion 8 -> 5.5 ms).
