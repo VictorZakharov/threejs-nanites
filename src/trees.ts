@@ -13,7 +13,7 @@ export interface TreeVariant {
   model?: string;
   /** Impostor colour gains for side and top-down views. */
   impGain: { side: RGB; top: RGB };
-  /** Impostor coverage scale for side and top-down views (impostorCov in src/nanite/billboards.ts). */
+  /** Impostor coverage scale for side and top-down views (impostorCov in src/nanite-lib/gpu/billboards.ts). */
   impCov: [number, number];
 }
 /** One variant's source meshes (metres) and its bounding radius around the trunk axis. */

@@ -1,7 +1,7 @@
 // The DAG cut per tree type by its size on screen, on the CPU from the cluster data (independent of the view and the
 // GPU): for a tree drawn H px tall at tau (?tau=, the page's), seen from the side at mid height, the bark and leaf
 // triangles and clusters of the cut (lod error <= tau < parent error, as in the cluster pass of
-// src/nanite/culling.ts) and the triangles per pixel of its height. Answers "why does a 30 px tree cost 1000
+// src/nanite-lib/gpu/culling.ts) and the triangles per pixel of its height. Answers "why does a 30 px tree cost 1000
 // triangles": which part, at which level.
 import type { Demo } from '../../src/harness-api.ts';
 import type { Vector4 } from 'three';

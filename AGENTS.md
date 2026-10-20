@@ -80,41 +80,55 @@ history in git.
 ## TypeScript
 
 `src/` is TypeScript, `strict`, checked by `npm run build` (a type error fails the deploy). TSL nodes are typed by
-their shader type: helpers take `Float`, `Vec3`, `Uint`... from `src/types.ts` (`Node<'vec3'>` has the operators, a
+their shader type: helpers take `Float`, `Vec3`, `Uint`... from `src/types.ts` (the library's `types.ts`) (`Node<'vec3'>` has the operators, a
 bare `Node` has none). Where `@types/three` lags the runtime (Lambert's `emissiveNode`, `receivedShadowNode`'s
-argument, the WebGPU backend's `device`, untyped bitcasts), the cast lives in `src/three-gaps.ts` with a note; don't
-scatter `as any`. The typings' `min`/`max` take floats only: use `minU`/`minI`/`maxI` (`src/nanite/constants.ts`)
+argument, the WebGPU backend's `device`, untyped bitcasts), the cast lives in `src/nanite-lib/three-gaps.ts` (re-exported by `src/three-gaps.ts`) with a note; don't
+scatter `as any`. The typings' `min`/`max` take floats only: use `minU`/`minI`/`maxI` (`src/nanite-lib/gpu/constants.ts`)
 for integers. `uniformArray` needs its type explicitly (`uniformArray<'vec4'>(values, 'vec4')`). Objects with
 shader closures are built as typed locals and returned whole (see `_buildSet`, `_buildView`). The stage modules of
-`NaniteForest` declare `this: NaniteForest`; the class merges their types through an interface. The tools (`tools/`: harness, probes, model importer) are strict
+`NaniteRenderer` declare `this: NaniteRenderer`; the class merges their types through an interface. The tools (`tools/`: harness, probes, model importer) are strict
 TypeScript too, checked by `tsc -p tools` (part of `typecheck` and `build`); Node runs them directly (type stripping:
 only erasable syntax, `.ts` in imports). A probe is one expression typed against `Demo` (`src/harness-api.ts`, what
 `window.__demo` holds); `session.ts` strips its types before the page evaluates it.
 
 ## Architecture notes
 
-- **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. The forest
-  renderer is `src/nanite/`: `forest.ts` (the `NaniteForest` class: buffers, per-frame calls, stats) with its
-  methods in modules by stage, attached as prototype mixins (`buffers.ts`, `culling.ts`, `hzb.ts`, `draw.ts`, `billboards.ts`),
-  plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts` (material pieces) and `constants.ts`. `src/main.ts` starts the loading and picks
-  WebGPU or WebGL; `webgpu-start.ts` is the WebGPU mode's setup, `webgpu-forest.ts` its forest and impostors,
-  `webgpu-frame.ts` its frame; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`, `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the
-  startup's shader compiles) and `harness-api.ts` (`window.__demo`) are split out of it.
-- **The library** (issue #17, in steps; the plan is in the issue): `src/nanite-lib/` is the generic Nanite-style
-  renderer another three.js project could take as it is. Nothing in it imports from outside it but `three/webgpu`,
-  `three/tsl` and `meshoptimizer` (`tools/check-lib.ts`, part of `typecheck` and `build`, fails on anything else);
-  the demo imports it through `index.ts`, a worker straight from the module it needs (its bundle takes only what it
-  imports). So far: `dag/` (the cluster DAG build for any mesh: `build.ts`, `leaves.ts`, `coverage.ts`, `util.ts`,
-  `types.ts`) and `model/` (the `.nm` file: `encode.ts`, `decode.ts` with `loadModel`, `model-worker.ts`, `source.ts`).
-  Next: the GPU renderer (`src/nanite/`) behind hooks for what's the forest's (the planet's curve, wind, autumn,
-  tints, impostor gains), then the impostors, then a plain glTF example page.
+- **Files stay under ~300-400 lines** (the user's rule): split a module before it grows past that. `src/main.ts`
+  starts the loading and picks WebGPU or WebGL; `webgpu-start.ts` is the WebGPU mode's setup, `webgpu-forest.ts` its
+  forest and impostors, `webgpu-frame.ts` its frame; `lighting.ts` (sky, fog, sun, shadow map), `resolution.ts`,
+  `auto-quality.ts`, `textures.ts`, `placement.ts`, `warmup.ts` (the startup's shader compiles) and `harness-api.ts`
+  (`window.__demo`) are split out of it.
+- **The library** (issue #17): `src/nanite-lib/` is the generic Nanite-style renderer, which another three.js project
+  could take as it is. Nothing in it imports from outside it but `three/webgpu`, `three/tsl` and `meshoptimizer`
+  (`tools/check-lib.ts`, part of `typecheck` and `build`, fails on anything else). The demo imports it through
+  `index.ts` (the public API); a worker imports straight from the module it needs, so its bundle takes only what it
+  imports. Its parts:
+  - `dag/`: the cluster DAG build for any mesh (`build.ts`, `leaves.ts`, `coverage.ts`, `util.ts`, `types.ts`;
+    `cut.ts`, a fixed cut by error).
+  - `model/`: the `.nm` file (`encode.ts`, `decode.ts` with `loadModel`, `model-worker.ts`, `source.ts`).
+  - `alpha.ts`: the cards' coverage scales and masks.
+  - `gpu/`: the per-frame renderer. `renderer.ts` is the `NaniteRenderer` class (buffers, per-frame calls, stats),
+    with its methods in modules by stage attached as prototype mixins (`buffers.ts`, `culling.ts`, `hzb.ts`,
+    `draw.ts`, `billboards.ts`), plus `softraster.ts`, `splats.ts` (tiny impostors into its buffer), `shading.ts`
+    (material pieces), `chunks.ts` and `constants.ts`. Its inputs are in `types.ts` (`NaniteType`, `NaniteInstances`,
+    `NaniteTextures`).
+  - `impostors/`: the atlas, its bake and its coverage.
+  A mesh has two kinds of part, kept under the forest's names: `bark` (solid triangles) and `leaves` (alpha-tested
+  cards). Whatever is the application's goes in through the hooks of `NaniteLook` (`gpu/look.ts`; `defaultLook()`
+  for none): the world's curve, per-vertex motion with its margin and MRT output (`motionOutput`), per-instance tint
+  and value, and the solid, card and impostor colours. The forest's hooks are `src/forest/look.ts` (planet, wind,
+  tints, autumn). `src/forest/forest.ts`'s `NaniteForest extends NaniteRenderer` with the forest's own state (the
+  wind uniform, tree and statue counts). The debug switches (`?sw=`, `?occalt=`...) are still read from the URL
+  inside the library. `examples/gltf.html` is the library alone: a glTF rock (ez-tree's, MIT) as 250k instances,
+  with the default look and no TAA (cut-out alpha: `NaniteTextures`' dither switches off); a second page of the
+  build (`vite.config.ts`), deployed at `examples/gltf.html`, shot by `npm run harness -- --example`.
 
 - `src/trees.ts` lists the variants; `tree-grow.ts` grows one with ez-tree, scaled to metres, in its DAG worker (see
   Loading below for how ez-tree is bundled).
 - `src/nanite-lib/dag/build.ts` builds each variant's cluster DAG (in a worker, `dag-worker.ts`; in Node for tools):
   bark via meshoptimizer (128-tri clusters, groups of ~8, simplify to half with group-border vertices locked); leaves
   (`leaves.ts`) by keeping half the cards and growing them until they cover what the group did
-  (`coverage.ts`: the cards through their texture's alpha mask, `maskOf` in `texture-pixels.ts`, counted on a grid
+  (`coverage.ts`: the cards through their texture's alpha mask, `maskOf` in `alpha.ts`, counted on a grid
   from 4 directions; ~1.3 per level); shared pieces in `util.ts`. Growing by √2 (keeping the area) covered far
   more than the tree (its leaves overlap, the fewer bigger cards much less): each coarser level closed the gaps, and
   at tau 8 the forest was a bright even carpet (the user's zoom: "washed"). Now tau 1..8 look alike (`zoommid`:
@@ -276,7 +290,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
   Nothing waits for a model's download (Lucy is ~5 MB): the model worker posts the file's header as soon as it has
   arrived, the forest reserves the model's share of its buffers by it with no clusters (`BuiltTree.later`), and
-  `fillType` (`src/nanite/buffers.ts`) writes it in when it's decoded, uploads those ranges and refits the boxes of
+  `fillType` (`src/nanite-lib/gpu/buffers.ts`) writes it in when it's decoded, uploads those ranges and refits the boxes of
   the chunks holding the statues (her LOD spheres reach 8.4 m, her mesh's box 2.4). On a slow connection the statues
   appear after the first frame; `?modeldelay=ms` delays her to test that.
   Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
@@ -291,7 +305,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   The compass strip on top (`src/compass.ts`) shows headings and the same waypoint, only while walking (the user);
   `--query="waypoint=1&walk=1"`. The cobbles fade to their average by the pixel footprint's *area* (by its longest
   side, along the road at a grazing angle, they went flat grey ~10 m ahead: "washed up", the user), in patches.
-- `src/nanite/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
+- `src/nanite-lib/gpu/` does everything per frame on the GPU, once for the camera and once for the sun's shadow map:
   instance pass → work items for the clusters that can be selected (clusters sorted by parent error, binary search
   gives the prefix) → indirect cluster pass (DAG cut + frustum) → indirect draws with vertex pulling. The leaf draws
   are indexed with one shared index buffer (`LEAF_INDEX` in `draw.ts`): the DAG build packs each leaf cluster's
@@ -484,7 +498,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - Leaf PNGs have white RGB under transparent texels; `fillTransparent` (`texture-pixels.ts`, in the texture worker) replaces it with
   the average leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
-- Impostors (`src/impostors.ts`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
+- Impostors (`src/nanite-lib/impostors/atlas.ts`): the atlas has four tiles per variant, baked from 0, 30, 60 and 90 degrees up
   (`ELEVATIONS`); the quad faces the camera and cross-fades between them by elevation as the *union* of the
   silhouettes (mixing alphas thins the forest). With only side and top tiles, trees seen from ~45 degrees were the
   top tile's dark splats (the user: "piles of poop"), and from high up the whole screen was one flat top view
@@ -515,7 +529,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   the loneliest tree near the test spot, 1.2 km / 600 m off). Unzoomed vs zoomed, 1600x900: impostors within
   -1.5..+2.5/255 on `zoomdown`, `topdown700`, `d1100`, `d1500`, `slope`, `lone`, `lone600`; `imppx=0` up to +9
   (`lone`: its trees nearly vanish, only their shadows left). The zoom tool once read 4/255 darker zoomed: the HUD.
-- Each tree switches to its impostor at its own size (`switchPx` in `src/nanite/shading.ts`: impostorPx x a
+- Each tree switches to its impostor at its own size (`switchPx` in `src/nanite-lib/gpu/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
 - Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
@@ -583,7 +597,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   +0.33, `topdown` +0.1, `d1500` +0.04 ms, ground views and `orbit` (splats) +0; at the phone's size `overview`
   +0.55, `slope` +0.33, `topdown` and `phone9k` -0.2. Motion: `--dolly` slope 32 -> 11 flicker events, fogline the
   same, `--sweep=lod` a little fewer jumps.
-- Tiny impostors are splatted in compute (`src/nanite/splats.ts`, Nanite's way with tiny triangles): from
+- Tiny impostors are splatted in compute (`src/nanite-lib/gpu/splats.ts`, Nanite's way with tiny triangles): from
   `?splatalt=` (2 km) above the ground the instance pass lists an impostor under `?splatpx=` (3) px wide in the
   impostor list from its top down (another buffer would be a 9th in the instance pass), and one thread per splat
   walks its quad's pixels in the software rasterizer's visibility buffer (depth atomicMin, then the id with
@@ -599,13 +613,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   triangles at full detail (the trees all round, for ~11 cm texels), at 5 half, same image. A texel floor (no caster
   finer than a shadow texel) changed nothing: few casters are that close.
 - Shadow casters only where their shadow can land in the camera's view (`CastTest` in `chunks.ts`, the shadow view's
-  `sphereVisible`, `castLen` in `forest.ts`): each chunk box, tree and cluster, swept away from the sun far enough
+  `sphereVisible`, `castLen` in `gpu/renderer.ts`): each chunk box, tree and cluster, swept away from the sun far enough
   for the tallest tree's shadow to reach ground 60 m lower, must touch the camera's frustum. The map covers a square
   around where the camera looks, kilometres wide from high up, and every caster in it was drawn: zoomed in looking
   down from 544 m (`zoomdown --zoom=5`) 38M shadow triangles, 13 ms of a 17.9 ms frame (now 258k, 4.75 ms); on the
   ground a third to half of the casters, -0.3..0.65 ms; images match but for scattered specks (`img.ts diff`).
   `?castcull=0` for the old.
-- Software rasterizer (`src/nanite/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
+- Software rasterizer (`src/nanite-lib/gpu/softraster.ts`, main view only): the cluster pass sends clusters whose triangles
   average under `swArea` px² (`?swarea=`, default 4; `?sw=0` = hardware only) to a list that compute passes
   rasterize into a visibility buffer: atomicMin of view depth, then atomicMax of (slot, triangle) + 1 where the
   depth matches (no 64-bit atomics in WebGPU). A fullscreen quad on the phase 2 layer (`buildResolveMesh`) rebuilds
@@ -691,7 +705,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   counters buffer (`makeCounters` in `constants.ts`: draw args at offsets, stats, item count, retest and
   software-raster counts). A shader uses one access mode of the counters (`atomic` + atomicLoad where it reads and
   adds). Check new passes with `?maxsb=8` (caps the device limit): no validation errors in `console.log`.
-- Occlusion culling (`src/nanite/culling.ts`, `hzb.ts`, main view only): two phases per frame. Phase 1 tests trees and clusters
+- Occlusion culling (`src/nanite-lib/gpu/culling.ts`, `hzb.ts`, main view only): two phases per frame. Phase 1 tests trees and clusters
   against *last* frame's HZB (built with last frame's camera, read through the same uniforms before they're
   updated) and draws what passes; `occlusion()` then rebuilds the HZB from this frame's depth (max over each
   pixel's samples, `sceneRT.depthTexture`) and retests the failures; what's visible is drawn by the phase 2

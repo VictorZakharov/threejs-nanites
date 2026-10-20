@@ -25,7 +25,7 @@ import type { DemoState } from './harness-api.ts';
 
 const params = new URLSearchParams(location.search);
 const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
-const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite/splats.ts)
+const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite-lib/gpu/splats.ts)
 // occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
 const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
 

@@ -88,6 +88,7 @@ export function forestLook(wind: UniformNode<'float', number>, windOf: UniformAr
         return off;
       };
     },
+    motionOutput: 'wind', // (the scene target's second output: the TAA's wind motion vectors)
     motionMargin: (height, top, s, type) => windMargin(height, top, s, sway(uint(type))),
     tint: treeTint,
     cardValue: (_inst, b) => autumnOf(b.w),

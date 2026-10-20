@@ -225,7 +225,7 @@ export class SoftRaster {
                   // smoothstep(0.5, 0.5 + fwidth(alpha), alpha), over the pixel's samples; here one sample, so it's
                   // covered if that beats a fixed per-pixel threshold (fwidth from the neighbouring pixels' uv)
                   let coverage: Float;
-                  if (LEAF_DITHER) {
+                  if (tex.softLeafDither ?? LEAF_DITHER) {
                     // the plain filtered alpha is the share of the pixel the leaves cover: drawn with that
                     // probability (the dither moves every frame and TAA averages it), not sharpened into a cut-out
                     // that makes each distant crown a hard speckle shimmering as it moves

@@ -36,6 +36,11 @@ export interface NaniteLook {
    * with this and last frame's time: the motion vectors). None: still.
    */
   motion?: (v: MotionInput) => (time: Float) => Vec3;
+  /**
+   * The scene's MRT output (by name) that the clusters write their screen motion to (this minus last frame's clip
+   * position, uv units, y down; the demo's TAA subtracts it from its camera reprojection): none, not written.
+   */
+  motionOutput?: string;
   /** How far `motion` can move a part whose top is `top` (local units) of a mesh `height` tall at scale `s` (the culling spheres grow by it). */
   motionMargin?: (height: Float, top: Float, s: Float, type: Float) => Float;
   /** A per-instance brightness factor (the cards' and impostors' colour hooks get it). */

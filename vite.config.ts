@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { defineConfig, type Plugin } from 'vite';
 
 // ez-tree's npm build inlines its 20 bark and leaf images (~4 MB of base64, most of the page's script) and starts
@@ -29,7 +30,11 @@ export default defineConfig({
   // (the dev server would pre-bundle ez-tree from its npm build, past the alias and the plugin)
   optimizeDeps: { exclude: ['@dgreenheck/ez-tree'] },
   worker: { format: 'es', plugins: () => [ezTreeWithoutTextures()] }, // (ez-tree grows in the DAG worker)
-  build: { target: 'es2022' },
+  build: {
+    target: 'es2022',
+    // the demo, and the library's example (examples/gltf.html: a glTF scene through src/nanite-lib/ alone)
+    rolldownOptions: { input: { main: fileURLToPath(new URL('./index.html', import.meta.url)), gltf: fileURLToPath(new URL('./examples/gltf.html', import.meta.url)) } },
+  },
   // (the harness's scratch and output: browser profiles left by hung runs are ~100k files, and watching them held
   // up the dev server's first requests for minutes)
   server: { watch: { ignored: ['**/tools/tmp/**', '**/tools/out/**'] } },

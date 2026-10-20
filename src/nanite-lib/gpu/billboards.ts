@@ -261,8 +261,9 @@ export const billboardMethods = {
     const q = this._impostorQuad(atlas, list, (pivot) => u.camPos.sub(pivot).normalize(), true);
     const { vRight, vUp, vDir, vTint, vFade, tile } = q;
     // lit like the real leaves (Lambert, same lights, shadow fade and fog), from baked albedo + normals
-    const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMP_DITHER ? 0.5 : IMPOSTOR_CUT });
-    mat.alphaToCoverage = !IMP_DITHER && this.textures.alphaToCoverage;
+    const impDither = this.textures.impostorDither ?? IMP_DITHER;
+    const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: impDither ? 0.5 : IMPOSTOR_CUT });
+    mat.alphaToCoverage = !impDither && this.textures.alphaToCoverage;
     const wSum = max(q.a.reduce((m, a) => m.add(a)), 1e-4);
     // (MSAA-resolved edges are premultiplied by coverage: divide it out)
     const albedo = q.t.reduce<Vec3>((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
@@ -289,7 +290,7 @@ export const billboardMethods = {
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
     // (and the coverage scale's holes: see holes)
     const kept = q.holes(q.vCov);
-    const cut = select(kept, IMP_DITHER ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
+    const cut = select(kept, impDither ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));

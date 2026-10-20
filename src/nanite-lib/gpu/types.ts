@@ -38,6 +38,10 @@ export interface NaniteTextures {
   leafLayerOf: (type: Uint) => Float;
   alphaToCoverage: boolean; // (the scene target has MSAA)
   leafDither: boolean; // (it hasn't, under TAA: leaves by coverage against a moving dither, see draw.ts)
+  // the same for the software-rasterized leaves and the impostors (and the splats): by coverage against a moving
+  // dither, which only a temporal anti-aliasing averages, or cut out (default: LEAF_DITHER, IMP_DITHER, from the URL)
+  softLeafDither?: boolean;
+  impostorDither?: boolean;
 }
 
 /** A view's counters buffer (see makeCounters). */

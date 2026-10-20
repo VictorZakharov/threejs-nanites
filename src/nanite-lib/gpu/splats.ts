@@ -72,11 +72,11 @@ export class Splats {
   readonly nanite: NaniteRenderer;
   /** On this frame (see begin). */
   readonly on = uniform(0, 'uint');
-  /** Switched on (`?splat=0` off, the profile's switch; 0 until the atlas is baked: main.ts). */
+  /** Switched on (`?splat=0` off, the profile's switch; 0 until the atlas is baked). */
   readonly enabled = { value: 0 };
   readonly wanted = params.get('splat') !== '0';
   /**
-   * Off (set per frame, see SPLAT_ALTITUDE in main.ts): lower down there are few tiny impostors, and the passes cost
+   * Off (set per frame, by the application: the demo from SPLAT_ALTITUDE): lower down there are few tiny impostors, and the passes cost
    * ~0.05 ms with none (1080p on the dev GPU: +0.06..0.13 ms from 450 m to 1.8 km up, -0.13 at 8.8 km; from 2 km).
    */
   idle = false;
@@ -228,7 +228,7 @@ export class Splats {
       };
       const a = s.map((sk, i) => sk.a.mul(scaleOf(sh.type.add(uint(ks[i]).mul(nTypes)))).mul(clamp(wts[i].mul(2), 0, 1)));
       const coverage = min(max(s[0].a.mul(clamp(wts[0].mul(2), 0, 1)), s[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
-      const pass = (p: Vec2): Bool => (IMP_DITHER ? coverage.mul(IMP_COV).mul(sh.cov).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT).and(sh.cov.greaterThan(ditherAlt(p))));
+      const pass = (p: Vec2): Bool => ((this.nanite.textures.impostorDither ?? IMP_DITHER) ? coverage.mul(IMP_COV).mul(sh.cov).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT).and(sh.cov.greaterThan(ditherAlt(p))));
       return { uv, s, a, elev: ks.map((k) => k.mul(ELEV_STEP)), pass };
     };
   }

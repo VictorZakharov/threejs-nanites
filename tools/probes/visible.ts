@@ -1,5 +1,5 @@
 // Trees and clusters drawn vs seen (needs --query=ids=1): debug 6 writes each pixel's tree and cluster into the scene
-// target's second output (src/nanite/draw.ts); this counts the distinct ones on screen against what the culling drew.
+// target's second output (src/nanite-lib/gpu/draw.ts); this counts the distinct ones on screen against what the culling drew.
 // Hardware geometry only (impostors and the software rasterizer aren't in it: on the ground, under 25 m, there's no
 // software rasterizer, see swalt). "seenTris": the triangles of the clusters that reach at least one pixel, the most
 // any culling could leave.

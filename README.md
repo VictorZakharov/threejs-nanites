@@ -274,7 +274,7 @@ The code is [MIT](LICENSE).
   See [public/models/README.md](public/models/README.md).
 - **Trees:** generated with [ez-tree](https://github.com/dgreenheck/ez-tree) by Daniel Greenheck (MIT). The bark and
   leaf textures in `public/textures` and the music (`public/audio/ambience.mp3`, from ez-tree's demo app) are
-  ez-tree's.
+  ez-tree's, and so is the example's rock (`public/examples/rock.glb`, its geometry decoded).
 - **Libraries:** [three.js](https://threejs.org) and [meshoptimizer](https://github.com/zeux/meshoptimizer) (MIT).
 - **Forest floor:** follows the author's earlier project, last-stand.
 
@@ -287,6 +287,11 @@ npm install
 npm run dev        # Vite dev server
 npm run build      # type-check the app and the tools (strict TypeScript) + production build
 ```
+
+The renderer itself is a library in `src/nanite-lib/` (it imports only three.js and meshoptimizer): cluster DAGs for
+any mesh, the `.nm` model format, the GPU-driven culling and draws, the software rasterizer and the impostors. The
+forest is one application of it; `examples/gltf.html` (`/examples/gltf.html` on the site) is another, a glTF rock
+drawn 250,000 times with nothing of the demo's.
 
 `AGENTS.md` is the guide to the codebase: how each part works, why it's built that way, and how to check a change.
 

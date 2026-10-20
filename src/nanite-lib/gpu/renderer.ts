@@ -9,7 +9,7 @@
 //                 (own projected error <= threshold < parent projected error) + frustum cull, append to bark/leaf list
 //   4. draw       two indirect draws (bark, leaves); each draw instance is one cluster, the vertex shader pulls its
 //                 triangles from storage buffers (128 tris max, the rest degenerate). In the main view, clusters of
-//                 tiny triangles go to the software rasterizer instead (src/nanite/softraster.js).
+//                 tiny triangles go to the software rasterizer instead (softraster.ts).
 // Steps 1-3 run twice: for the camera, and for the sun's shadow map (its own frustum, coarser LOD). The shadow
 // meshes live on layer 1, which only the shadow camera sees.
 //
@@ -47,7 +47,7 @@ export interface NaniteRenderer
 export class NaniteRenderer {
   readonly renderer: THREE.WebGPURenderer;
   frozen = false;
-  /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (main.ts). */
+  /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (the demo's webgpu-frame.ts). */
   occlusionOn = true;
   /** The shadow view ran this frame (its stats are stale otherwise: shadows off, or the average shadow from high up). */
   shadowActive = false;
@@ -108,8 +108,8 @@ export class NaniteRenderer {
     // (the main view's counters: its draw args, stats, retest and software-raster counts in one buffer, see CTR_SIZE)
     this.mainCtr = makeCounters();
     this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS: look.curveRadius }; // (for the harness probes)
-    this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (src/nanite/softraster.js)
-    this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (src/nanite/splats.ts)
+    this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (softraster.ts)
+    this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (splats.ts)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
     this.group = new THREE.Group();

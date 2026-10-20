@@ -122,7 +122,7 @@ function hue(r: number, g: number, b: number): number {
 }
 
 /**
- * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite/shading.ts): the
+ * Per-pixel tree type from a `debug=4` screenshot (a flat colour per type, see TYPE_IDS in src/nanite-lib/gpu/shading.ts): the
  * index of the id with the closest hue (within 18 degrees), or -1 (sky, an edge). Under debug 4 the demo draws no
  * fog, tone mapping, ground or grass (src/type-masks.ts), so a tree's pixel is its id, in linear light: the hue is taken there
  * (through the sRGB curve alone a hue moved by up to ~16 degrees, nearly to the next id's).

@@ -151,7 +151,7 @@ const spread = (v: number): number => {
 
 /**
  * The plants (8 floats each) in Morton order of their place in the tile at (x0, z0): runs of consecutive ones are then
- * compact patches, and the instance passes cull whole runs at once (src/nanite/chunks.ts).
+ * compact patches, and the instance passes cull whole runs at once (src/nanite-lib/gpu/chunks.ts).
  */
 function mortonOrder(rec: number[], x0: number, z0: number): Float32Array {
   const n = rec.length / 8, q = (v: number) => Math.min(1023, Math.max(0, Math.floor((v / TILE) * 1024)));

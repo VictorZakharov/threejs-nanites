@@ -111,7 +111,7 @@ export async function buildForest(o: ForestSetup) {
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
-  // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
+  // tiny impostors splatted in compute (src/nanite-lib/gpu/splats.ts), shaded as the impostor material: same shadow and fog
   const splatMesh = forest.splats.build(atlas, {
     shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
     fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
