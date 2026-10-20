@@ -128,7 +128,7 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   leafMat.receivedShadowNode = shading.treeShadow;
   if (shading.motion) leafMat.mrtNode = motion();
 
-  interface Slot { a: THREE.InstancedBufferAttribute; b: THREE.InstancedBufferAttribute; geos: THREE.InstancedBufferGeometry[]; n: number }
+  interface Slot { a: THREE.InstancedBufferAttribute; b: THREE.InstancedBufferAttribute; geos: THREE.InstancedBufferGeometry[]; n: number; over: number; ids: Set<number> }
   const slots: Slot[][] = trees.map(() => []);
   trees.forEach((t, v) => {
     if (isModel(t.variant)) return;
@@ -160,7 +160,7 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
         }
         return g;
       });
-      slots[v][k] = { a, b, geos, n: 0 };
+      slots[v][k] = { a, b, geos, n: 0, over: 0, ids: new Set() };
     });
   });
 
@@ -172,10 +172,12 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
     const l = grid.get(k);
     if (l) l.push(i); else grid.set(k, [i]);
   }
-  let near = 0;
+  let near = 0, grown = 0;
   const put = (v: number, k: number, i: number): void => {
     const s = slots[v][k];
-    if (!s || s.n * 4 >= s.a.array.length) return;
+    if (!s) return;
+    if (s.n * 4 >= s.a.array.length) return void s.over++;
+    if (auditing) s.ids.add(i);
     (s.a.array as Float32Array).set(inst.a.subarray(i * 4, i * 4 + 4), s.n * 4);
     (s.b.array as Float32Array).set(inst.b.subarray(i * 4, i * 4 + 4), s.n * 4);
     s.n++;
@@ -184,8 +186,10 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
    * Puts every instance within the last band of `p` into its level's meshes (in a band, both levels'), with MARGIN
    * metres to spare each way: the camera moves that far before the next scan, and the shader splits the pixels.
    */
+  const scanAt = new THREE.Vector3();
   function scan(p: THREE.Vector3, scale: number): void {
-    for (const l of slots) for (const s of l) if (s) s.n = 0;
+    scanAt.copy(p);
+    for (const l of slots) for (const s of l) if (s) (s.n = s.over = 0, s.ids.clear());
     near = 0;
     radiusScale.value = scale;
     const reach = NEAR_R * 1.15 * (1 + BAND) * scale + MARGIN;
@@ -206,6 +210,19 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
         }
       }
     }
+    // a level's list full (a dense stand, a wider detail): bigger buffers and the scan again. Its capacity is a
+    // guess by area; the trees past it were dropped, a different few at every scan: trees and their shadows went
+    // out at once, and a tree in a band drawn by one level only was half its pixels, see-through under TAA (the user)
+    if (slots.some((l) => l.some((s) => s && s.over > 0))) {
+      for (const l of slots) for (const s of l) if (s && s.over > 0) {
+        const cap = Math.ceil((s.n + s.over) * 1.5);
+        s.a = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
+        s.b = new THREE.InstancedBufferAttribute(new Float32Array(cap * 4), 4).setUsage(THREE.DynamicDrawUsage);
+        for (const g of s.geos) (g.setAttribute('iA', s.a), g.setAttribute('iB', s.b));
+        grown++;
+      }
+      return scan(p, scale);
+    }
     for (const l of slots) for (const s of l) if (s) {
       s.a.clearUpdateRanges(); s.b.clearUpdateRanges();
       s.a.addUpdateRange(0, s.n * 4); s.b.addUpdateRange(0, s.n * 4);
@@ -215,5 +232,33 @@ export function createNearTrees(trees: BuiltTree[], inst: TreeInstances, tex: Ne
   }
   /** Every frame: where the bands are measured from (the camera). */
   const setViewer = (p: THREE.Vector3): void => void viewer.value.copy(p);
-  return { barkMat, scan, setViewer, count: () => near };
+  let auditing = false, scanScale = 1;
+  /**
+   * The harness's check (--probe=glnear): the trees within reach of the viewer `p` whose band (as the shader works
+   * it out from `p`) needs a level they aren't listed in since the last scan: those draw only part of their pixels.
+   */
+  function audit(p: THREE.Vector3): { checked: number; missing: number; worst: string } {
+    let checked = 0, missing = 0, worst = '';
+    const A = inst.a, B = inst.b, reach = NEAR_R * 1.15 * (1 + BAND) * scanScale;
+    for (const [cell, list] of grid) {
+      const cx = Math.floor(cell / 8192) - 4096, cz = (cell % 8192) - 4096;
+      if (Math.abs((cx + 0.5) * CELL - p.x) > reach + CELL || Math.abs((cz + 0.5) * CELL - p.z) > reach + CELL) continue;
+      for (const i of list) {
+        const d = Math.hypot(A[i * 4] - p.x, A[i * 4 + 1] - p.y, A[i * 4 + 2] - p.z), j = jitterCPU(A[i * 4 + 3]) * scanScale;
+        const v = Math.floor(B[i * 4 + 2]);
+        for (let k = 0; k < LEVELS.length; k++) {
+          const outer = LEVELS[k].r * j * (1 + BAND), inner = k ? LEVELS[k - 1].r * j * (1 - BAND) : -1;
+          if (!(d < outer && d > inner) || !slots[v][k]) continue;
+          checked++;
+          if (!slots[v][k].ids.has(i)) (missing++, (worst ||= `type ${v} level ${k} at ${d.toFixed(1)} m (band ${inner.toFixed(1)}..${outer.toFixed(1)}), ${Math.hypot(A[i * 4] - scanAt.x, A[i * 4 + 1] - scanAt.y, A[i * 4 + 2] - scanAt.z).toFixed(1)} m from the scan ${scanAt.distanceTo(p).toFixed(1)} m back, listed ${slots[v].map((s) => (s?.ids.has(i) ? 1 : 0)).join('')}`));
+        }
+      }
+    }
+    return { checked, missing, worst };
+  }
+  return {
+    barkMat, scan: (p: THREE.Vector3, scale: number) => ((scanScale = scale), scan(p, scale)), setViewer, count: () => near, grown: () => grown, audit,
+    /** Keeps the scans' instance lists for audit() (the harness: off otherwise, a Set add per listed tree). */
+    keepIds: (): void => ((auditing = true), scan(scanAt, scanScale)),
+  };
 }

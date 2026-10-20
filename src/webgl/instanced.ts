@@ -24,8 +24,16 @@ export const pick = (values: number[]): Float => values.slice(0, -1).reduceRight
 export const iAf = varying(iA, 'vGlIA'), iBf = varying(iB, 'vGlIB');
 export const typeOfF = iBf.z.add(0.25).floor();
 
-/** The tree's own spread of the level radii (CPU and shader alike, from its scale). */
-export const jitterCPU = (s: number): number => 0.85 + 0.3 * (((s * 97.13) % 1) + 1) % 1;
+/**
+ * The tree's own spread of the level radii (CPU and shader alike, from its scale): in 32-bit floats as the shader
+ * multiplies. It read `0.3 * (f + 1) % 1`, (0.3 (f + 1)) mod 1: 1.15-1.45 on the CPU, 0.85-1.15 in the shader, so
+ * the scan listed trees in the wrong levels: some drawn by one level only, half their pixels (see-through under
+ * TAA), some by none, gone with their shadows (the user; --probe=glnear).
+ */
+export const jitterCPU = (s: number): number => {
+  const x = Math.fround(Math.fround(s) * Math.fround(97.13));
+  return 0.85 + 0.3 * (x - Math.floor(x));
+};
 export const jitter = (s: Float): Float => fract(s.mul(97.13)).mul(0.3).add(0.85);
 /** A per-tree random number from its position (float maths: no 32-bit integer hash needed). */
 export const hashOf = (a: Vec4): Float => fract(sin(dot(fract(a.xz.mul(0.0137)), vec2(12.9898, 78.233))).mul(43758.5453));

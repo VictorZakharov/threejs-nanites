@@ -142,6 +142,8 @@ export interface DemoExtras {
   perfReport(): string | undefined;
   loadLog: { t: number; msg: string }[]; // (the loading log's lines, ms since the navigation started: --load)
   profile(): Promise<string>;
+  /** The WebGL mode's near trees (src/webgl/near.ts audit: --probe=glnear); absent on WebGPU. */
+  glNear?: { keepIds(): void; audit(p: THREE.Vector3): { checked: number; missing: number; worst: string } };
 }
 
 

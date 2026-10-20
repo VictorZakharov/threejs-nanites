@@ -182,7 +182,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   const wSum = max(aK[0].add(aK[1]), 1e-4);
   const albedo = ts.reduce<Vec3>((acc, tk, i) => acc.add(tk.rgb.div(max(tk.a, 1e-3)).mul(aK[i])), vec3(0)).div(wSum);
   const nWorld = uvs.reduce<Vec3>((acc, c, i) => {
-    const nt = texture(atlas.normals, c).xyz, e = ks[i].mul(STEP_DEG * deg), ce = cos(e), se = sin(e);
+    const nt = atlas.bytes ? texture(atlas.normals, c).xyz.mul(2).sub(1) : texture(atlas.normals, c).xyz, e = ks[i].mul(STEP_DEG * deg), ce = cos(e), se = sin(e);
     return acc.add(vRight.mul(nt.x).add(vUp.mul(nt.y.mul(ce).sub(nt.z.mul(se)))).add(vDir.mul(nt.y.mul(se).add(nt.z.mul(ce)))).mul(aK[i]));
   }, vec3(0));
   impMat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(vDir.mul(1e-3)), 0)).xyz);
@@ -307,7 +307,9 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
         if (b.mesh.visible) impostors += geo.instanceCount;
       }
     },
-    stats: () => ({ instances: nearTrees.count(), impostors }),
+    stats: () => ({ instances: nearTrees.count(), impostors, grown: nearTrees.grown() }),
+    /** The near trees' list check for the harness (near.ts audit). */
+    near: { keepIds: nearTrees.keepIds, audit: nearTrees.audit },
     /** The detail level (the menu's error threshold, tau): the geometry's radii x 1 / sqrt(tau), rescanned. */
     setDetail(tau: number): void {
       scale = nearScale.value = Math.min(1.5, Math.max(0.25, 1 / Math.sqrt(tau)));

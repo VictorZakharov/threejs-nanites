@@ -1,5 +1,6 @@
 // The WebGL mode's forest by mesh group (run with --query=webgl=1): triangles and instances drawn per kind (bark,
-// leaves, shadow casters, statues, impostors) and near level, from the meshes' index counts x instance counts.
+// leaves, shadow casters, statues, impostors) and near level, from the meshes' index counts x instance counts;
+// `grown`: how often a near level's list was full and grew (src/webgl/near.ts scan).
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -20,5 +21,6 @@ async (demo: Demo) => {
     e.meshes++;
   });
   const total = Object.values(out).reduce((s, e) => s + e.tris, 0);
-  return { total, ...out };
+  const grown = (demo.info() as { grown?: number }).grown;
+  return { total, grown, ...out };
 }
