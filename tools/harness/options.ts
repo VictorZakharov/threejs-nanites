@@ -46,6 +46,10 @@ loading
   --loading-shots    screenshots of the loading screen;  --resize-during-load=1280x1000  resize while loading
   --verbose          echo the whole page console
 
+the library
+  --example[=gltf]   the library's example page (examples/<name>.html) instead of the demo: its stats line after
+                     --frames frames and tools/out/example-<name>.png (harness/example.ts)
+
 image tools: node tools/img.ts (colour stats and enlarged crops of screenshots)`;
 
 /** Parses process.argv into the harness's options. */
@@ -92,6 +96,7 @@ export function parseOptions(argv: string[]) {
     profile: Boolean(args.profile),
     resizeDuringLoad: args['resize-during-load'] ? String(args['resize-during-load']).split('x').map(Number) : null,
     verbose: Boolean(args.verbose),
+    example: args.example === undefined ? null : args.example === true ? 'gltf' : String(args.example),
   };
   return { ...base, timeout: base.timeout ?? expectedSeconds(base) };
 }

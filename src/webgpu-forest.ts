@@ -6,9 +6,9 @@ import { Fn, attribute, float, mix, smoothstep } from 'three/tsl';
 import { TERRAIN_SEGMENTS } from './terrain.ts';
 import { createGrass } from './grass.ts';
 import { VARIANTS, type BuiltTree } from './trees.ts';
-import { NaniteForest } from './nanite/forest.ts';
-import { makeLeafAlpha, LEAF_DITHER } from './nanite/shading.ts';
-import { bakeImpostors, createAtlas, impostorCoverage, IMPOSTOR_CUT } from './impostors.ts';
+import { NaniteForest } from './forest/forest.ts';
+import { makeLeafAlpha, LEAF_DITHER } from './nanite-lib/index.ts';
+import { bakeImpostors, createAtlas, impostorCoverage, IMPOSTOR_CUT } from './nanite-lib/index.ts';
 import { arrayTexture, layerLookup } from './textures.ts';
 import { forestDensity, type TreeInstances } from './placement.ts';
 import { asReceivedShadow } from './three-gaps.ts';
@@ -111,7 +111,7 @@ export async function buildForest(o: ForestSetup) {
   impostorMesh.visible = params.get('imp') !== '0'; // (debug switch)
   if (params.has('imppx')) forest.u.impostorPx.value = Number(params.get('imppx'));
   forest.group.add(impostorMesh);
-  // tiny impostors splatted in compute (src/nanite/splats.ts), shaded as the impostor material: same shadow and fog
+  // tiny impostors splatted in compute (src/nanite-lib/gpu/splats.ts), shaded as the impostor material: same shadow and fog
   const splatMesh = forest.splats.build(atlas, {
     shadow: (pos: Vec3) => Fn(([shadow]: [Float]) => makeFadeShadow(treeFarShadow, pos)(shadow.mul(mix(float(1), treeFarShadow, farShadowOn)))),
     fadeShadow: (pos: Vec3) => makeFadeShadow(treeFarShadow, pos),
@@ -148,7 +148,7 @@ export async function buildForest(o: ForestSetup) {
     barkLayers: VARIANTS.map((v) => barkTypes.indexOf(v.bark)),
     leafLayers: VARIANTS.map((v) => leafTypes.indexOf(v.leaf)),
     leafAlpha: makeLeafAlpha(leafTex, attribute('uv', 'vec2')),
-  }, Number(params.get('bakepx') ?? forest.u.impostorPx.value))); // (the default switch size, before ?imppx=)
+  }, forest.look, Number(params.get('bakepx') ?? forest.u.impostorPx.value))); // (the default switch size, before ?imppx=)
   const bakeMs = performance.now() - tb;
   await impostorCoverage(renderer, atlas, IMPOSTOR_CUT);
   // (?impcovside= / ?impcovtop=: a factor per variant instead of VARIANTS' impCov, to calibrate)

@@ -1,8 +1,10 @@
-// Builds one mesh's cluster DAG (dag-build.ts) off the main thread; for a tree variant, grows it first (tree-grow.ts),
+// Builds one mesh's cluster DAG (nanite-lib's buildDag) off the main thread; for a tree variant, grows it first (tree-grow.ts),
 // then waits for its leaf mask (a second message).
-import { buildDag } from './dag-build.ts';
+// (straight from the module, not the library's index: a worker's bundle takes only what it imports)
+import { buildDag } from './nanite-lib/dag/build.ts';
+import type { LeafMask } from './nanite-lib/dag/types.ts';
 import { generateTree } from './tree-grow.ts';
-import type { DagJob, DagReply, LeafMask } from './dag-types.ts';
+import type { DagJob, DagReply } from './trees.ts';
 
 // (typed as a worker scope: the project's lib is the DOM's, where `self` is the window)
 const scope = self as unknown as { onmessage: (e: MessageEvent<DagJob | LeafMask | null>) => void; postMessage(msg: DagReply, transfer?: Transferable[]): void };

@@ -6,7 +6,7 @@
 // marches the shadow map, which here covers only part of the view).
 import * as THREE from 'three/webgpu';
 import { Fn, Loop, uniform, texture, textureLoad, ivec2, vec2, vec3, vec4, float, int, screenUV, screenCoordinate, select, exp, max, length } from 'three/tsl';
-import { ditherAt } from './nanite/shading.ts';
+import { ditherAt } from './nanite-lib/index.ts';
 import type { Vec2, Vec3 } from './types.ts';
 
 const params = new URLSearchParams(location.search);

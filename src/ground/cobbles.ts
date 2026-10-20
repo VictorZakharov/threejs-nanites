@@ -3,7 +3,7 @@
 // far away (a pattern finer than the pixels) their average colour and a flat normal.
 import { Fn, vec2, vec3, vec4, float, hash, smoothstep, mix, select, min, fwidth, mx_noise_float, int, uint, length, dFdx, dFdy } from 'three/tsl';
 import type { Float, Vec2, Vec3, Vec4 } from '../types.ts';
-import { footprint } from '../nanite/shading.ts';
+import { footprint } from '../nanite-lib/index.ts';
 
 const CELL = 0.22; // m
 

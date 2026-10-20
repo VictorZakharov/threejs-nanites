@@ -9,7 +9,7 @@ import {
   Fn, If, instanceIndex, uniform, uniformArray, storage, float, vec2, vec3, vec4, int, ivec2, uint, uvec4, hash, sin,
   cos, mix, clamp, smoothstep, textureLoad, texture, mx_noise_float, select, sqrt, atomicAdd, atomicStore, atomicLoad,
 } from 'three/tsl';
-import { minU } from './nanite/constants.ts';
+import { minU } from './nanite-lib/index.ts';
 import { curve, detailPos } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import { meadowColourAt } from './terrain.ts';

@@ -22,7 +22,7 @@ import type { Options } from './options.ts';
 type TypeColour = ReturnType<typeof typeColours>[number];
 type Kind = 'side' | 'top';
 
-// keep in sync with TYPE_IDS in src/nanite/shading.ts
+// keep in sync with TYPE_IDS in src/nanite-lib/gpu/shading.ts
 const TYPE_IDS = Array.from({ length: 10 }, (_, i) => { const h = i * 36, f = (n: number): number => Math.max(0, Math.min(1, Math.abs(((h / 60 + n) % 6) - 3) - 1)); return [f(0), f(4), f(2)]; });
 const MODES = { geometry: 0, impostors: 1e9 } as const;
 const ROUNDS = 5; // calibration rounds

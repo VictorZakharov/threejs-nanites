@@ -4,11 +4,11 @@
 import * as THREE from 'three/webgpu';
 import type { mrt } from 'three/tsl';
 import { heightAt, terrainForAltitude } from './terrain.ts';
-import { PHASE2_LAYER } from './nanite/constants.ts';
-import { mipBias } from './nanite/shading.ts';
+import { PHASE2_LAYER } from './nanite-lib/index.ts';
+import { mipBias } from './nanite-lib/index.ts';
 import { viewerPos, detailPos, detailShift } from './planet.ts';
 import { MAX_ALTITUDE, forestRadius } from './placement.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { FlyControls } from './controls.ts';
 import type { TouchControls } from './touch.ts';
 import type { createLighting } from './lighting.ts';
@@ -25,7 +25,7 @@ import type { DemoState } from './harness-api.ts';
 
 const params = new URLSearchParams(location.search);
 const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
-const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite/splats.ts)
+const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite-lib/gpu/splats.ts)
 // occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
 const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
 

@@ -34,6 +34,7 @@ is about using it well.
 | `harness/status.ts` | the current step, for the watchdog |
 | `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/load.ts` | `--load=N`: cold boots, the loading log's timeline (median), the downloads, `--profile` of the main thread |
+| `harness/example.ts` | `--example[=gltf]`: the library's example page (`examples/<name>.html`) instead of the demo: waits for its frames, saves `tools/out/example-<name>.png` and its stats line |
 | `harness/images.ts` | screenshot measures: mean colour, tree-pixel colour, tile luminance, heatmaps, crops |
 | `img.ts` | command line for those: `node tools/img.ts mean tools/out/*.png`, `... crop in.png out.png x,y,w,h 4`, `... diff a.png b.png [where.png]` (pixels that differ: an A/B that should match), `... zoom unzoomed.png zoomed.png 5 [side.png]` (the screen's centre vs the same view through `--zoom=5`, filtered in linear light, the HUD left out: how far things look against what they are up close) |
 | `probes/` | page-side measures (`--probe=<name>`), see `probes/README.md` |
@@ -58,6 +59,7 @@ npm run harness -- --url=https://victorzakharov.github.io/threejs-nanites/ --vie
 npx vite build && npm run harness -- --dist --load=3                    # loading: the production build, as Pages serves it
 npm run harness -- --dist --load=3 --size=384x832 --dpr=3 --query=touch=1 --cpu=4   # loading at a phone's size and pace
 npm run harness -- --dist=tools/tmp/dist-prof --load=1 --profile        # where the main thread's time goes (see below)
+npx vite build && npm run harness -- --dist --example           # the library alone (examples/gltf.html): a screenshot + its counters
 ```
 
 - Loading (`--load=N`, `harness/load.ts`): N cold boots, each in a fresh browser (no HTTP or shader cache), print
@@ -107,6 +109,6 @@ npm run harness -- --dist=tools/tmp/dist-prof --load=1 --profile        # where 
 - The table's `gpu` is the render passes' GPU time, `cull` the compute passes', `frame` the pipelined frame time
   (headless, so vsync doesn't cap it). Don't time frames by awaiting `onSubmittedWorkDone` after each one: that
   adds ~4 ms of latency per frame.
-- Debug URL parameters worth knowing (see `src/main.ts`, `src/lighting.ts`, `src/nanite/`): `imppx` (impostor size threshold, 0 = no impostors),
+- Debug URL parameters worth knowing (see `src/main.ts`, `src/lighting.ts`, `src/nanite-lib/gpu/`): `imppx` (impostor size threshold, 0 = no impostors),
   `occ=0` (no occlusion culling), `farall=1` (far-field shading everywhere, to calibrate it), `tau`, `shadows=0`,
   `debug=1|2|3` (cluster / DAG level / tree colours), `wind=0`, `trees=N`.

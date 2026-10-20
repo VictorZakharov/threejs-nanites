@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, float, max, abs, mix, positionWorld, cameraPosition, cubeTexture, fog, rangeFogFactor, smoothstep, uniform, vec3, vec4 } from 'three/tsl';
 import { SkyMesh } from 'three/addons/objects/SkyMesh.js';
 import { heightAt } from './terrain.ts';
-import { PHASE2_LAYER } from './nanite/constants.ts';
+import { PHASE2_LAYER } from './nanite-lib/index.ts';
 import type { Float, Vec3 } from './types.ts';
 
 const params = new URLSearchParams(location.search);

@@ -4,14 +4,14 @@ import { heightAt } from './terrain.ts';
 import { detailShift } from './planet.ts';
 import type { FlyControls } from './controls.ts';
 import type { AutoQuality } from './hud.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
 import type { CoverMap } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
 import type { createGrass } from './grass.ts';
-import type { ImpostorAtlas } from './impostors.ts';
+import type { ImpostorAtlas } from './nanite-lib/index.ts';
 import type { createHud } from './hud.ts';
 import type { Music } from './music.ts';
 

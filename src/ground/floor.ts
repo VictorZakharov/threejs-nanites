@@ -16,7 +16,7 @@ import { LITTER_SIZE, LITTER_RES } from './litter-map.ts';
 import { reliefUv } from './relief.ts';
 import { cobbles, cobbleAverage, cobblePatches } from './cobbles.ts';
 import { roadDistanceNode } from '../road.ts';
-import { footprint } from '../nanite/shading.ts';
+import { footprint } from '../nanite-lib/index.ts';
 import { underGrass } from '../grass.ts';
 import { detailPos } from '../planet.ts';
 import { meadowColour } from '../terrain.ts';

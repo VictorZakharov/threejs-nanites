@@ -6,7 +6,8 @@
 //
 // The parts: harness/options.ts (command line), harness/views.ts (viewpoints), harness/browser.ts (temp folder,
 // server, browser, page), harness/session.ts (boot, per-view run), harness/motion.ts (sweeps, dolly),
-// harness/typematch.ts (impostor vs geometry colour per tree type), harness/images.ts (screenshot measures), probes/ (page-side measures, run with --probe).
+// harness/typematch.ts (impostor vs geometry colour per tree type), harness/images.ts (screenshot measures), probes/ (page-side measures, run with --probe),
+// harness/example.ts (the library's example page, --example).
 import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -16,6 +17,7 @@ import { boot, runViews } from './harness/session.ts';
 import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
 import { typeMatch } from './harness/typematch.ts';
+import { runExample } from './harness/example.ts';
 import { status, at } from './harness/status.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
@@ -56,6 +58,24 @@ if (opts.load) {
   }
   clearTimeout(watchdog);
   await server?.close();
+  process.exit(code);
+}
+if (opts.example) {
+  // --example: the library's example page instead of the demo (see harness/example.ts)
+  const browser = await launchBrowser();
+  let code = 0;
+  try {
+    const { page, logs, failed } = await openPage(browser, opts);
+    const r = await runExample(page, url, opts.example, opts, outDir);
+    console.log(`${r.info}\nscreenshot ${r.png}`);
+    writeFileSync(join(outDir, 'console.log'), logs.join('\n'));
+    if (failed()) code = 1;
+  } catch (e) {
+    console.error('HARNESS ERROR:', e instanceof Error ? e.message : e);
+    code = 1;
+  }
+  clearTimeout(watchdog);
+  await Promise.race([Promise.all([browser.close(), server?.close()]), new Promise((r) => setTimeout(r, 5000))]);
   process.exit(code);
 }
 const browser = await launchBrowser();

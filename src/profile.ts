@@ -5,7 +5,7 @@
 // is somewhere other than the triangles, and each guess cost a round trip).
 import type * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 import type { GodRays } from './godrays.ts';
 

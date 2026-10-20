@@ -11,9 +11,9 @@ import {
 } from 'three/tsl';
 import { curve, dropAtCPU } from '../planet.ts';
 import { heightAt } from '../terrain.ts';
-import { ELEVATIONS, atlasLayout, IMPOSTOR_CUT, TILE_W, TILE_H, type ImpostorAtlas } from '../impostors.ts';
-import { GROW, GROW_SHADOW, IMP_DITHER, IMP_COV, DROP, DROP_FADE } from '../nanite/billboards.ts';
-import { ditherAlt, mipBias } from '../nanite/shading.ts';
+import { ELEVATIONS, atlasLayout, IMPOSTOR_CUT, TILE_W, TILE_H, type ImpostorAtlas } from '../nanite-lib/index.ts';
+import { GROW, GROW_SHADOW, IMP_DITHER, IMP_COV, DROP, DROP_FADE } from '../nanite-lib/index.ts';
+import { ditherAlt, mipBias } from '../nanite-lib/index.ts';
 import { autumnOf, autumnColour } from '../autumn.ts';
 import { isBush, VARIANTS, type BuiltTree } from '../trees.ts';
 import { setEmissive } from '../three-gaps.ts';

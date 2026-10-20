@@ -1,7 +1,9 @@
 // One layer of a texture array (textures.ts) off the main thread: an image fetched, decoded and drawn at the array's
 // size (as a canvas on the page did), or the models' marble (stone.ts); for leaves also the coverage-preserving alpha
 // scales and the alpha mask the leaf DAG counts coverage with. All layers load in parallel from the top of loading.
-import { coverageScales, fillTransparent, maskOf } from './texture-pixels.ts';
+import { fillTransparent } from './texture-pixels.ts';
+// (straight from the module, not the library's index: a worker's bundle takes only what it imports)
+import { coverageScales, maskOf } from './nanite-lib/alpha.ts';
 import { stonePixels } from './stone.ts';
 import type { LayerJob, LayerData } from './texture-pixels.ts';
 

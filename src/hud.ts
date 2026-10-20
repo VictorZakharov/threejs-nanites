@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import { heightAt } from './terrain.ts';
 import { PerfPanel, short } from './perf-panel.ts';
 import type { FlyControls } from './controls.ts';
-import type { NaniteForest } from './nanite/forest.ts';
+import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 
 /** The auto-quality controller's state (src/main.ts). */
