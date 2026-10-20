@@ -1,15 +1,15 @@
 // window.__demo in the WebGL mode (src/webgl/start.ts): the part of the harness API (src/harness-api.ts) that the
-// views, benchmarks and screenshots need. No GPU timers on WebGL here: the frame times are wall clock, each frame
-// waited for (gl.finish).
+// views, benchmarks and screenshots need. The frame times are wall clock, each frame waited for (gl.finish); the GPU
+// time is the timer queries' (EXT_disjoint_timer_query_webgl2, headless Chromium has it), 0 without them.
 import * as THREE from 'three/webgpu';
-import { heightAt } from '../terrain.ts';
 import type { FlyControls } from '../controls.ts';
-import type { DemoState, HarnessView } from '../harness-api.ts';
+import { viewPose, type DemoState, type HarnessView } from '../harness-api.ts';
 import type { AutoQuality } from '../hud.ts';
 import type { TreeInstances } from '../placement.ts';
 import type { createWebGLForest } from './forest.ts';
 
 interface WebGLHarnessContext {
+  timed: boolean; // (GPU timer queries)
   renderer: THREE.WebGPURenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -19,6 +19,10 @@ interface WebGLHarnessContext {
   instances: TreeInstances;
   size: THREE.Vector2;
   tris(): number;
+  updateHud(): void;
+  heightOf(i: number): number;
+  taa?: unknown; // (the output's TAA and god rays: --probe=cost switches them)
+  rays?: unknown; // (instance i's height, m: the `lone` views) // (the scene details in screenshots: as this frame)
 }
 
 export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): void {
@@ -26,13 +30,14 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
   const gl = (renderer.backend as unknown as { gl: WebGL2RenderingContext }).gl;
   const finish = (): void => gl.finish();
   Object.assign(demo, {
-    renderer, scene: ctx.scene, camera, controls, instances, webgl: true,
+    renderer, scene: ctx.scene, camera, controls, instances, webgl: true, taa: ctx.taa, rays: ctx.rays,
     info: () => ({ backend: 'WebGL 2', output: `${size.x}x${size.y}`, trees: instances.a.length / 4, ...forest.stats() }),
     setView(v: HarnessView) {
-      const y = v.y ?? heightAt(v.x, v.z) + (v.agl ?? 2);
-      camera.position.set(v.x, y, v.z);
-      controls.yaw = THREE.MathUtils.degToRad(v.yaw ?? 0);
-      controls.pitch = THREE.MathUtils.degToRad(v.pitch ?? 0);
+      const all = instances.a.length / 4;
+      const { x, y, z, yaw, pitch } = viewPose(v, instances, { all, trees: instances.trees, plants: all - instances.statues }, (i) => ctx.heightOf(i));
+      camera.position.set(x, y, z);
+      controls.yaw = yaw;
+      controls.pitch = pitch;
       controls.velocity.set(0, 0, 0);
       controls.zoomTarget = controls.zoom = v.zoom ?? 1;
     },
@@ -42,11 +47,17 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
     },
     async renderOnce() {
       frame(1 / 60);
+      ctx.updateHud();
       frame(1 / 60);
       finish();
     },
     async bench(n = 120) {
       for (let i = 0; i < 5; i++) (frame(1 / 60), finish());
+      const gpu: number[] = [];
+      for (let i = 0; ctx.timed && i < n; i++) {
+        frame(1 / 60);
+        gpu.push((await renderer.resolveTimestampsAsync('render')) ?? 0);
+      }
       const ms: number[] = [];
       for (let i = 0; i < n; i++) {
         const t = performance.now();
@@ -54,8 +65,9 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
         finish();
         ms.push(performance.now() - t);
       }
-      const med = [...ms].sort((a, b) => a - b)[ms.length >> 1];
-      return { frameMs: med, medianMs: med, gpuRenderMs: 0, gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
+      const median = (a: number[]): number => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : 0);
+      const med = median(ms);
+      return { frameMs: med, medianMs: med, gpuRenderMs: median(gpu), gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
     },
   });
 }

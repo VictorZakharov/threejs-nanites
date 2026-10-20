@@ -84,6 +84,45 @@ function loneliestTree(instances: TreeInstances, trees: number, count: number, x
   return best;
 }
 
+let lone: number | undefined; // (the lone view's tree, found once)
+/**
+ * Where a view puts the camera (both modes: src/webgl/harness.ts too): its x/z and height, or framed by the closest
+ * tree (`nearTree`, `trunk`) or the loneliest (`lone`). `count`: instances (all: statues included), trees, plants
+ * (trees and bushes); `heightOf(i)`: instance i's height (m).
+ */
+export function viewPose(v: HarnessView, instances: TreeInstances, count: { all: number; trees: number; plants: number }, heightOf: (i: number) => number) {
+  let x = v.x, z = v.z, yaw = THREE.MathUtils.degToRad(v.yaw ?? 0), pitch = THREE.MathUtils.degToRad(v.pitch ?? 0);
+  let y = v.y ?? heightAt(x, z) + (v.agl ?? 2);
+  if (v.nearTree || v.trunk) {
+    // the closest tree to (x, z): `nearTree` frames it from that many metres away; `trunk` faces its trunk
+    // from that many metres (from the trunk's axis), level, at `agl` above the tree's base
+    let best = 0, bd = Infinity;
+    for (let i = 0; i < count.all; i++) {
+      const d = Math.hypot(instances.a[i * 4] - x, instances.a[i * 4 + 2] - z);
+      if (d < bd) { bd = d; best = i; }
+    }
+    const tx = instances.a[best * 4], tz = instances.a[best * 4 + 2], ty = instances.a[best * 4 + 1];
+    const dist = v.trunk ?? v.nearTree ?? 0;
+    x = tx + Math.sin(yaw) * dist;
+    z = tz + Math.cos(yaw) * dist;
+    if (v.trunk) y = ty + (v.agl ?? 1.5);
+    else {
+      y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
+      pitch = Math.atan2(ty + 6 - y, dist);
+    }
+  }
+  if (v.lone) {
+    // camera `lone` metres from the crown's middle, back along the view (yaw, pitch: down is negative)
+    const i = (lone ??= loneliestTree(instances, count.trees, count.plants, v.x, v.z, 3000));
+    const h = heightOf(i);
+    const cx = instances.a[i * 4], cy = instances.a[i * 4 + 1] + h / 2, cz = instances.a[i * 4 + 2];
+    x = cx + Math.sin(yaw) * Math.cos(pitch) * v.lone;
+    z = cz + Math.cos(yaw) * Math.cos(pitch) * v.lone;
+    y = cy - Math.sin(pitch) * v.lone;
+  }
+  return { x, y, z, yaw, pitch };
+}
+
 export function installHarnessApi(demo: DemoState, ctx: HarnessContext): void {
   Object.assign(demo, harnessApi(demo, ctx));
 }
@@ -105,7 +144,6 @@ export interface DemoExtras {
   profile(): Promise<string>;
 }
 
-let lone: number | undefined; // (the lone view's tree, found once)
 
 function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
@@ -121,35 +159,8 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
     ...forest.stats,
   }),
   setView(v: HarnessView) {
-    let x = v.x, z = v.z, yaw = THREE.MathUtils.degToRad(v.yaw ?? 0), pitch = THREE.MathUtils.degToRad(v.pitch ?? 0);
-    let y = v.y ?? heightAt(x, z) + (v.agl ?? 2);
-    if (v.nearTree || v.trunk) {
-      // the closest tree to (x, z): `nearTree` frames it from that many metres away; `trunk` faces its trunk
-      // from that many metres (from the trunk's axis), level, at `agl` above the tree's base
-      let best = 0, bd = Infinity;
-      for (let i = 0; i < forest.instanceCount; i++) {
-        const d = Math.hypot(instances.a[i * 4] - x, instances.a[i * 4 + 2] - z);
-        if (d < bd) { bd = d; best = i; }
-      }
-      const tx = instances.a[best * 4], tz = instances.a[best * 4 + 2], ty = instances.a[best * 4 + 1];
-      const dist = v.trunk ?? v.nearTree ?? 0;
-      x = tx + Math.sin(yaw) * dist;
-      z = tz + Math.cos(yaw) * dist;
-      if (v.trunk) y = ty + (v.agl ?? 1.5);
-      else {
-        y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
-        pitch = Math.atan2(ty + 6 - y, dist);
-      }
-    }
-    if (v.lone) {
-      // camera `lone` metres from the crown's middle, back along the view (yaw, pitch: down is negative)
-      const i = (lone ??= loneliestTree(instances, forest.treeCount, forest.instanceCount - forest.statueCount, v.x, v.z, 3000));
-      const h = forest.typeValues[instances.b[i * 4 + 2]].w * instances.a[i * 4 + 3];
-      const cx = instances.a[i * 4], cy = instances.a[i * 4 + 1] + h / 2, cz = instances.a[i * 4 + 2];
-      x = cx + Math.sin(yaw) * Math.cos(pitch) * v.lone;
-      z = cz + Math.cos(yaw) * Math.cos(pitch) * v.lone;
-      y = cy - Math.sin(pitch) * v.lone;
-    }
+    const { x, y, z, yaw, pitch } = viewPose(v, instances, { all: forest.instanceCount, trees: forest.treeCount, plants: forest.instanceCount - forest.statueCount },
+      (i) => forest.typeValues[instances.b[i * 4 + 2]].w * instances.a[i * 4 + 3]);
     camera.position.set(x, y, z);
     controls.yaw = yaw;
     controls.pitch = pitch;

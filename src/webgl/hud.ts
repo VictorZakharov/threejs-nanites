@@ -1,6 +1,6 @@
 // The WebGL mode's on-screen numbers (src/webgl/start.ts): the same performance panel as WebGPU's (src/perf-panel.ts:
-// FPS, 1% low, frame time; a click copies the report), with no GPU timers (WebGL's need an extension three's backend
-// doesn't read here: GPU shows --), and the scene details under it (src/hud.ts's layout).
+// FPS, 1% low, frame time, GPU time where the browser has WebGL's timer queries (not Firefox: GPU shows --); a click
+// copies the report), and the scene details under it (src/hud.ts's layout).
 import * as THREE from 'three/webgpu';
 import { heightAt } from '../terrain.ts';
 import { PerfPanel, short } from '../perf-panel.ts';
@@ -10,12 +10,15 @@ import type { createWebGLForest } from './forest.ts';
 
 interface WebGLHudContext {
   tris(): number; // (the last frame's triangles, the shadow map's included)
+  statues(): number; // (0 till the model has arrived)
   camera: THREE.PerspectiveCamera;
   controls: FlyControls;
   forest: ReturnType<typeof createWebGLForest>;
   auto: AutoQuality;
   tau: { value: number };
-  size: THREE.Vector2; // (the drawing buffer's)
+  size: THREE.Vector2; // (the scene's pixels)
+  output: THREE.Vector2; // (the canvas's: the same without the TAA's upscaling)
+  taa(): boolean;
   adapterName: string;
   harness: boolean;
   shadowsOn(): boolean;
@@ -32,11 +35,11 @@ export function createWebGLHud(ctx: WebGLHudContext) {
     const s = forest.stats();
     tris = ctx.tris();
     return {
-      gpu: { render: 0, compute: 0, total: 0, budget: auto.budget },
+      gpu: { render: auto.gpuMs, compute: 0, total: auto.gpuMs, budget: auto.budget }, // (0 without timers: shown as --)
       quality: { tau: tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
-      resolution: { width: size.x, height: size.y, outWidth: size.x, outHeight: size.y, msaa: 4, taa: false },
+      resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: ctx.taa() ? 1 : 4, taa: ctx.taa() },
       scene: {
-        trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: 0, impostors: s.impostors,
+        trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: ctx.statues(), impostors: s.impostors,
         clusters: 0, swClusters: 0, tris: tris - s.impostors * 2, swTris: 0, impostorTris: s.impostors * 2, shadowTris: 0, // (tris: the shadow map's included)
       },
       camera: {
@@ -51,10 +54,10 @@ export function createWebGLHud(ctx: WebGLHudContext) {
     const s = forest.stats();
     tris = ctx.tris();
     const rows = [
-      ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms`]]),
+      ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
       ['mode', 'WebGL 2 (reduced: no WebGPU)'],
       ['plants', `${(s.instances + s.impostors).toLocaleString()} shown · ${s.impostors.toLocaleString()} impostors`],
-      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.bushCount)} bushes`],
+      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.bushCount)} bushes${ctx.statues() ? ` + ${ctx.statues()} statues` : ''}`],
       ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
       ['triangles', `${short(tris)} (shadows included)`],
       ['detail', `${tau.value.toFixed(2)} ${auto.on ? `auto · ${auto.budget} ms frame` : 'manual'} · ${Math.round(auto.scale * 100)}% resolution`],

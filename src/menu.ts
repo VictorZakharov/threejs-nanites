@@ -14,17 +14,20 @@ import { createProfileBanner } from './profile-banner.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 /**
- * What the menu switches. The WebGL mode (src/webgl/) has no forest renderer, TAA, god rays, grass or GPU profile:
- * left out, their switches, the debug colours and their keys aren't shown; `u` is then its own detail level.
+ * What the menu switches. The WebGL mode (src/webgl/) has no forest renderer (and TAA, god rays or the GPU profile only where it can):
+ * left out, their switches and their keys aren't shown; `u` is then its own detail level, and `debugModes` the debug
+ * colours it has.
  */
 export interface MenuContext {
   controls: FlyControls;
   u: { tau: { value: number }; debug?: { value: number } }; // (the forest's uniforms: forest.u)
+  debugModes?: number[]; // (the debug colours there are, by their number in DEBUG; all of them by default)
   forest?: NaniteForest;
   taa?: TAA;
   rays?: GodRays;
   clouds: { visible: boolean };
   grass?: { visible: boolean };
+  wind?: { value: number }; // (the forest's u.wind, or the WebGL mode's own)
   auto: AutoQuality;
   perf: PerfPanel | null;
   music: Music;
@@ -63,11 +66,13 @@ export function createMenu(ctx: MenuContext) {
   const show = (id: string) => (v: boolean) => byId(id)?.classList.toggle('hidden', !v);
 
   const fu = forest?.u;
+  const wind = ctx.wind ?? fu?.wind;
+  const modes = ctx.debugModes ?? DEBUG.map((_, i) => i);
   const scene: Toggle[] = [
     { label: 'Shadows', key: 'KeyP', get: ctx.shadowsOn, set: ctx.setShadows },
     ...(taa ? [{ label: 'Anti-aliasing (TAA)', key: 'KeyT', get: () => taa.enabled, set: (v: boolean) => ((taa.enabled = v), (taa.reset = true)) }] : []),
     ...(rays ? [{ label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v: boolean) => (rays.enabled = v) }] : []),
-    ...(fu ? [{ label: 'Wind', key: 'KeyG', get: () => fu.wind.value > 0, set: (v: boolean) => (fu.wind.value = v ? 1 : 0) }] : []),
+    ...(wind ? [{ label: 'Wind', key: 'KeyG', get: () => wind.value > 0, set: (v: boolean) => (wind.value = v ? 1 : 0) }] : []),
     ...(grass ? [{ label: 'Grass', get: () => grass.visible, set: (v: boolean) => (grass.visible = v) }] : []),
     { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
@@ -100,7 +105,7 @@ export function createMenu(ctx: MenuContext) {
           <h3>Scene</h3>
           ${scene.map((t, i) => row(t, i, 's')).join('')}
           ${u.debug ? `<h3>Debug colours</h3>
-          <div class="seg" data-seg="debug">${DEBUG.map((d, i) => `<button data-v="${i}">${d}</button>`).join('')}</div>` : ''}
+          <div class="seg" data-seg="debug">${modes.map((i) => `<button data-v="${i}">${DEBUG[i]}</button>`).join('')}</div>` : ''}
         </section>
         <section>
           ${overlays.length ? `<h3>Overlays</h3>${overlays.map((t, i) => row(t, i, 'o')).join('')}` : ''}
@@ -241,7 +246,7 @@ export function createMenu(ctx: MenuContext) {
       return controls.release();
     }
     for (const t of [...scene, ...overlays]) if (t.key === code) t.set(!t.get());
-    if (code === 'KeyL' && u.debug) u.debug.value = (u.debug.value + 1) % DEBUG.length;
+    if (code === 'KeyL' && u.debug) u.debug.value = modes[(modes.indexOf(u.debug.value) + 1) % modes.length];
     if (code === 'KeyF' && forest) forest.frozen = !forest.frozen;
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (u.tau.value = Math.max(0.25, u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (u.tau.value = Math.min(64, u.tau.value * 1.5));

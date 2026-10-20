@@ -9,18 +9,21 @@ import type { NaniteForest } from './nanite/forest.ts';
 import type { TAA } from './taa.ts';
 import type { GodRays } from './godrays.ts';
 
+/** The WebGL mode (src/webgl/) leaves out what it doesn't have (no forest renderer; TAA, god rays and upscaling only
+ * with its float target): those steps aren't listed. */
 export interface ProfileContext {
   auto: AutoQuality;
-  forest: NaniteForest;
-  taa: TAA;
-  rays: GodRays;
+  forest?: NaniteForest;
+  trees?: THREE.Object3D; // (the tree draws, when there's no `forest`)
+  taa?: TAA;
+  rays?: GodRays;
   clouds: THREE.Object3D;
   grass: THREE.Object3D;
   terrain: THREE.Object3D[]; // terrain and sky
   shadowsOn(): boolean;
   setShadows(on: boolean): void;
   setScale(s: number): void;
-  upscale: { on(): boolean; set(on: boolean): void }; // (src/resolution.ts: off, the canvas at the scene's size)
+  upscale?: { on(): boolean; set(on: boolean): void }; // (src/resolution.ts: off, the canvas at the scene's size)
 }
 
 /** A step's label, its index and the count, and the seconds left (null until a step has been timed). */
@@ -38,7 +41,8 @@ const TAKE = 40;
 const median = (a: number[]): number => [...a].sort((x, y) => x - y)[Math.floor(a.length / 2)] ?? 0;
 
 function steps(ctx: ProfileContext): Step[] {
-  const { forest, taa, rays, clouds, terrain } = ctx;
+  const { forest, taa, rays, upscale, clouds, terrain } = ctx;
+  const trees = forest?.group ?? ctx.trees;
   const flag = (get: () => boolean, set: (v: boolean) => void) => () => {
     if (!get()) return null;
     set(false);
@@ -50,19 +54,19 @@ function steps(ctx: ProfileContext): Step[] {
     u.value = 0;
     return () => (u.value = v);
   };
-  return [
+  const list: (Step | false | undefined)[] = [
     { label: 'shadow map off', off: flag(ctx.shadowsOn, ctx.setShadows) },
-    { label: 'TAA off', off: flag(() => taa.enabled, (v) => ((taa.enabled = v), (taa.reset = true))) },
+    taa && { label: 'TAA off', off: flag(() => taa.enabled, (v) => ((taa.enabled = v), (taa.reset = true))) },
     // (the canvas at the scene's resolution, stretched: what upscaling costs, the resolve and the output at full size)
-    { label: 'upscaling off', off: flag(ctx.upscale.on, ctx.upscale.set) },
-    { label: 'god rays off', off: flag(() => rays.enabled, (v) => (rays.enabled = v)) },
+    upscale && { label: 'upscaling off', off: flag(upscale.on, upscale.set) },
+    rays && { label: 'god rays off', off: flag(() => rays.enabled, (v) => (rays.enabled = v)) },
     { label: 'grass off', off: flag(() => ctx.grass.visible, (v) => (ctx.grass.visible = v)) },
     { label: 'clouds off', off: flag(() => clouds.visible, (v) => (clouds.visible = v)) },
-    { label: 'occlusion off', off: flag(() => forest.occlusionOn && forest.u.occlusion.value > 0, (v) => (forest.occlusionOn = v)) },
-    { label: 'sw raster off', off: uflag(forest.u.sw) }, // (the splats too: they need its buffer)
-    { label: 'imp splats off', off: uflag(forest.splats.enabled) },
+    forest && { label: 'occlusion off', off: flag(() => forest.occlusionOn && forest.u.occlusion.value > 0, (v) => (forest.occlusionOn = v)) },
+    forest && { label: 'sw raster off', off: uflag(forest.u.sw) }, // (the splats too: they need its buffer)
+    forest && { label: 'imp splats off', off: uflag(forest.splats.enabled) },
     { label: 'terrain+sky off', off: flag(() => terrain.every((o) => o.visible), (v) => terrain.forEach((o) => (o.visible = v))) },
-    { label: 'tree draws off', off: flag(() => forest.group.visible, (v) => (forest.group.visible = v)) },
+    trees && { label: 'tree draws off', off: flag(() => trees.visible, (v) => (trees.visible = v)) },
     {
       label: 'half the pixels',
       off: () => {
@@ -72,6 +76,7 @@ function steps(ctx: ProfileContext): Step[] {
       },
     },
   ];
+  return list.filter((x): x is Step => Boolean(x));
 }
 
 /** Median render and compute GPU ms over the next TAKE timestamp samples (after SKIP). */
