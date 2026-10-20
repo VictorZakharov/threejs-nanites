@@ -141,7 +141,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   scene objects by name switched off and on in alternating blocks in one page). It has the performance panel
   (`webgl/hud.ts`), the scene details, waypoint, compass and the settings menu (`menu.ts` takes the forest,
   TAA, god rays, grass and the GPU profile as optional: left out, their switches and keys aren't shown; the quality
-  presets set the resolution and the near radii, x 1 / sqrt(tau)). Missing: statues, wind, TAA and
+  presets set the resolution and the near radii, x 1 / sqrt(tau)). The trees sway as `_vertex`'s wind (the menu's
+  Wind switch, G). The statues (`webgl/statues.ts`) are drawn once Lucy has arrived, at three DAG cuts (900 / 250 /
+  70 px tall, sharing her vertices) picked per statue every frame by her height on screen, with the bark material
+  (her stone layer, untinted, no wind): never impostors, as on WebGPU (+0.13 ms on `plaza`). Missing: TAA and
   upscaling, god rays, occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
   is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
   step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames

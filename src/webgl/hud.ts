@@ -10,6 +10,7 @@ import type { createWebGLForest } from './forest.ts';
 
 interface WebGLHudContext {
   tris(): number; // (the last frame's triangles, the shadow map's included)
+  statues(): number; // (0 till the model has arrived)
   camera: THREE.PerspectiveCamera;
   controls: FlyControls;
   forest: ReturnType<typeof createWebGLForest>;
@@ -36,7 +37,7 @@ export function createWebGLHud(ctx: WebGLHudContext) {
       quality: { tau: tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
       resolution: { width: size.x, height: size.y, outWidth: size.x, outHeight: size.y, msaa: 4, taa: false },
       scene: {
-        trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: 0, impostors: s.impostors,
+        trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: ctx.statues(), impostors: s.impostors,
         clusters: 0, swClusters: 0, tris: tris - s.impostors * 2, swTris: 0, impostorTris: s.impostors * 2, shadowTris: 0, // (tris: the shadow map's included)
       },
       camera: {
@@ -54,7 +55,7 @@ export function createWebGLHud(ctx: WebGLHudContext) {
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
       ['mode', 'WebGL 2 (reduced: no WebGPU)'],
       ['plants', `${(s.instances + s.impostors).toLocaleString()} shown · ${s.impostors.toLocaleString()} impostors`],
-      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.bushCount)} bushes`],
+      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.bushCount)} bushes${ctx.statues() ? ` + ${ctx.statues()} statues` : ''}`],
       ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
       ['triangles', `${short(tris)} (shadows included)`],
       ['detail', `${tau.value.toFixed(2)} ${auto.on ? `auto · ${auto.budget} ms frame` : 'manual'} · ${Math.round(auto.scale * 100)}% resolution`],

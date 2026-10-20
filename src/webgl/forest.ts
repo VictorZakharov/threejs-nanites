@@ -2,7 +2,7 @@
 // atomics or indirect draws. Near trees are instanced meshes at a few fixed cuts of their cluster DAG, chosen on the
 // CPU by distance (a 64 m grid of the instances, rescanned when the camera has moved); the rest are the impostors
 // from the same baked atlas, one instanced quad per tree in 1 km cells that the CPU culls by frustum and fog. No
-// occlusion, no software rasterizer, no splats, no wind; the statues aren't drawn.
+// occlusion, no software rasterizer, no splats. The statues are src/webgl/statues.ts, with the bark material.
 import * as THREE from 'three/webgpu';
 import {
   Fn, attribute, cameraPosition, cameraViewMatrix, clamp, cross, dot, float, fract, mix, normalize, positionLocal,
@@ -52,6 +52,7 @@ export interface WebGLForestTextures {
 /** `fade(shadow)`: the trees' received shadow (lighting.ts makeFadeShadow); `impShadow` the impostors'. */
 export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: WebGLForestTextures, atlas: ImpostorAtlas, shading: {
   treeShadow: () => THREE.Node; impShadow: () => THREE.Node;
+  wind: { time: THREE.UniformNode<'float', number>; wind: THREE.UniformNode<'float', number> }; // (the clock, the switch)
 }) {
   const group = new THREE.Group();
   group.name = 'webgl-forest';
@@ -69,15 +70,28 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
 
   // ------------------------------------------------------------------ near trees: fixed DAG cuts, instanced
   // (the normal turned with the tree, as draw.ts does; leaves keep it on both faces: flipped, back faces went black)
-  const treeVertex = (): { position: Vec3; normal: Vec3 } => ({
+  // wind as draw.ts's _vertex: the whole tree bends with height^2, leaves flutter on top; none for the statues
+  const heightOf = pick(trees.map((t) => t.height)), windOf = pick(trees.map((t) => (isModel(t.variant) ? 0 : 1)));
+  const treeVertex = (leaf: boolean): { position: Vec3; normal: Vec3 } => ({
     position: Fn(() => {
       normalLocal.assign(rotY(attribute<'vec3'>('normal', 'vec3'), iB));
-      return curve(rotY(positionLocal, iB).mul(iA.w).add(iA.xyz));
+      const s = iA.w, time = shading.wind.time;
+      const h = clamp(positionLocal.y.div(heightOf), 0, 1);
+      const t = time.mul(1.1).add(iB.w);
+      const gust = sin(t.add(iA.x.mul(0.013))).mul(0.6).add(sin(t.mul(2.7).add(iA.z.mul(0.021))).mul(0.25)).add(0.35);
+      const sway = shading.wind.wind.mul(windOf);
+      const bend = h.mul(h).mul(gust).mul(sway).mul(0.06).mul(heightOf).mul(s);
+      let off: Vec3 = vec3(bend.mul(0.8), bend.mul(-0.15), bend.mul(0.6));
+      if (leaf) {
+        const fl = sin(time.mul(7.0).add(dot(positionLocal, vec3(1.7, 2.3, 1.1)))).mul(0.04).mul(sway).mul(s);
+        off = off.add(vec3(fl, fl.mul(0.5), fl.mul(-0.7)));
+      }
+      return curve(rotY(positionLocal, iB).mul(s).add(iA.xyz).add(off));
     })(),
     normal: normalViewGeometry,
   });
   const leafAlpha = makeLeafAlpha(tex.leaf, attribute('uv', 'vec2'));
-  const tint = (): Float => hashOf(iA).mul(0.35).add(0.8);
+  const tint = (): Float => select(windOf.greaterThan(0.5), hashOf(iA).mul(0.35).add(0.8), float(1)); // (the statues' stone untinted)
   interface Slot { a: THREE.InstancedBufferAttribute; b: THREE.InstancedBufferAttribute; geos: THREE.InstancedBufferGeometry[]; n: number }
   const slots: Slot[][] = trees.map(() => []);
   // (one bark and one leaf material for all: WebGL compiles each program on the main thread, ~0.15 s each)
@@ -115,7 +129,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   function barkMaterial(): THREE.MeshLambertNodeMaterial {
     const layer = pick(tex.barkLayer);
     const m = new THREE.MeshLambertNodeMaterial();
-    const { position, normal } = treeVertex();
+    const { position, normal } = treeVertex(false);
     m.positionNode = position;
     m.normalNode = normal;
     m.colorNode = vec4(barkColour(texture(tex.bark, attribute('uv', 'vec2')).depth(layer).rgb).mul(tint()), 1);
@@ -125,7 +139,7 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   function leafMaterial(): THREE.MeshLambertNodeMaterial {
     const layer = pick(tex.leafLayer).toVar(); // (a var: uint() of the select chain itself lost its conversion in GLSL)
     const m = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
-    const { position, normal } = treeVertex();
+    const { position, normal } = treeVertex(true);
     m.positionNode = position;
     m.normalNode = normal;
     const l = texture(tex.leaf, attribute('uv', 'vec2')).depth(layer);
@@ -286,6 +300,8 @@ export function createWebGLForest(trees: BuiltTree[], inst: TreeInstances, tex: 
   const lastScan = new THREE.Vector3(1e9, 0, 0);
   return {
     group,
+    /** The bark material (instanced iA / iB like the trees): the statues' too (src/webgl/statues.ts). */
+    barkMat,
     /** Per frame: the near scan when the camera has moved, the impostor cells in view, the projection scale. */
     update(camera: THREE.PerspectiveCamera, heightPx: number, fogFar: number): void {
       if (camera.position.distanceTo(lastScan) > 3) (scanNear(camera.position), lastScan.copy(camera.position));

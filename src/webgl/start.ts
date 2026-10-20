@@ -8,7 +8,7 @@ import { Fn, attribute, float, mix, uniform } from 'three/tsl';
 import { heightAt, terrainForAltitude, TERRAIN_SEGMENTS } from '../terrain.ts';
 import { createGrass } from '../grass.ts';
 import { setupGround } from '../ground/setup.ts';
-import { VARIANTS, type BuiltTree } from '../trees.ts';
+import { VARIANTS, isModel, type BuiltTree } from '../trees.ts';
 import { makeLeafAlpha } from '../nanite/shading.ts';
 import { bakeImpostors, createAtlas, impostorCoverage, IMPOSTOR_CUT } from '../impostors.ts';
 import { viewerPos, detailPos, detailShift } from '../planet.ts';
@@ -21,6 +21,7 @@ import { createLighting } from '../lighting.ts';
 import { createMusic } from '../music.ts';
 import { asReceivedShadow } from '../three-gaps.ts';
 import { createWebGLForest } from './forest.ts';
+import { createWebGLStatues } from './statues.ts';
 import { installWebGLHarness } from './harness.ts';
 import { createWebGLHud } from './hud.ts';
 import { runLoop } from './harness.ts';
@@ -113,15 +114,22 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   lap('Impostors baked');
   await impostorCoverage(renderer, atlas, IMPOSTOR_CUT).catch((e) => ui.note(`Impostor coverage skipped: ${e}`));
   lap('Impostor coverage');
+  // the wind's clock and switch (the trees' sway and the grass's)
+  const windU = { time: uniform(0), prevTime: uniform(0), wind: uniform(params.get('wind') === '0' ? 0 : 1) };
   const impFade = makeFadeShadow(treeFarShadow);
   const forest = createWebGLForest(trees, instances, { bark: barkTex, leaf: leafTex, barkLayer, leafLayer }, atlas, {
     treeShadow: asReceivedShadow(makeFadeShadow(treeFarShadow)),
     impShadow: asReceivedShadow(Fn(([shadow]: [Float]) => impFade(shadow.mul(mix(float(1), treeFarShadow, farShadowOn))))),
+    wind: windU,
   });
   scene.add(forest.group);
   lap('Forest meshes');
-  // the wind's clock (the grass's; the trees don't sway here)
-  const windU = { time: uniform(0), prevTime: uniform(0), wind: uniform(params.get('wind') === '0' ? 0 : 1) };
+  // the statues, once the model has arrived (Lucy: ~5 MB, maybe after the first frame)
+  let statues: ReturnType<typeof createWebGLStatues> | null = null;
+  const statuesIn = Promise.all(trees.map((t, v) => isModel(t.variant) && (t.later?.tree ?? Promise.resolve(t)).then((full) => {
+    statues = createWebGLStatues(full, v, instances, forest.barkMat);
+    forest.group.add(statues.group);
+  })));
   // grass round the viewer (src/grass.ts: the keep test in the vertex shader, fewer blades than on WebGPU)
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: o.terrainSize, segments: TERRAIN_SEGMENTS,
@@ -244,20 +252,21 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     follow(camera, gy, demo.shadowShift);
     forest.update(camera, size.y, fogFar.value);
     grass.update(camera);
+    statues?.update(camera, size.y);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
     renderer.render(scene, camera);
     frameTris = renderer.info.render.triangles;
     drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
-  installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
-  // the key help without the keys of what isn't here (anti-aliasing, wind, god rays, debug colours, freeze culling)
-  for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'G', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
+  installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update() });
+  // the key help without the keys of what isn't here (anti-aliasing, god rays, debug colours, freeze culling)
+  for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
-  const hud = createWebGLHud({ tris: () => frameTris, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
+  const hud = createWebGLHud({ tris: () => frameTris, statues: () => statues?.count ?? 0, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
-  createMenu({ controls, u: { tau }, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
+  createMenu({ controls, u: { tau }, clouds: clouds.group, grass: grass.group, wind: windU.wind, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
@@ -282,7 +291,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   });
   // (?startloop=1 under the harness: the page's own first 10 s, the floor coming in meanwhile, as a person sees them)
   const startLoop = harness && params.get('startloop') === '1';
-  if (harness && !startLoop) await floorIn;
+  if (harness && !startLoop) await Promise.all([floorIn, statuesIn]);
   else floorIn.catch((e) => console.error(e));
   // the GPU time of the frames (eased, the panel's GPU line), one readback at a time
   const sampleGpu = (): void => {

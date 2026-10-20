@@ -20,6 +20,7 @@ interface WebGLHarnessContext {
   instances: TreeInstances;
   size: THREE.Vector2;
   tris(): number;
+  updateHud(): void; // (the scene details in screenshots: as this frame)
 }
 
 export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): void {
@@ -43,6 +44,7 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
     },
     async renderOnce() {
       frame(1 / 60);
+      ctx.updateHud();
       frame(1 / 60);
       finish();
     },

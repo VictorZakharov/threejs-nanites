@@ -25,6 +25,7 @@ export interface MenuContext {
   rays?: GodRays;
   clouds: { visible: boolean };
   grass?: { visible: boolean };
+  wind?: { value: number }; // (the forest's u.wind, or the WebGL mode's own)
   auto: AutoQuality;
   perf: PerfPanel | null;
   music: Music;
@@ -63,11 +64,12 @@ export function createMenu(ctx: MenuContext) {
   const show = (id: string) => (v: boolean) => byId(id)?.classList.toggle('hidden', !v);
 
   const fu = forest?.u;
+  const wind = ctx.wind ?? fu?.wind;
   const scene: Toggle[] = [
     { label: 'Shadows', key: 'KeyP', get: ctx.shadowsOn, set: ctx.setShadows },
     ...(taa ? [{ label: 'Anti-aliasing (TAA)', key: 'KeyT', get: () => taa.enabled, set: (v: boolean) => ((taa.enabled = v), (taa.reset = true)) }] : []),
     ...(rays ? [{ label: 'God rays', key: 'KeyR', get: () => rays.enabled, set: (v: boolean) => (rays.enabled = v) }] : []),
-    ...(fu ? [{ label: 'Wind', key: 'KeyG', get: () => fu.wind.value > 0, set: (v: boolean) => (fu.wind.value = v ? 1 : 0) }] : []),
+    ...(wind ? [{ label: 'Wind', key: 'KeyG', get: () => wind.value > 0, set: (v: boolean) => (wind.value = v ? 1 : 0) }] : []),
     ...(grass ? [{ label: 'Grass', get: () => grass.visible, set: (v: boolean) => (grass.visible = v) }] : []),
     { label: 'Ground relief', get: () => reliefSteps.value > 0, set: (v) => (reliefSteps.value = v ? RELIEF_STEPS : 0) },
     { label: 'Clouds', get: () => ctx.clouds.visible, set: (v) => (ctx.clouds.visible = v) },
