@@ -169,9 +169,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   WebGL 2 fragment shader is sure to have). Without the casters the forest from 450 m was ~17/255 brighter and the
   meadows had no tree shadows; with the casters but the raw alpha, ~5/255 darker at 1.1 km. Now `slope`, `d1100`,
   `topdown700`, `fogline` and `phone9k` are within ~3/255 of WebGPU. The casters cost ~1.5 ms on the dev GPU from
-  450 m-1.1 km; the shadow pass is skipped from high up as on WebGPU (`shadowFarOnly`). Missing: occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
-  is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
-  step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames
+  450 m-1.1 km; the shadow pass is skipped from high up as on WebGPU (`shadowFarOnly`). Debug colours (`webgl/debug.ts`, the
+  menu's `debugModes`): level (near levels green to red, impostors red), tree, type (with `type-masks.ts`); no
+  clusters or rasterizer. Nodes first built in a Lambert's emissive read the instance attributes as 0 (every tree
+  type 0): they go through varyings (`iAf`, `typeOfF` in `instanced.ts`). Profile GPU where there are GPU timers
+  (`profile.ts` lists only the steps the mode has). Missing: occlusion, the software rasterizer, splats (no
+  compute). Auto quality is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the
+  first 3 s or 2 s after a step, a step down undone (resolution held 30 s) if it didn't save 10%; at half the
+  resolution or with it held, the near trees' detail (tau x1.5 up to 8, a trial too: under 5% saved goes back),
+  undone first coming back: by an eased mean, the startup's 250-350 ms frames
   stepped it down and back up twice, resizes the user saw as flickers in Firefox. `--probe=webglloop --query=webgl=1`
   runs the page's loop and lists the steps, the frames over 50 ms and `resizedAfterDraw`. A new
   resolution is applied at the start of a frame, right before it draws: resizing a canvas clears it, and set after a
