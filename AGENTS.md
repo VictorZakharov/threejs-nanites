@@ -128,10 +128,15 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   WebGPURenderer with `forceWebGL`), from the same loading work. A null adapter gets the same warning when it's
   known (the adapter is requested alongside the workers: awaiting it first held them back ~0.3 s). The mode has the
   terrain, sky, fog, clouds, sun shadows and the forest floor (after the first frame, its shader compiled meanwhile:
-  1.8 s on its own); its forest (`webgl/forest.ts`) is near trees as instanced meshes at two fixed DAG cuts (by
-  distance, rescanned on the CPU from a 64 m grid when the camera moves; 60 / 220 m, touch 35 / 110, `?glnear=`)
-  and the baked impostors as instanced quads in 1 km cells, culled and thinned on the CPU (a cell draws the share
-  of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
+  1.8 s on its own); its forest (`webgl/forest.ts`) is near trees (`webgl/near.ts`) as instanced meshes at fixed
+  DAG cuts (by distance, rescanned on the CPU from a 64 m grid when the camera moves; out to 12 / 30 / 80 / 180 m at
+  the cuts for 1000 / 350 / 120 / 40 px tall, touch 10 / 35 / 110 m at 400 / 90 / 25 px; `?glnear=`, `?glpx=`; with
+  two levels, 60 m at 160 px, a trunk a few metres away was smeared, its branches square) and the baked impostors.
+  Over a band of +-6% round each radius (`?glband=`) a tree is drawn at both levels (the last: geometry and its
+  impostor), the pixels split by the dither (`fadeCode` in `webgl/instanced.ts`, in iB.z's fraction): no pop from
+  one cut to the next. ~+1 ms GPU on the dev GPU over the two levels (the bark's discard); the same on the phone.
+  `--probe=gltris` lists the triangles by level and kind. The impostors are instanced quads in 1 km cells, culled
+  and thinned on the CPU (a cell draws the share of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
   pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
   `grass-keep.ts`, shared with the compute pass) in the vertex shader, collapsing the dropped blades onto their root,
   at density 4 on desktops (`WEBGL_DENSE`: x6 cost ~2 ms GPU on the dev GPU, x4 ~1.5, the phone's x1 at half the

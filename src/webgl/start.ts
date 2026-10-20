@@ -259,7 +259,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
-  installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update() });
+  installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris, updateHud: () => hud.update(),
+    heightOf: (i) => trees[instances.b[i * 4 + 2]].height * instances.a[i * 4 + 3] });
   // the key help without the keys of what isn't here (anti-aliasing, god rays, debug colours, freeze culling)
   for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
