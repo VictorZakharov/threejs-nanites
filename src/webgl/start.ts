@@ -1,11 +1,12 @@
 // The reduced WebGL 2 mode (issue #39): where there's no WebGPU (Firefox on Android), after the loading screen's
 // warning. three's WebGPURenderer on its WebGL 2 backend draws the same world, terrain, sky, clouds and forest floor,
-// with the forest of src/webgl/forest.ts (no compute: no GPU culling, occlusion, software rasterizer or splats), no
-// grass, no TAA, upscaling or god rays, and a resolution steered by the frame time. Built from the same loading work
-// as main.ts (its workers, the trees' DAGs, the planting).
+// with the forest of src/webgl/forest.ts (no compute: no GPU culling, occlusion, software rasterizer or splats), the
+// grass with its keep test in the vertex shader, no TAA, upscaling or god rays, and a resolution steered by the frame
+// time. Built from the same loading work as main.ts (its workers, the trees' DAGs, the planting).
 import * as THREE from 'three/webgpu';
-import { Fn, attribute, float, mix } from 'three/tsl';
-import { heightAt, terrainForAltitude } from '../terrain.ts';
+import { Fn, attribute, float, mix, uniform } from 'three/tsl';
+import { heightAt, terrainForAltitude, TERRAIN_SEGMENTS } from '../terrain.ts';
+import { createGrass } from '../grass.ts';
 import { setupGround } from '../ground/setup.ts';
 import { VARIANTS, type BuiltTree } from '../trees.ts';
 import { makeLeafAlpha } from '../nanite/shading.ts';
@@ -34,7 +35,7 @@ import type { LayerData } from '../texture-pixels.ts';
 import type { Float } from '../types.ts';
 
 /** The warning's second line (the loading screen's error panel, with a Continue button). */
-export const WEBGL_HINT = 'Nanite Forest is built for WebGPU: Chrome or Edge on desktop and Android, Safari or desktop Firefox where they have it (not Firefox on Android yet). Without it, it can run in a reduced WebGL mode: simpler trees, no grass, and it may look different or be slow.';
+export const WEBGL_HINT = 'Nanite Forest is built for WebGPU: Chrome or Edge on desktop and Android, Safari or desktop Firefox where they have it (not Firefox on Android yet). Without it, it can run in a reduced WebGL mode: simpler trees and lighter grass, and it may look different or be slow.';
 
 export interface WebGLStart {
   ui: LoadingScreen;
@@ -58,7 +59,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const { ui, demo, params, harness } = o;
   await ui.update(0.02, 'Starting WebGL 2');
   const touch0 = isTouchDevice(params);
-  const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: true, powerPreference: 'high-performance' });
+  // (GPU timers where the browser has EXT_disjoint_timer_query_webgl2: Chrome does, Firefox doesn't)
+  const renderer = new THREE.WebGPURenderer({ forceWebGL: true, antialias: true, powerPreference: 'high-performance', trackTimestamp: params.get('gltimer') !== '0' });
   await renderer.init();
   const maxPr = Math.min(window.devicePixelRatio, touch0 ? 1.25 : 1.5); // (the resolution's 100%: auto.scale 1)
   renderer.setPixelRatio(touch0 ? Math.min(maxPr, 1) : maxPr);
@@ -70,12 +72,13 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   document.body.appendChild(renderer.domElement);
   const gl = (renderer.backend as unknown as { gl?: WebGL2RenderingContext }).gl;
   const info = gl?.getExtension('WEBGL_debug_renderer_info');
+  const timed = Boolean(gl?.getExtension('EXT_disjoint_timer_query_webgl2')) && params.get('gltimer') !== '0';
   const adapterName = String((gl && (info ? gl.getParameter(info.UNMASKED_RENDERER_WEBGL) : gl.getParameter(gl.RENDERER))) ?? 'unknown GPU');
   ui.note(`WebGL 2: ${adapterName}, ${gl?.getParameter(gl.VERSION) ?? '?'}, max texture ${gl?.getParameter(gl.MAX_TEXTURE_SIZE) ?? '?'}`);
 
   const scene = new THREE.Scene();
   const camera = new THREE.PerspectiveCamera(70, window.innerWidth / window.innerHeight, 0.3, 150000);
-  const { sky, sun, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap } = createLighting(scene, { harness });
+  const { sky, sun, sunDir, fogNear, fogFar, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap } = createLighting(scene, { harness });
   sky.renderOrder = 2;
   const clouds = createClouds();
   scene.add(clouds.group);
@@ -85,7 +88,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const terrain = await o.terrainReady;
   scene.add(terrain);
   terrain.traverse((obj) => (obj.renderOrder = 1));
-  const { cover, litter, near: nearGround, floor: floorMat } = setupGround(terrain, o.floorMaps, forestRadius(o.trees), (far) => asReceivedShadow(makeFadeShadow(far)));
+  const { cover, litter, groundFar, near: nearGround, floor: floorMat } = setupGround(terrain, o.floorMaps, forestRadius(o.trees), (far) => asReceivedShadow(makeFadeShadow(far)));
 
   const trees = await o.growing;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
@@ -117,6 +120,16 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   });
   scene.add(forest.group);
   lap('Forest meshes');
+  // the wind's clock (the grass's; the trees don't sway here)
+  const windU = { time: uniform(0), prevTime: uniform(0), wind: uniform(params.get('wind') === '0' ? 0 : 1) };
+  // grass round the viewer (src/grass.ts: the keep test in the vertex shader, fewer blades than on WebGPU)
+  const grass = createGrass({
+    terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: o.terrainSize, segments: TERRAIN_SEGMENTS,
+    cover, u: windU, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer, webgl: true,
+  });
+  scene.add(grass.group);
+  demo.grass = grass;
+  lap('Grass');
   await covered;
 
   const controls = new FlyControls(camera, renderer.domElement);
@@ -202,6 +215,8 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
       camera.updateProjectionMatrix();
     }
     time += dt;
+    windU.prevTime.value = windU.time.value;
+    windU.time.value = time;
     touch?.update();
     controls.update(dt);
     const gy = heightAt(camera.position.x, camera.position.z) + 0.6;
@@ -228,20 +243,21 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     if (sun.shadow.mapSize.x !== smap) ev(`shadow map ${smap} -> ${sun.shadow.mapSize.x}`);
     follow(camera, gy, demo.shadowShift);
     forest.update(camera, size.y, fogFar.value);
+    grass.update(camera);
     renderer.info.reset(); // (this frame's counts, the shadow map's included: the HUD's)
     renderer.render(scene, camera);
     frameTris = renderer.info.render.triangles;
     drawnWidth = renderer.domElement.width; // (the harness checks the canvas is still this size after the frame)
   }
 
-  installWebGLHarness(demo, { renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
+  installWebGLHarness(demo, { timed, renderer, scene, camera, controls, frame, forest, instances, size, tris: () => frameTris });
   // the key help without the keys of what isn't here (anti-aliasing, wind, god rays, debug colours, freeze culling)
   for (const k of [...document.querySelectorAll('#help i')]) if (['T', 'G', 'R', 'L', 'F'].includes(k.textContent ?? '')) (k.nextElementSibling?.remove(), k.remove());
   // the performance panel and scene details, and the settings menu (src/menu.ts, its WebGL switches)
   const hud = createWebGLHud({ tris: () => frameTris, camera, controls, forest, auto, tau, size, adapterName, harness: harness && params.get('perf') !== '1', shadowsOn: () => shadowsOn });
   demo.perfReport = () => hud.perf?.report();
   demo.hud = hud;
-  createMenu({ controls, u: { tau }, clouds: clouds.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
+  createMenu({ controls, u: { tau }, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, touch: Boolean(touch) });
   await ui.update(0.9, 'Compiling shaders');
   // (in parallel where the browser has KHR_parallel_shader_compile; the first frame would compile one by one)
   terrainForAltitude(terrain, 0, true);
@@ -268,6 +284,16 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
   const startLoop = harness && params.get('startloop') === '1';
   if (harness && !startLoop) await floorIn;
   else floorIn.catch((e) => console.error(e));
+  // the GPU time of the frames (eased, the panel's GPU line), one readback at a time
+  const sampleGpu = (): void => {
+    if (!timed || auto.busy) return;
+    auto.busy = true;
+    renderer.resolveTimestampsAsync('render').then((r) => {
+      auto.busy = false;
+      if (r === undefined || !(r > 0)) return;
+      auto.gpuMs = auto.renderMs = auto.gpuMs ? auto.gpuMs * 0.9 + r * 0.1 : r;
+    });
+  };
   let prev = performance.now();
   const loop = (): void => {
     const now = performance.now(), dt = Math.min(0.1, (now - prev) / 1000);
@@ -275,6 +301,7 @@ export async function startWebGL(o: WebGLStart): Promise<void> {
     prev = now;
     frame(dt);
     steer(dt);
+    sampleGpu();
     hud.frame(now, dt);
   };
   if (!harness) renderer.setAnimationLoop(loop);

@@ -1,6 +1,6 @@
 // window.__demo in the WebGL mode (src/webgl/start.ts): the part of the harness API (src/harness-api.ts) that the
-// views, benchmarks and screenshots need. No GPU timers on WebGL here: the frame times are wall clock, each frame
-// waited for (gl.finish).
+// views, benchmarks and screenshots need. The frame times are wall clock, each frame waited for (gl.finish); the GPU
+// time is the timer queries' (EXT_disjoint_timer_query_webgl2, headless Chromium has it), 0 without them.
 import * as THREE from 'three/webgpu';
 import { heightAt } from '../terrain.ts';
 import type { FlyControls } from '../controls.ts';
@@ -10,6 +10,7 @@ import type { TreeInstances } from '../placement.ts';
 import type { createWebGLForest } from './forest.ts';
 
 interface WebGLHarnessContext {
+  timed: boolean; // (GPU timer queries)
   renderer: THREE.WebGPURenderer;
   scene: THREE.Scene;
   camera: THREE.PerspectiveCamera;
@@ -47,6 +48,11 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
     },
     async bench(n = 120) {
       for (let i = 0; i < 5; i++) (frame(1 / 60), finish());
+      const gpu: number[] = [];
+      for (let i = 0; ctx.timed && i < n; i++) {
+        frame(1 / 60);
+        gpu.push((await renderer.resolveTimestampsAsync('render')) ?? 0);
+      }
       const ms: number[] = [];
       for (let i = 0; i < n; i++) {
         const t = performance.now();
@@ -54,8 +60,9 @@ export function installWebGLHarness(demo: DemoState, ctx: WebGLHarnessContext): 
         finish();
         ms.push(performance.now() - t);
       }
-      const med = [...ms].sort((a, b) => a - b)[ms.length >> 1];
-      return { frameMs: med, medianMs: med, gpuRenderMs: 0, gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
+      const median = (a: number[]): number => (a.length ? [...a].sort((x, y) => x - y)[a.length >> 1] : 0);
+      const med = median(ms);
+      return { frameMs: med, medianMs: med, gpuRenderMs: median(gpu), gpuComputeMs: 0, cpuMs: med, clusters: 0, tris: ctx.tris(), ...forest.stats() };
     },
   });
 }

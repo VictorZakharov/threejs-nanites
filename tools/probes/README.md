@@ -33,4 +33,5 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `music` | background music (`--query=music=1`): nothing fetched before a gesture, a click starts it, M mutes and unmutes it (on, paused, time, volume at each step) |
 | `touch` | touch controls (`--query=touch=1`): synthetic finger events, how far the stick moved, the drag turned, the buttons climbed and zoomed; `stuck` lists what failed |
 | `grass` | the grass keep passes (src/grass-keep.ts), per ring: cells tested this frame (tiles in view), blades kept and drawn, the list's size (`kept` should stay well under `cap`) |
+| `cost` | what scene objects cost on the GPU (`?cost=grass,webgl-forest`, names): each switched off and on in alternating blocks of `?costframes=` frames in one page, the median GPU ms on and off (runs of the same build swung ~2x: separate variants can't measure a ms; the WebGL mode's timer queries too) |
 | `nodebuild` | each visible material's compile (a clone, for the canvas's target): the whole time and the main thread's share (three.js's node builder; the rest is the GPU process), slowest first: what a load waits on in `Compiled the materials` |

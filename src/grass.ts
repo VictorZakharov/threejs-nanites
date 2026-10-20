@@ -14,13 +14,15 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, instanceIndex, attribute, uniform, float, vec2, vec3, vec4, sin, cos, mix, clamp, smoothstep, varying,
-  normalLocal, cameraProjectionMatrix, cameraViewMatrix, mrt, normalViewGeometry, abs, sign, storage,
+  normalLocal, cameraProjectionMatrix, cameraViewMatrix, mrt, normalViewGeometry, abs, sign, storage, select,
 } from 'three/tsl';
 import { curve, viewerPos, detailShift } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
-import { BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, type KeepRing } from './grass-keep.ts';
+import {
+  BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, ringInputs, bladeOf, type KeepRing, type RingInputs,
+} from './grass-keep.ts';
 import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
-import type { Float, Vec2, Vec3 } from './types.ts';
+import type { Bool, Float, Vec2, Vec3 } from './types.ts';
 import type { ForestUniforms } from './nanite/types.ts';
 
 const params = new URLSearchParams(location.search);
@@ -31,24 +33,30 @@ const TILES = Number(params.get('grasstiles') ?? 8); // tiles a side per ring
  * last 20% of the ring inside it. */
 const TOUCH = matchMedia('(pointer: coarse)').matches;
 const SCALE = Number(params.get('grass') ?? (TOUCH ? 0.5 : 1)); // ring radii, x (0 = no grass)
-/** Blades per square metre, x (`?grassdense=`; the cells shrink by its root): 6 on desktops, 1 on touch screens. */
-const DENSE = Number(params.get('grassdense') ?? (TOUCH ? 1 : 6));
 const RINGS = [
   { cell: 0.09, radius: 16, segs: 4 },
   { cell: 0.18, radius: 40, segs: 3 },
   { cell: 0.36, radius: 90, segs: 2 },
   { cell: 0.72, radius: 200, segs: 1 },
-].map((r) => ({ ...r, cell: r.cell / Math.sqrt(DENSE) })); // (each ring's cells twice the last's: they share blades, src/grass-keep.ts)
+]; // (each ring's cells twice the last's: they share blades, src/grass-keep.ts)
+/** Blades per square metre, x (`?grassdense=`; the cells shrink by its root): 6 on desktops, 1 on touch screens;
+ * the WebGL mode tests every cell in the vertex shader, so fewer there (WEBGL_DENSE). */
+const denseOf = (webgl: boolean): number => Number(params.get('grassdense') ?? (TOUCH ? 1 : webgl ? WEBGL_DENSE : 6));
+const WEBGL_DENSE = 4;
 
 export interface GrassContext {
   terrain: THREE.Mesh; // the detailed terrain square (its vertex heights)
   size: number; // its side (m)
   segments: number;
   cover: { texture: THREE.Texture; extent: number }; // canopy cover (forestDensity)
-  u: ForestUniforms; // time, prevTime, wind
+  u: Pick<ForestUniforms, 'time' | 'prevTime' | 'wind'>;
   receivedShadow: unknown; // the ground's receivedShadowNode (map shadow fading into the far-field shade)
   sunDir: THREE.Vector3; // towards the sun
   renderer: THREE.WebGPURenderer; // (the keep passes)
+  /** No compute (the WebGL mode, src/webgl/): every cell of the tiles in view is drawn, its keep test in the vertex
+   * shader and the dropped blades collapsed onto their root (the vertex invocations cost, kept or not: hence fewer
+   * blades there); no motion vectors (no TAA). */
+  webgl?: boolean;
 }
 
 /** Where the outermost ring's blades turn to the ground's colour (and the ground's darkening under them fades):
@@ -69,8 +77,8 @@ export function underGrass(p: Vec2, cover: Float, dist: Float): Float {
 }
 
 /** One blade: (t along it 0..1, side -1..1). Triangle strip as indexed triangles. */
-function bladeGeometry(SEGS: number): THREE.BufferGeometry {
-  const geo = new THREE.BufferGeometry();
+function bladeGeometry(SEGS: number, instanced: boolean): THREE.BufferGeometry {
+  const geo = instanced ? new THREE.InstancedBufferGeometry() : new THREE.BufferGeometry();
   const bv: number[] = [], idx: number[] = [];
   for (let s = 0; s < SEGS; s++) bv.push(s / SEGS, -1, s / SEGS, 1);
   bv.push(1, 0);
@@ -85,11 +93,18 @@ function bladeGeometry(SEGS: number): THREE.BufferGeometry {
   return geo;
 }
 
+/** A blade's shape, as the keep test made it (src/grass-keep.ts bladeOf). */
+interface BladeFields {
+  base: Vec3; height: Float; width: Float; lean2: Vec2; tilt: Float; bendK: Float; flutter: Float; through: Float; tip: Vec3; rootDark: Float;
+}
+
 export function createGrass(ctx: GrassContext) {
   const scale = SCALE;
   const group = new THREE.Group();
   group.name = 'grass';
   if (!(scale > 0)) return { group, update() {}, async stats() { return []; } };
+  const webgl = Boolean(ctx.webgl);
+  const dense = denseOf(webgl);
 
   // terrain heights as a float texture: the terrain mesh's vertices, read back exactly
   const n = ctx.segments + 1;
@@ -105,35 +120,49 @@ export function createGrass(ctx: GrassContext) {
   const windDir = vec3(0.83, 0, 0.55);
   const sunDir = uniform(ctx.sunDir);
 
-  const rings: (KeepRing & { N: number; keep: ReturnType<typeof buildKeepPass>; mesh: THREE.Mesh; listed: number })[] = [];
+  const rings: (KeepRing & { N: number; inp: RingInputs; pass: THREE.ComputeNode | null; mesh: THREE.Mesh; listed: number })[] = [];
   const caps: number[] = [];
+  const cellOf = (k: number): number => RINGS[k].cell / Math.sqrt(dense);
   RINGS.forEach((ring, k) => {
-    const cell = ring.cell, radius = ring.radius * scale;
+    const cell = cellOf(k), radius = ring.radius * scale;
     const inner = k === 0 ? 0 : RINGS[k - 1].radius * scale;
     const S = Math.ceil((Math.ceil((radius * 2) / cell) + 1) / TILES); // cells a side per tile
     const N = S * TILES;
-    const spec: KeepRing = { k, cell, radius, inner, nextCell: RINGS[k + 1]?.cell ?? null, S, tiles: TILES, toGround: k === RINGS.length - 1 ? farSpan(k) : null };
+    const spec: KeepRing = { k, cell, radius, inner, nextCell: RINGS[k + 1] ? cellOf(k + 1) : null, S, tiles: TILES, toGround: k === RINGS.length - 1 ? farSpan(k) : null };
     const cap = ringCapacity(spec);
     caps.push(cap);
-    const keep = buildKeepPass(keepCtx, spec, cap);
+    const keep = webgl ? null : buildKeepPass(keepCtx, spec, cap);
+    const inp = keep ?? ringInputs(spec);
 
     const vColour = varying(vec3(0), 'vGrassColour'); // the blade's tip colour
     const vBlade = varying(vec2(0), 'vGrassBlade'); // (along 0..1, across -1..1)
     const vLight = varying(vec2(0), 'vGrassLight'); // (sun through the blade, the root's darkening)
     const vClip = varying(vec4(0, 0, 0, 1), 'vGrassClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vGrassPrevClip');
 
-    // the blade the keep pass listed (src/grass-keep.ts)
-    const list = storage(keep.listAttr, 'uvec4', cap * BLADE).toReadOnly();
+    // the blade the keep pass listed (src/grass-keep.ts), or (WebGL) the keep test right here, a dropped blade
+    // collapsed onto its root
+    const list = keep ? storage(keep.listAttr, 'uvec4', cap * BLADE).toReadOnly() : null;
+    const fields = (): BladeFields => {
+      if (!list) {
+        const b = bladeOf(keepCtx, spec, inp, instanceIndex);
+        const on = (v: Float): Float => select(b.drawn, v, float(0));
+        return { ...b, height: on(b.height), width: on(b.width), lean2: b.lean };
+      }
+      const b0 = list.element(instanceIndex.mul(BLADE)), b1 = list.element(instanceIndex.mul(BLADE).add(1));
+      const hw = unpackHalf(b0.w), arc = unpackHalf(b1.y), misc = unpackHalf(b1.z), look = unpackUnorm4(b1.w);
+      return {
+        base: vec3(uintAsFloat(b0.x), uintAsFloat(b0.y), uintAsFloat(b0.z)), height: hw.x, width: hw.y, lean2: unpackHalf(b1.x),
+        tilt: arc.x, bendK: arc.y, flutter: misc.x, through: misc.y, tip: look.xyz, rootDark: look.w,
+      };
+    };
     const position = Fn(() => {
       const bv = attribute<'vec2'>('bv', 'vec2');
       const t = bv.x, side = bv.y;
-      const b0 = list.element(instanceIndex.mul(BLADE)), b1 = list.element(instanceIndex.mul(BLADE).add(1));
-      const base = vec3(uintAsFloat(b0.x), uintAsFloat(b0.y), uintAsFloat(b0.z)).toVar();
-      const hw = unpackHalf(b0.w), lean2 = unpackHalf(b1.x), arc = unpackHalf(b1.y), misc = unpackHalf(b1.z);
-      const look = unpackUnorm4(b1.w);
+      const f = fields();
+      const base = f.base.toVar(), lean2 = f.lean2;
       const xz = base.xz;
-      const height = hw.x;
-      const width = hw.y.mul(float(1).sub(t.pow(2.5))); // parallel, then the tip
+      const height = f.height;
+      const width = f.width.mul(float(1).sub(t.pow(2.5))); // parallel, then the tip
       const lean = vec3(lean2.x, 0, lean2.y);
       // seen edge-on, a blade turns up to ~25 degrees towards the viewer (per blade; edge-on it's a thin line)
       const toCam = viewerPos.xz.sub(xz).normalize();
@@ -142,29 +171,31 @@ export function createGrass(ctx: GrassContext) {
       const turned = mix(across0, facing.mul(sign(facing.dot(across0))), float(1).sub(abs(toCam.dot(lean2))).mul(0.45)).normalize();
       const across = vec3(turned.x, 0, turned.y);
       // an arc: tilted at the root, bending further along it
-      const tilt = arc.x, bendK = arc.y;
+      const tilt = f.tilt, bendK = f.bendK;
       const mid = tilt.add(bendK.mul(t).mul(0.5)), ang = tilt.add(bendK.mul(t));
       const local = across.mul(side.mul(width).mul(0.5)).add(lean.mul(t.mul(height).mul(sin(mid)))).add(vec3(0, t.mul(height).mul(cos(mid)), 0));
       // wind: gusts rolling across the field plus a flutter per blade, bending with the square of t
       const windAt = (time: Float): Vec3 => {
         const roll = sin(time.mul(1.6).sub(xz.x.mul(0.21)).sub(xz.y.mul(0.14))).mul(0.5).add(0.5);
-        const flutter = sin(time.mul(5.3).add(misc.x.mul(6.28))).mul(0.25);
+        const flutter = sin(time.mul(5.3).add(f.flutter.mul(6.28))).mul(0.25);
         return windDir.mul(t.mul(t).mul(height).mul(u.wind).mul(roll.mul(0.55).add(flutter.mul(0.3)).add(0.1)));
       };
       const world = curve(base.add(local).add(windAt(u.time)));
-      const prevWorld = curve(base.add(local).add(windAt(u.prevTime)));
       // the blade's upper face along the arc (more to the sky the further it's bent over), lit like a surface: bent
       // most of the way up, rounded across the width (smooth shading over each blade instead of flat facets)
       const face = vec3(0, 1, 0).mul(sin(ang)).sub(lean.mul(cos(ang)));
       normalLocal.assign(mix(face, vec3(0, 1, 0), 0.6).add(across.mul(side.mul(0.5))).normalize());
       vBlade.assign(vec2(t, side));
-      // sun through the blade: the face we see turned away from the sun (less under the canopy: misc.y)
+      // sun through the blade: the face we see turned away from the sun (less under the canopy: f.through)
       const seen = face.mul(sign(face.dot(viewerPos.sub(base.add(local)))));
-      vLight.assign(vec2(clamp(seen.dot(sunDir).negate(), 0, 1).mul(misc.y), look.w));
-      vColour.assign(look.xyz);
-      const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
-      vClip.assign(viewProj.mul(vec4(world, 1)));
-      vPrevClip.assign(viewProj.mul(vec4(prevWorld, 1)));
+      vLight.assign(vec2(clamp(seen.dot(sunDir).negate(), 0, 1).mul(f.through), f.rootDark));
+      vColour.assign(f.tip);
+      if (!webgl) { // (the TAA's motion vectors)
+        const prevWorld = curve(base.add(local).add(windAt(u.prevTime)));
+        const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
+        vClip.assign(viewProj.mul(vec4(world, 1)));
+        vPrevClip.assign(viewProj.mul(vec4(prevWorld, 1)));
+      }
       return world;
     })();
 
@@ -182,16 +213,18 @@ export function createGrass(ctx: GrassContext) {
     mat.colorNode = mix(body.mul(edge).add(rib.mul(0.12)), vec3(0.45, 0.4, 0.2), dryTip);
     mat.normalNode = normalViewGeometry; // (keep the up-bent normal on both faces: the default flips it on the back)
     mat.receivedShadowNode = ctx.receivedShadow as typeof mat.receivedShadowNode;
-    const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
-    mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
-    const geo = bladeGeometry(ring.segs);
-    geo.setIndirect(counters.attr, k * ARGS * 4); // (byte offset: the keep pass counts the blades)
+    if (!webgl) {
+      const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
+      mat.mrtNode = mrt({ wind: vec4(motion, 0, 1) });
+    }
+    const geo = bladeGeometry(ring.segs, webgl);
+    if (!webgl) geo.setIndirect(counters.attr, k * ARGS * 4); // (byte offset: the keep pass counts the blades)
     const mesh = new THREE.Mesh(geo, mat);
     mesh.frustumCulled = false; // (the keep pass culls)
     mesh.receiveShadow = true;
     mesh.name = `grass-${k}`;
     group.add(mesh);
-    rings.push({ ...spec, N, keep, mesh, listed: 0 });
+    rings.push({ ...spec, N, inp, pass: keep?.pass ?? null, mesh, listed: 0 });
   });
   const { reset, clampCount } = countersPasses(counters, caps);
 
@@ -220,8 +253,8 @@ export function createGrass(ctx: GrassContext) {
       const c = camera.position.clone().add(detailShift); // (detailPos: the grid and the keep test's distances)
       for (const r of rings) {
         const ox = Math.floor(c.x / r.cell) - (r.N >> 1), oz = Math.floor(c.z / r.cell) - (r.N >> 1);
-        r.keep.origin.value.set(ox, oz);
-        r.keep.view.value.copy(camera.matrixWorldInverse);
+        r.inp.origin.value.set(ox, oz);
+        r.inp.view.value.copy(camera.matrixWorldInverse);
         const w = r.S * r.cell;
         let listed = 0;
         for (let ty = 0; ty < TILES; ty++)
@@ -237,16 +270,18 @@ export function createGrass(ctx: GrassContext) {
             if (far <= r.inner * 0.8) continue;
             box.min.set(x0 - 0.5, lo - 0.3, z0 - 0.5); // (a blade leans and bends up to ~0.3 m off its cell)
             box.max.set(x0 + w + 0.5, hi + 1, z0 + w + 0.5);
-            if (frustum.intersectsBox(box)) r.keep.tileValues[listed++].set(tx * r.S, ty * r.S, 0, 0);
+            if (frustum.intersectsBox(box)) r.inp.tileValues[listed++].set(tx * r.S, ty * r.S, 0, 0);
           }
         r.listed = listed;
-        r.keep.count.value = listed * r.S * r.S;
+        r.inp.count.value = listed * r.S * r.S;
         r.mesh.visible = listed > 0;
+        if (webgl) (r.mesh.geometry as THREE.InstancedBufferGeometry).instanceCount = listed * r.S * r.S; // (every cell)
       }
-      computeBatch(ctx.renderer, [reset, ...rings.filter((r) => r.listed > 0).map((r): [THREE.ComputeNode, number] => [r.keep.pass, r.listed * r.S * r.S]), clampCount]);
+      if (!webgl) computeBatch(ctx.renderer, [reset, ...rings.filter((r) => r.listed > 0).map((r): [THREE.ComputeNode, number] => [r.pass!, r.listed * r.S * r.S]), clampCount]);
     },
     /** Each ring's blades kept last frame, and its list's size (reads the GPU's counters back). */
     async stats() {
+      if (webgl) return rings.map((r, k) => ({ ring: k, cells: r.listed * r.S * r.S, kept: -1, cap: caps[k] })); // (no counters)
       const a = new Uint32Array(await ctx.renderer.getArrayBufferAsync(counters.attr));
       return rings.map((r, k) => ({ ring: k, cells: r.listed * r.S * r.S, kept: a[k * ARGS + 1], cap: caps[k] }));
     },

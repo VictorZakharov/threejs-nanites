@@ -131,10 +131,17 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   1.8 s on its own); its forest (`webgl/forest.ts`) is near trees as instanced meshes at two fixed DAG cuts (by
   distance, rescanned on the CPU from a 64 m grid when the camera moves; 60 / 220 m, touch 35 / 110, `?glnear=`)
   and the baked impostors as instanced quads in 1 km cells, culled and thinned on the CPU (a cell draws the share
-  of its shuffled trees that `MIN_PX` keeps at its nearest edge). It has the performance panel (`webgl/hud.ts`: no GPU
-  timers, GPU reads --), the scene details, waypoint, compass and the settings menu (`menu.ts` takes the forest,
+  of its shuffled trees that `MIN_PX` keeps at its nearest edge). Grass is `grass.ts` with `webgl: true`: no keep
+  pass (compute), so each ring draws every cell of its tiles in view and runs the keep test (`bladeOf` in
+  `grass-keep.ts`, shared with the compute pass) in the vertex shader, collapsing the dropped blades onto their root,
+  at density 4 on desktops (`WEBGL_DENSE`: x6 cost ~2 ms GPU on the dev GPU, x4 ~1.5, the phone's x1 at half the
+  radii ~0.3), no motion vectors. GPU time comes from `EXT_disjoint_timer_query_webgl2` where the browser has it
+  (Chrome, headless too; not Firefox): the panel's GPU line and the harness's `gpu` column. Run to run, WebGL GPU
+  times on the dev GPU swung ~2x (ground 7 or 13 ms): measure a part's cost with `--probe=cost` (`?cost=grass,...`:
+  scene objects by name switched off and on in alternating blocks in one page). It has the performance panel
+  (`webgl/hud.ts`), the scene details, waypoint, compass and the settings menu (`menu.ts` takes the forest,
   TAA, god rays, grass and the GPU profile as optional: left out, their switches and keys aren't shown; the quality
-  presets set the resolution and the near radii, x 1 / sqrt(tau)). Missing: grass, statues, wind, TAA and
+  presets set the resolution and the near radii, x 1 / sqrt(tau)). Missing: statues, wind, TAA and
   upscaling, god rays, occlusion, the software rasterizer, splats, Profile GPU and the debug colours; auto quality
   is the pixel ratio by the median frame of each second (`budget` 17 / 33 ms), none in the first 3 s or 2 s after a
   step, a step down undone (held 30 s) if it didn't save 10%: by an eased mean, the startup's 250-350 ms frames

@@ -14,7 +14,7 @@ import { createProfileBanner } from './profile-banner.ts';
 import { reliefSteps, RELIEF_STEPS } from './ground/relief.ts';
 
 /**
- * What the menu switches. The WebGL mode (src/webgl/) has no forest renderer, TAA, god rays, grass or GPU profile:
+ * What the menu switches. The WebGL mode (src/webgl/) has no forest renderer, TAA, god rays or GPU profile:
  * left out, their switches, the debug colours and their keys aren't shown; `u` is then its own detail level.
  */
 export interface MenuContext {
