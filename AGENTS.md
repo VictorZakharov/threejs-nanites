@@ -254,7 +254,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   then decodes the file as the site does and checks it matches. `src/models.ts` only decodes (in `model-worker.ts`; no DAG build at load:
   one file for every device; phones had a 20k-tri copy because of the 3 s build, the user asked why two). The DAG's
   vertices are the model's own, so `model-source.ts` rebuilds normals (summed in doubles: order-independent) and
-  planar uvs. The index codec may rotate a triangle's corners. It's "bark" with no
+  planar uvs. A vertex whose faces cancel exactly (Lucy's back-to-back flaps: 1840 of them) takes its neighbours'
+  normal (`smoothCancelled`): left at zero, the shader's normalize made NaN and every triangle touching one black (the
+  user, close up on her drapery and hair); the DAG builder weights normals too, so the file is rebuilt with them. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
   1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 6.45 MB (positions 1.9, DAG
@@ -451,12 +453,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   from full detail): the sum kept far trees' bark levels too fine (a 30 px oak: 2900 bark triangles, now ~350;
   `--probe=lodcut`), 35M software triangles at the user's zoomed spot (now 9M), with the same popping; -0.3..1 ms
   on every view. Lucy's `.nm` too (issue #20; `npm run model -- lucy.ply --name=lucy --tris=1000000 --height=4`, the
-  scan in `tools/tmp/models/`): the same mesh and size, her cut about half (`lodcut` at tau 1: 400 px 110k -> 53k
-  triangles, 100 px 35k -> 20k; WebGL's 900 / 250 / 70 px cuts 197k / 64k / 24k -> 96k / 35k / 13k), her levels
-  9-13 one error (0.8 m: their own simplification adds less), so the cut mostly skips from level 8 to the root. Frames on
-  `plaza` -0.2M triangles, -50k shadow, `plazatop` -84k software; GPU time, load and images the same (up close
-  indistinguishable). Her `--sweep=lod` (`taa=0`) jumps more, `statue` 688 -> 841, `plaza` 139 -> 282 (worst 23
-  -> 48/255: her coarser levels shade differently), but `--dolly` with TAA is unchanged (`plaza` 61103 -> 61083).
+  scan in `tools/tmp/models/`, with the normals fixed, Models above): the same mesh and size, her cut about half
+  and far less far off (`lodcut` at tau 1: 400 px 110k -> 53k triangles, 100 px 35k -> 18k, 10 px 7.3k -> 252;
+  WebGL's 900 / 250 / 70 px cuts 197k / 64k / 24k -> 99k / 34k / 15k; her root's error 2.4 -> 0.43 m: the zero
+  normals had inflated the coarse levels' attribute error). Frames on `plaza` -0.2M triangles, -86k shadow,
+  `plazatop` -108k software; GPU time, load and images the same (means within 0.1/255, up close indistinguishable).
+  Her `--sweep=lod` (`taa=0`) jumps more, `statue` 688 -> 830 (worst 35 -> 42/255), `plaza` 139 -> 262 (23 -> 28),
+  but `--dolly` with TAA is unchanged (`plaza` 61103 -> 61083, before the normals fix).
 - Leaf PNGs have white RGB under transparent texels; `fillTransparent` (`texture-pixels.ts`, in the texture worker) replaces it with
   the average leaf colour, otherwise mipmaps bleed pale halos into the foliage. The aspen texture is autumn-yellow and the pine
   one reads yellow in sun: both get per-layer tints in the leaf material.
