@@ -324,12 +324,24 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   hardware leaf triangles per scene pixel (off under 1.2, `?leafpredensity=`; the main view's counters read back 4x
   a second; the HUD's debug line says which). In-page A/B (`--probe=cost --query="cost=forest.leafPrepass.mode&leafpre=1"`,
   1080p, dev GPU): `canopyzoom --zoom=5` (6.6 per pixel) -0.8..-2 ms of ~14, `canopy` (2.0) -0.75, `treeline` (1.4)
-  -0.5, `fogline` (1.25) -0.1; under 1.2 it cost: `autumnred` (1.15) +0.35, `plazane` (0.8) +0.75, `d550` +0.2. A
-  depth-equal second pass with no alpha test looked ~1 ms faster zoomed but left scattered pixels different (TAA:
-  crowns ~1.5/255 brighter; an `@invariant` position didn't help). The second pass is its own `_buildMesh`: a
+  -0.5, `fogline` (1.25) -0.1; under 1.2 it cost: `autumnred` (1.15) +0.35, `plazane` (0.8) +0.75, `d550` +0.2. The
+  two passes' depths match to the bit (a depth-equal second pass with the alpha test draws the same image, and costs
+  the same: what the lit pass costs zoomed, ~3.5 ms, is its vertices, ~14M leaf triangles); with no alpha test it left
+  scattered pixels different (TAA: crowns ~1.5/255 brighter). The prepass has no lights or fog (its Basic material
+  passed a normal and two positions for them). The second pass is its own `_buildMesh`: a
   `NodeMaterial.clone()` drops `alphaTest` (a setter of `Material`'s over `_alphaTest`, which `copy` skips) and lit
   the leaves darker. Front-to-back chunk order did nothing; more of the zoom's leaves to the software rasterizer
   (`swarea=16`) moved ~6 ms from render to compute. The Profile GPU has a `leaf prepass` step (the other way round).
+  The cluster draws' varyings are packed in vec4s (`?pack=0` one by one): each is a location of 4 floats, and with
+  ~10 leaf triangles a pixel the vertex outputs cost (leaves 11 locations -> 7). The wind's motion for TAA goes as
+  last frame's world offset (3 floats; it was this and last frame's clip positions, 8), and the fragment projects
+  its interpolated view position with and without it: with no wind they cancel exactly. Projecting against the
+  pixel's own position (`screenUV`) left float noise that the TAA's history fetch picked up (~0.5/255 on many pixels
+  with no wind), and per-vertex screen motion changed the image near the camera. `canopyzoom --zoom=5` render
+  ~10.55 -> ~10.3 ms, with the leaner prepass ~-0.8 against before, `canopy` -0.5, ground views the same. What's
+  left zoomed (`--probe=cost`, `a;b` switches meshes together): the leaves' two vertex passes (~2.3 + ~3.3 ms), bark
+  ~1, compute ~2.6 (culling ~1.7, the software rasterizer ~0.9). tau 1.5 while zoomed halves it but the crowns grow
+  (tree share 0.194 -> 0.219, -1.8/255); `swarea=2` or 8 doesn't pay.
   Each stage's compute dispatches run in one compute pass (`computeBatch` in `three-gaps.ts`: a node's own size or
   indirect buffer): one `renderer.compute()` per dispatch was ~36 passes a frame, most a few threads, and their
   overhead was frame time the GPU timers don't show (-0.4..0.8 ms; `orbit` with occlusion 8 -> 5.5 ms).

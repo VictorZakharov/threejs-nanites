@@ -3,7 +3,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
   normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
-  cameraViewMatrix,
+  cameraViewMatrix, positionView,
 } from 'three/tsl';
 import { FADE_HI, MAX_TRIS, LIST_CAP, ARGS, minU } from './constants.ts';
 import type { NaniteRenderer } from './renderer.ts';
@@ -20,6 +20,7 @@ import { makeLeafAlpha, a2cDither, dither, typeId, switchPx, mipBias } from './s
 // (?ids=1: debug 6 writes each pixel's tree and cluster into the wind target, for --probe=visible; compiled in only
 // then: a varying more on every tree vertex otherwise)
 const IDS = new URLSearchParams(location.search).get('ids') === '1';
+const PACK = new URLSearchParams(location.search).get('pack') !== '0'; // (?pack=0: the varyings one by one, as before)
 
 const LEAF_INDEX = new THREE.BufferAttribute(Uint16Array.from({ length: MAX_TRIS * 3 }, (_, i) => {
   const t = Math.floor(i / 3), q = (t >> 1) * 4;
@@ -90,12 +91,15 @@ export const drawMethods = {
     if (kind === 1) geo.setIndex(LEAF_INDEX);
     geo.setIndirect(set.ctr.attr, (set.base + (kind === 0 ? ARGS.bark : ARGS.leaf)) * 4); // (byte offset)
 
-    const vUv = varying(vec2(0), 'vUv');
-    const vLayer = varying(float(0), 'vLayer');
-    const vDebug = varying(vec3(0), 'vDebug');
-    const vTint = varying(float(1), 'vTint');
-    const vAutumn = varying(float(0), 'vAutumn'); // (the look's cardValue: the forest's autumn level)
-    const vFade = varying(float(1), 'vFade'); // share of this tree drawn as geometry (impostor cross-fade)
+    // Varyings packed in vec4s: each varying is a location of 4 floats, and with clusters of tiny triangles (a zoomed
+    // crown: ~10 leaf triangles a pixel) the vertex outputs cost (11 locations, now 7). vA: uv and the wind's offset
+    // since last frame (world x, y), vC: the debug colour and the offset's z (the fragment projects its view position
+    // with and without it: the wind's motion on screen, for TAA); vB: texture layer, the share drawn as geometry
+    // (impostor cross-fade), the look's tint and cardValue (the forest's autumn).
+    const vA = varying(vec4(0), 'vA'), vB = varying(vec4(0, 1, 1, 0), 'vB'), vC = varying(vec4(0, 0, 0, 1), 'vC');
+    const uUv = varying(vec2(0), 'vUv'), uLayer = varying(float(0), 'vLayer'), uTint = varying(float(1), 'vTint');
+    const uAutumn = varying(float(0), 'vAutumn'), uFade = varying(float(1), 'vFade');
+    const uDebug = varying(vec3(0), 'vDebug');
     // clip positions with this and last frame's wind (same camera): the wind's motion on screen, for TAA
     const vClip = varying(vec4(0, 0, 0, 1), 'vClip'), vPrevClip = varying(vec4(0, 0, 0, 1), 'vPrevClip');
     // (tree and cluster in 11-bit pieces: exact in a half float; the cluster's high piece + 1, so 0 is "no tree")
@@ -113,23 +117,40 @@ export const drawMethods = {
         : this._vertex(inst, c, uint(0), true, this.idx.element(m.x).add(minU(vertexIndex, m.y.mul(2).sub(1))));
       const type = vx.type;
       normalLocal.assign(vx.normal);
-      vUv.assign(vx.uv);
-      const layer = kind === 0 ? textures.barkLayerOf : textures.leafLayerOf;
-      vLayer.assign(layer(type));
+      const layer = (kind === 0 ? textures.barkLayerOf : textures.leafLayerOf)(type);
+      let fade: Float = float(1), tint: Float = float(1), value: Float = float(0), debug: Vec3 = vec3(0);
+      let back: Vec3 = vec3(0); // (last frame's position minus this one's: the wind's offset)
       if (!shadowOnly) {
-        vFade.assign(this._geometryShare(inst, view));
-        vTint.assign(this.look.tint(inst));
-        vAutumn.assign(this.look.cardValue(inst, this._b(inst)));
-        vDebug.assign(this._debugColour(inst, c, type));
+        fade = this._geometryShare(inst, view);
+        tint = this.look.tint(inst);
+        value = this.look.cardValue(inst, this._b(inst));
+        debug = this._debugColour(inst, c, type);
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         if (motionOut) {
-          vClip.assign(viewProj.mul(vec4(vx.world, 1)));
-          vPrevClip.assign(viewProj.mul(vec4(vx.prevWorld, 1)));
+          if (PACK) back = vx.prevWorld.sub(vx.world);
+          else {
+            vClip.assign(viewProj.mul(vec4(vx.world, 1)));
+            vPrevClip.assign(viewProj.mul(vec4(vx.prevWorld, 1)));
+          }
         }
         vId?.assign(vec4(float(inst.bitAnd(2047)), float(inst.shiftRight(11)), float(c.bitAnd(2047)), float(c.shiftRight(11).add(1))));
       }
+      if (PACK) {
+        vA.assign(vec4(vx.uv, back.xy));
+        vB.assign(vec4(layer, fade, tint, value));
+        if (!shadowOnly) vC.assign(vec4(debug, back.z));
+      } else {
+        uUv.assign(vx.uv);
+        uLayer.assign(layer);
+        uFade.assign(fade);
+        uTint.assign(tint);
+        uAutumn.assign(value);
+        if (!shadowOnly) uDebug.assign(debug);
+      }
       return select(valid, vx.world, vec3(0));
     })();
+    const vUv = PACK ? vA.xy : uUv, vLayer = PACK ? vB.x : uLayer, vFade = PACK ? vB.y : uFade;
+    const vTint = PACK ? vB.z : uTint, vAutumn = PACK ? vB.w : uAutumn, vDebug = PACK ? vC.xyz : uDebug;
 
     const leafAlpha = makeLeafAlpha(textures.leaf, vUv);
     // the layer index must be exact: an interpolated 2.9999 truncates to the wrong texture (aspen speckles on pines,
@@ -163,7 +184,12 @@ export const drawMethods = {
     if (afterPrepass) mat.depthWrite = false;
     if (!shadowOnly && motionOut) {
       // (uv units, y down: what the demo's TAA resolve subtracts from its camera reprojection, src/taa.ts)
-      const motion = vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
+      // (packed: both from the interpolated view position, so with no wind they cancel exactly; the pixel's own position,
+      // screenUV, differed from an interpolated one by float noise that the TAA's history fetch picked up, ~0.5/255
+      // changes on many pixels with no wind at all)
+      const clip = cameraProjectionMatrix.mul(vec4(positionView, 1));
+      const prevClip = cameraProjectionMatrix.mul(vec4(positionView.add(cameraViewMatrix.mul(vec4(vA.zw, vC.w, 0)).xyz), 1));
+      const motion = PACK ? clip.xy.div(clip.w).sub(prevClip.xy.div(prevClip.w)).mul(vec2(0.5, -0.5)) : vClip.xy.div(vClip.w).sub(vPrevClip.xy.div(vPrevClip.w)).mul(vec2(0.5, -0.5));
       mat.mrtNode = mrt({ [motionOut]: vId ? select(u.debug.equal(6), vId.round(), vec4(motion, 0, 1)) : vec4(motion, 0, 1) });
     }
     const mesh = new THREE.Mesh(geo, mat);
