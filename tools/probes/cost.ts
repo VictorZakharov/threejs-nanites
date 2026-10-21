@@ -6,7 +6,7 @@
 // instead: the mesh `name` with its own material ("on") against `other`'s ("off"), the same geometry and depth
 // (`terrain@terrain-high`: the forest floor's shader over the plain ground's; the terrain's visibility is set every
 // frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
-// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass).
+// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass); `a;b` switches objects together.
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -21,7 +21,11 @@ async (demo: Demo) => {
   for (const name of names) {
     let toggle: { get visible(): boolean; set visible(v: boolean) } | undefined;
     const [own, other] = name.split('@');
-    if (other !== undefined) {
+    if (name.includes(';')) {
+      // (objects switched together: `nanite-leaves-main-pre;nanite-leaves-main-after`, a draw and its prepass)
+      const objs = name.split(';').map((n) => demo.scene.getObjectByName(n));
+      if (objs.every(Boolean)) toggle = { get visible() { return objs[0]!.visible; }, set visible(v: boolean) { objs.forEach((o) => (o!.visible = v)); } };
+    } else if (other !== undefined) {
       const mesh = demo.scene.getObjectByName(own) as THREE.Mesh | undefined, alt = demo.scene.getObjectByName(other) as THREE.Mesh | undefined;
       if (mesh && alt) {
         const mine = mesh.material;

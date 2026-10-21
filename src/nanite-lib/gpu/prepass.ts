@@ -8,11 +8,11 @@
 // still alpha-tests, with the same alpha, so a leaf hidden by none draws where it did). It costs the vertices and the
 // alpha test twice, so it pays only where the leaves are dense on screen: on (`auto`) above PREPASS_ON hardware leaf
 // triangles per scene pixel, off again under PREPASS_OFF (the counters, read back every READ_MS). `?leafpre=1|0`
-// always / never. A depth-equal second pass without the alpha test looked ~1 ms faster zoomed, but ~0.5% of the
-// crowns' pixels came out different, scattered single pixels (an `@invariant` position didn't change it), which TAA
-// averaged into crowns ~1.5/255 brighter.
+// always / never. The two passes' depths match to the bit: a depth-equal second pass with the alpha test draws the
+// same image and costs the same (zoomed, the second pass's cost is its vertices); without the alpha test ~0.5% of the
+// crowns' pixels came out different, scattered single pixels, which TAA averaged into crowns ~1.5/255 brighter.
 import * as THREE from 'three/webgpu';
-import { Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, varying, texture } from 'three/tsl';
+import { Fn, storage, instanceIndex, vertexIndex, uint, float, vec3, vec4, select, varying, texture } from 'three/tsl';
 import { LIST_CAP, STATS, minU } from './constants.ts';
 import type { NaniteRenderer } from './renderer.ts';
 import type { CullSet, View } from './types.ts';
@@ -35,6 +35,7 @@ export class LeafPrepass {
   mode: 'auto' | boolean = MODE === 'auto' ? 'auto' : MODE === '1';
   /** Drawn this frame. */
   on = false;
+  private shown: boolean | null = null; // (the meshes' state: null, all visible for the precompile)
   /** Hardware leaf triangles per scene pixel, last read back. */
   density = 0;
   private readonly passes: Passes[] = [];
@@ -54,18 +55,17 @@ export class LeafPrepass {
   build(view: View, set: CullSet, plain: THREE.Mesh): THREE.Mesh[] {
     const nanite = this.nanite, textures = nanite.textures;
     const list = storage(set.listAttr, 'uvec2', LIST_CAP * 2).toReadOnly();
-    const vUv = varying(vec2(0), 'vPreUv'), vLayer = varying(float(0), 'vPreLayer'), vFade = varying(float(1), 'vPreFade');
+    const vPre = varying(vec4(0, 0, 0, 1), 'vPre'); // (uv, texture layer, the share drawn as geometry: one location)
     // (the leaf draw's vertex, draw.ts: the same nodes, so the same depth)
     const position = Fn(() => {
       const entry = list.element(instanceIndex.add(LIST_CAP));
       const inst = entry.x, c = entry.y;
       const m = nanite._meta(c);
       const vx = nanite._vertex(inst, c, uint(0), true, nanite.idx.element(m.x).add(minU(vertexIndex, m.y.mul(2).sub(1))));
-      vUv.assign(vx.uv);
-      vLayer.assign(textures.leafLayerOf(vx.type));
-      vFade.assign(nanite._geometryShare(inst, view));
+      vPre.assign(vec4(vx.uv, textures.leafLayerOf(vx.type), nanite._geometryShare(inst, view)));
       return select(vertexIndex.div(2).lessThan(m.y), vx.world, vec3(0));
     })();
+    const vUv = vPre.xy, vLayer = vPre.z, vFade = vPre.w;
     const leafAlpha = makeLeafAlpha(textures.leaf, vUv);
     const layer = vLayer.round();
     const a = texture(textures.leaf, vUv).depth(layer).bias(mipBias).a;
@@ -73,6 +73,9 @@ export class LeafPrepass {
     const preMat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
     preMat.alphaToCoverage = textures.alphaToCoverage;
     preMat.colorWrite = false;
+    // (no lights or fog: else the vertex shader passes a normal and positions to a lighting nobody sees)
+    preMat.lights = false;
+    preMat.fog = false;
     preMat.colorNode = vec4(1, 1, 1, select(dither().lessThan(vFade), alpha, float(0)));
     preMat.positionNode = position;
     const pre = new THREE.Mesh(plain.geometry, preMat);
@@ -99,7 +102,8 @@ export class LeafPrepass {
       }, () => (this.reading = false));
     }
     const on = this.mode === 'auto' ? this.density > (this.on ? PREPASS_OFF : PREPASS_ON) : this.mode;
-    this.on = on;
+    if (on === this.shown) return; // (only on a change: the harness's cost probe switches the meshes itself)
+    this.on = this.shown = on;
     for (const p of this.passes) {
       p.plain.visible = !on;
       p.pre.visible = p.after.visible = on;
@@ -114,4 +118,3 @@ export class LeafPrepass {
     return view.sets.reduce((n, set, k) => n + (k === 0 || set.ran ? ctr[set.base + STATS + 1] : 0), 0);
   }
 }
-
