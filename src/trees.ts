@@ -100,7 +100,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
       const { header, coarse: first, model } = loadModel(`./${file}`, v.height);
       const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download of all but the coarse copy, ms)
       const built = (what: string) => ({ dag, src }: LoadedModel): BuiltTree => {
-        ui.note(`Loaded ${v.preset}${what}: ${(dag.idx.length / 3).toLocaleString()} triangles, ${(dag.meta.length / 4).toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
+        ui.note(`Loaded ${v.preset}${what}: ${(what ? dag.idx.length / 3 : dag.stats.barkTris).toLocaleString()} triangles, ${(dag.meta.length / 4).toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
         return { ...dag, id, radius: src.radius, height: src.height, variant: v, ...typeOf(v), src };
       };
       const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(built(''));
