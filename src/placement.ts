@@ -1,12 +1,13 @@
 // Where the trees stand: a jittered scatter over the hills with clearings and a ragged edge, and the canopy cover
 // map the far-field ground shading uses.
 import * as THREE from 'three/webgpu';
-import { heightAt, mulberry32 } from './noise.ts';
+import { mulberry32 } from './noise.ts';
 import { VARIANTS, isBush, isModel } from './trees.ts';
 import { roadDistance, PLAZA } from './road.ts';
 import { AUTUMN } from './autumn.ts';
 import type { CoverJob } from './cover.ts';
-import { clearingAt, densityFor, forestTiles, tryBush, tryTree, type PlantConfig, type TilePlants } from './planting.ts';
+import { clearingAt, densityFor, forestTiles, plinthY, tryBush, tryStatue, tryTree, PLINTH, type PlantConfig, type TilePlants } from './planting.ts';
+import type { SceneName } from './scene.ts';
 import type { PlantReply, PlantRequest } from './plant-worker.ts';
 import { workerError } from './worker-error.ts';
 
@@ -41,11 +42,15 @@ export function createCoverMap(radius: number): CoverMap {
 }
 
 /** Fills the cover map from the trees (cover.ts, in a worker); resolves when it's filled. */
-export function forestDensity({ a, b, trees }: TreeInstances, map: CoverMap): Promise<void> {
+export function forestDensity({ a, b, trees, modelImpostors }: TreeInstances, map: CoverMap): Promise<void> {
+  // the trees come first (copies: the forest keeps its own); the Lucy scene's statues shade the ground too (the
+  // forest's dozen don't: the image as it was)
+  const n = modelImpostors ? a.length : trees * 4;
   const job: CoverJob = {
-    a: a.slice(0, trees * 4), b: b.slice(0, trees * 4), // (the trees come first; copies: the forest keeps its own)
-    kinds: VARIANTS.map((v) => (isBush(v) || isModel(v) ? 0 : v.leaf === 'pine' ? 2 : 1)),
+    a: a.slice(0, n), b: b.slice(0, n),
+    kinds: VARIANTS.map((v) => (isModel(v) ? (modelImpostors ? 3 : 0) : isBush(v) ? 0 : v.leaf === 'pine' ? 2 : 1)),
     N: COVER_RES, extent: map.extent, crown: Number(params.get('crown') ?? 100), // (~60 m² of shade per tree)
+    statue: Number(params.get('statueshade') ?? 3.5), // (fitted: topdown700 and slope match the real map within 0.1/255, farall=1)
   };
   return new Promise((resolve, reject) => {
     const w = new Worker(new URL('./cover-worker.ts', import.meta.url), { type: 'module' });
@@ -67,17 +72,26 @@ export interface TreeInstances {
   radius: number;
   trees: number; // the first `trees` instances are trees, then the bushes, then `statues` models
   statues: number;
+  /** The models may be impostors too (the Lucy scene's: a million of them; the forest's dozen never are). */
+  modelImpostors: boolean;
 }
 
 /** Undergrowth per tree (`?bushes=`; 0.5 on touch screens): instances of the bush variants in the same buffers. */
 const BUSHES_PER_TREE = Number(params.get('bushes') ?? (matchMedia('(pointer: coarse)').matches ? 0.5 : 1.5));
 
+/** The Lucy scene's statues (`?lucys=`): 250k of her 4M-triangle copy (lucy4m.nm), 1T triangles at full detail. */
+const LUCYS = Number(params.get('lucys') ?? 250000);
+
 /**
  * Plants about `count` trees and BUSHES_PER_TREE as many bushes (src/planting.ts, by tiles in workers: start it early,
- * it runs while the trees grow), then the statues; trees first in the buffers, then bushes, then statues.
+ * it runs while the trees grow), then the statues; trees first in the buffers, then bushes, then statues. The Lucy
+ * scene (src/scene.ts) plants LUCYS statues over the same land instead, and no trees or bushes.
  */
-export async function plantForest(count: number): Promise<TreeInstances> {
-  const radius = forestRadius(count);
+export async function plantForest(count: number, scene: SceneName = 'forest'): Promise<TreeInstances> {
+  const lucy = scene === 'lucy';
+  // (the Lucy scene's statues as close as the forest's trees, on a disc of their own: 2.9 km for 250k; over the
+  // forest's 5.8 km they stood ~20 m apart, the user: "can we have them denser?")
+  const radius = forestRadius(lucy ? LUCYS : count);
   const of = (f: (i: number) => boolean) => VARIANTS.map((_, i) => (f(i) ? i : -1)).filter((i) => i >= 0);
   const pine = (i: number) => VARIANTS[i].preset.startsWith('Pine');
   const cfg: PlantConfig = {
@@ -87,9 +101,13 @@ export async function plantForest(count: number): Promise<TreeInstances> {
     bushEvergreen: of((i) => isBush(VARIANTS[i]) && VARIANTS[i].leaf === 'pine'),
     bushLeafy: of((i) => isBush(VARIANTS[i]) && VARIANTS[i].leaf !== 'pine'),
     treeDensity: 0, bushDensity: 0,
+    statue: of((i) => isModel(VARIANTS[i])), statueStep: 0,
   };
-  cfg.treeDensity = densityFor(cfg, count, tryTree, 42);
-  cfg.bushDensity = cfg.bushEvergreen.length + cfg.bushLeafy.length ? densityFor(cfg, Math.round(count * BUSHES_PER_TREE), tryBush, 7) : 0;
+  if (lucy) cfg.statueStep = 1 / Math.sqrt(densityFor(cfg, LUCYS, tryStatue, 5)); // (a grid: one candidate per cell)
+  else {
+    cfg.treeDensity = densityFor(cfg, count, tryTree, 42);
+    cfg.bushDensity = cfg.bushEvergreen.length + cfg.bushLeafy.length ? densityFor(cfg, Math.round(count * BUSHES_PER_TREE), tryBush, 7) : 0;
+  }
 
   // the tiles dealt out in turn (the middle first), so each worker gets a share of the dense ones
   const tiles = forestTiles(radius);
@@ -113,11 +131,12 @@ export async function plantForest(count: number): Promise<TreeInstances> {
   const order = [...planted.keys()].sort((p, q) => p - q).map((t) => planted.get(t)!);
   const statueA: number[] = [], statueB: number[] = [];
   const statues = placeStatues(radius, statueA, statueB);
-  const nTrees = order.reduce((n, p) => n + p.trees.length / 8, 0), nBushes = order.reduce((n, p) => n + p.bushes.length / 8, 0);
-  const total = nTrees + nBushes + statues;
+  const count8 = (kind: 'trees' | 'bushes' | 'statues') => order.reduce((n, p) => n + p[kind].length / 8, 0);
+  const nTrees = count8('trees'), nBushes = count8('bushes'), nGrid = count8('statues');
+  const total = nTrees + nBushes + nGrid + statues;
   const a = new Float32Array(total * 4), b = new Float32Array(total * 4);
   let k = 0;
-  for (const kind of ['trees', 'bushes'] as const)
+  for (const kind of ['trees', 'bushes', 'statues'] as const)
     for (const p of order) {
       const src = p[kind];
       // (plain copies: a subarray per instance was 5M short-lived objects, ~0.2 s of the main thread)
@@ -129,7 +148,7 @@ export async function plantForest(count: number): Promise<TreeInstances> {
     }
   a.set(statueA, k * 4);
   b.set(statueB, k * 4);
-  return { a, b, radius, trees: nTrees, statues };
+  return { a, b, radius, trees: nTrees, statues: nGrid + statues, modelImpostors: lucy };
 }
 
 /** Extra statues scattered over the clearings (`?statues=N`, a stress test: a million triangles each); the plaza's ring is always there. */
@@ -140,17 +159,13 @@ const STATUES = Number(params.get('statues') ?? 0);
  * more on a jittered grid (14 m) over the clearings. A proof that the pipeline takes any mesh: each is a million
  * triangles.
  */
-const PLINTH = 0.7; // m: Lucy's base radius at scale 1 (her 4 m), a little over
-
 function placeStatues(radius: number, a: number[], b: number[]): number {
   const types = VARIANTS.map((v, i) => (isModel(v) ? i : -1)).filter((i) => i >= 0);
   if (!types.length) return 0;
   const rnd = mulberry32(13);
   // on the lowest ground under the plinth (by its centre, one edge floated on a slope: the user)
   const add = (x: number, z: number, scale: number, face: number, type: number) => {
-    let y = heightAt(x, z);
-    for (let k = 0; k < 12; k++) y = Math.min(y, heightAt(x + Math.cos(k * 0.5236) * PLINTH * scale, z + Math.sin(k * 0.5236) * PLINTH * scale));
-    a.push(x, y - 0.05, z, scale);
+    a.push(x, plinthY(x, z, PLINTH * scale) - 0.05, z, scale);
     b.push(Math.cos(face), Math.sin(face), type, 0); // (no wind: phase 0)
   };
   // the rotation that turns Lucy's front (-z after tools/nanite-model.ts stood her up) towards (dx, dz)

@@ -18,6 +18,7 @@ import type { Precompile } from './warmup.ts';
 import type { LoadingScreen } from './loading.ts';
 import type { DemoState } from './harness-api.ts';
 import type { LayerData } from './texture-pixels.ts';
+import type { SceneName } from './scene.ts';
 import type { Float, Vec3 } from './types.ts';
 
 export interface ForestSetup {
@@ -37,6 +38,7 @@ export interface ForestSetup {
   leafLayers: Promise<LayerData>[];
   planting: Promise<TreeInstances>;
   growing: Promise<BuiltTree[]>;
+  sceneName: Promise<SceneName>;
   samples: number;
   terrain: THREE.Group;
   ground: ReturnType<typeof setupGround>;
@@ -45,11 +47,28 @@ export interface ForestSetup {
   pre: Precompile;
 }
 
+/**
+ * The Lucy scene's statues as impostors: one view per elevation shows every statue from the front, so they switch at
+ * 0.7 x a tree's size (~14 px tall; `?statuepx=`: 0.4 drew 75M software triangles from 450 m, 9 ms), and their shadows
+ * are their geometry's down to a quarter of that (a quad turned to the sun cast every one the same blob, shorter, and
+ * switched with the impostor: the user's "shadow in another direction"; `?statueshadowpx=`: at 0, every statue in the
+ * shadow map listed its clusters, `slope` 8.6 ms, 4.4 at 0.25, the same image).
+ */
+const LUCY_IMPOSTORS = { impostorPx: Number(new URLSearchParams(location.search).get('statuepx') ?? 0.7), shadowPx: Number(new URLSearchParams(location.search).get('statueshadowpx') ?? 0.25), shadowTau: Number(new URLSearchParams(location.search).get('statueshadowtau') ?? 2) };
+
 export async function buildForest(o: ForestSetup) {
-  const { renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing, samples, terrain, shadowsOn, pre } = o;
+  const { renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing, sceneName, samples, terrain, shadowsOn, pre } = o;
   const { cover: density, litter, groundFar } = o.ground;
   const { sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn } = o.lighting;
-  const trees = await growing;
+  const grown = await growing;
+  // the Lucy scene's statues become impostors far off like trees (a million of them, src/scene.ts): Lucy is waited
+  // for (her ~5 MB, downloading since the start) and her tile baked; the forest's dozen never are, and come in later
+  const lucy = (await sceneName) === 'lucy';
+  // (past the shadow map, and from high up everywhere, receivers fade to an average: the trees' canopy self-shade,
+  // 0.35 of the sun. The statues have no canopy, their normals shade their far side: with it they went darker past a
+  // circle round the viewer, the map's edge, the user's "a circle where statues gain their brightness")
+  if (lucy && !params.has('treeshade')) treeFarShadow.value = 1;
+  const trees = lucy ? await Promise.all(grown.map(async (t) => (t.later ? { ...(await t.later.tree), noImpostor: false, ...LUCY_IMPOSTORS } : t))) : grown;
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
@@ -57,7 +76,7 @@ export async function buildForest(o: ForestSetup) {
   barkTex.colorSpace = leafTex.colorSpace = THREE.SRGBColorSpace;
   leafTex.wrapS = leafTex.wrapT = THREE.ClampToEdgeWrapping;
 
-  await ui.update(0.8, `Scattering ${TREE_COUNT.toLocaleString()} trees`);
+  await ui.update(0.8, (await sceneName) === 'lucy' ? 'Raising the statues' : `Scattering ${TREE_COUNT.toLocaleString()} trees`);
   let ts = performance.now();
   const lap = (label: string): void => {
     ui.note(`${label} (${Math.round(performance.now() - ts)} ms)`);

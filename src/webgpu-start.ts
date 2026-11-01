@@ -33,6 +33,7 @@ import type { AutoQuality } from './hud.ts';
 import type { LoadingScreen } from './loading.ts';
 import type { FloorMaps } from './ground/floor.ts';
 import type { LayerData } from './texture-pixels.ts';
+import type { SceneName } from './scene.ts';
 
 export interface WebGPUStart {
   adapter: GPUAdapter;
@@ -52,11 +53,12 @@ export interface WebGPUStart {
   planting: Promise<TreeInstances>;
   growing: Promise<BuiltTree[]>;
   terrainReady: ReturnType<typeof createTerrain>;
+  scene: Promise<SceneName>; // (src/scene.ts: the planting waits for it)
 }
 
 export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const { adapter, ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs } = o;
-  const { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady } = o;
+  const { barkLayers, leafLayers, floorMaps, planting, growing, terrainReady, scene: sceneName } = o;
   const lim = adapter.limits;
   if (lim.maxStorageBuffersPerShaderStage < 10) throw new Error('GPU supports too few storage buffers per stage.');
   const renderer = new THREE.WebGPURenderer({
@@ -135,7 +137,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   const built = await buildForest({
     renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing,
-    samples, terrain, ground, lighting, shadowsOn: () => shadowsOn, pre,
+    sceneName, samples, terrain, ground, lighting, shadowsOn: () => shadowsOn, pre,
   });
   const { forest, grass, instances, buildMs, covered } = built;
   let { passes } = built;

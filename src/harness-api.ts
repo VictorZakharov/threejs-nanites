@@ -54,6 +54,8 @@ export interface HarnessView {
   yaw?: number;
   pitch?: number;
   nearTree?: number;
+  /** With `nearTree`: the height above the plant's base it looks at (m; default 6; 0: its foot). */
+  aim?: number;
   trunk?: number;
   /** The loneliest tree within 3 km of (x, z) (no plant for the most metres round it), looked at from this many
    * metres along yaw / pitch (the user: "a single tree on plain ground, far out, then zoom in 5x"). */
@@ -84,7 +86,8 @@ function loneliestTree(instances: TreeInstances, trees: number, count: number, x
   return best;
 }
 
-let lone: number | undefined; // (the lone view's tree, found once)
+let lone: number | undefined;
+const liveLog: number[][] = []; // (Demo.live) // (the lone view's tree, found once)
 /**
  * Where a view puts the camera (both modes: src/webgl/harness.ts too): its x/z and height, or framed by the closest
  * tree (`nearTree`, `trunk`) or the loneliest (`lone`). `count`: instances (all: statues included), trees, plants
@@ -108,7 +111,7 @@ export function viewPose(v: HarnessView, instances: TreeInstances, count: { all:
     if (v.trunk) y = ty + (v.agl ?? 1.5);
     else {
       y = Math.max(heightAt(x, z) + 1.7, ty + (v.agl ?? 3));
-      pitch = Math.atan2(ty + 6 - y, dist);
+      pitch = Math.atan2(ty + (v.aim ?? 6) - y, dist);
     }
   }
   if (v.lone) {
@@ -141,6 +144,7 @@ export interface DemoExtras {
   music: Music;
   perfReport(): string | undefined;
   loadLog: { t: number; msg: string }[]; // (the loading log's lines, ms since the navigation started: --load)
+  sceneName: 'forest' | 'lucy'; // (src/scene.ts: the scene shown)
   profile(): Promise<string>;
   /** The WebGL mode's near trees (src/webgl/near.ts audit: --probe=glnear); absent on WebGPU. */
   glNear?: { keepIds(): void; audit(p: THREE.Vector3): { checked: number; missing: number; worst: string } };
@@ -211,6 +215,26 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
     } finally {
       renderer.setAnimationLoop(null);
     }
+  },
+  /**
+   * The real loop with auto quality on until `live(false)` (--zoomtime: the harness screenshots it meanwhile); each
+   * frame's time (ms from the start), tau, resolution scale, shadow map size, zoom, the map's half-extent (m) and the
+   * camera's height and auto quality's eased GPU ms, returned then.
+   */
+  live(on: boolean): number[][] {
+    renderer.setAnimationLoop(null);
+    if (!on) return liveLog.splice(0);
+    auto.on = true;
+    liveLog.length = 0;
+    const t0 = performance.now();
+    let sun: THREE.DirectionalLight | undefined;
+    scene.traverse((o) => void ((o as THREE.DirectionalLight).isDirectionalLight && (sun = o as THREE.DirectionalLight)));
+    renderer.setAnimationLoop(() => {
+      loop();
+      const sc = sun?.shadow.camera as THREE.OrthographicCamera | undefined;
+      liveLog.push([Math.round(performance.now() - t0), +forest.u.tau.value.toFixed(2), +auto.scale.toFixed(2), sun?.shadow.mapSize.x ?? 0, controls.zoom, Math.round(sc?.right ?? 0), Math.round(camera.position.y), +auto.gpuMs.toFixed(2)]);
+    });
+    return [];
   },
   /**
    * Auto quality across the zoom: the real loop at the current view, unzoomed / zoomed / unzoomed / zoomed for `ms`

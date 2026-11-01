@@ -2,12 +2,12 @@
 // trees' tints and autumn, the leaf textures' tints, and the impostors' colour turned the same way. The WebGL mode's
 // near trees (src/webgl/near.ts) share the colours.
 import * as THREE from 'three/webgpu';
-import { uniform, uniformArray, uint, float, vec3, select, hash, clamp, sin, dot, max, smoothstep, normalLocal } from 'three/tsl';
+import { uniform, uniformArray, uint, float, vec3, select, hash, clamp, sin, cos, mix, dot, max, smoothstep, normalLocal } from 'three/tsl';
 import type { UniformArrayNode, UniformNode } from 'three/webgpu';
 import type { NaniteLook, NaniteTextures, NaniteUniforms } from '../nanite-lib/index.ts';
 import { curve, viewerPos, PLANET_RADIUS } from '../planet.ts';
 import { autumnOf, autumnColour } from '../autumn.ts';
-import type { Float, Uint, Vec3 } from '../types.ts';
+import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
 
 /** The forest's uniforms: the renderer's, and the wind (0: off; the grass sways with it too). */
 export type ForestUniforms = NaniteUniforms & { wind: UniformNode<'float', number> };
@@ -32,6 +32,20 @@ export function leafColour(rgb: Vec3, layerI: Float, tint: Float, autumn: Float)
 
 /** Bark colour before lighting. */
 export const barkColour = (rgb: Vec3): Vec3 => rgb.mul(vec3(0.9, 0.86, 0.8));
+
+/**
+ * A model's paint (the Lucy scene's statues, src/scene.ts): `value` is 1 + its hue (b.w, planted by tryStatue), 0
+ * unpainted (the plaza's ring, the trees' bark). The marble in that hue at 3/4 saturation, times the brightness tint.
+ */
+export const paintOf = (windOf: UniformArrayNode<'float'>) => (_inst: Uint, b: Vec4, type: Uint): Float =>
+  select(windOf.element(type).equal(0).and(b.w.greaterThanEqual(1)), b.w, float(0));
+const painted = (rgb: Vec3, tint: Float, value: Float): Vec3 => {
+  const hue = value.fract().mul(Math.PI * 2);
+  const paint = vec3(cos(hue), cos(hue.sub((Math.PI * 2) / 3)), cos(hue.add((Math.PI * 2) / 3))).mul(0.5).add(0.5);
+  return rgb.mul(mix(vec3(1), paint, 0.75)).mul(tint).mul(1.1);
+};
+/** Solid triangles' colour: the bark's, or a painted statue's. */
+export const solidColour = (rgb: Vec3, tint: Float, value: Float): Vec3 => select(value.greaterThanEqual(1), painted(rgb, tint, value), barkColour(rgb));
 
 /** Per-tree brightness variation. */
 export const treeTint = (inst: Uint): Float => hash(inst).mul(0.35).add(0.8);
@@ -92,13 +106,17 @@ export function forestLook(wind: UniformNode<'float', number>, windOf: UniformAr
     motionMargin: (height, top, s, type) => windMargin(height, top, s, sway(uint(type))),
     tint: treeTint,
     cardValue: (_inst, b) => autumnOf(b.w),
-    impostorValue: (_inst, b, type) => select(textures.leafLayerOf(type).equal(3), float(0), autumnOf(b.w)), // (pines stay green)
-    solidColour: barkColour,
+    // (pines stay green; a model's: minus its paint, apart from the autumn levels, 0 to 2)
+    impostorValue: (inst, b, type) => select(windOf.element(type).equal(0), paintOf(windOf)(inst, b, type).negate(), select(textures.leafLayerOf(type).equal(3), float(0), autumnOf(b.w))),
+    solidValue: paintOf(windOf),
+    solidColour,
     cardColour: leafColour,
     impostorColour: (albedo, gain, tint, value) => {
       // (autumn on the leaf texels only: the atlas has bark too, and leaves are the green ones)
       const green = albedo.mul(vec3(tint.mul(0.92), tint, tint.mul(0.8))).mul(gain);
-      return autumnColour(green, value, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b))));
+      // (a painted statue: its marble, baked as bark, painted as its geometry is)
+      const statue = painted(albedo.div(vec3(0.9, 0.86, 0.8)).mul(gain), tint, value.negate());
+      return select(value.lessThanEqual(-1), statue, autumnColour(green, value, smoothstep(0, 0.03, green.g.sub(max(green.r, green.b)))));
     },
     bakeCardColour,
   };

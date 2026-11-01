@@ -29,7 +29,7 @@ export { NaniteRenderer } from './gpu/renderer.ts';
 export { defaultLook, type NaniteLook, type MotionInput } from './gpu/look.ts';
 export type { NaniteType, NaniteInstances, NaniteTextures, NaniteUniforms, NaniteStats, Shading, View, CullSet, Counters, U } from './gpu/types.ts';
 export {
-  PHASE2_LAYER, SHADOW_TAU_MUL, MIN_PX, FADE_HI, MAX_TRIS, LIST_CAP, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT,
+  PHASE2_LAYER, SHADOW_TAU_MUL, MIN_PX, FADE_HI, MAX_TRIS, LIST_CAP, SW_CAP, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT,
   minU, minI, maxI, rotY,
 } from './gpu/constants.ts';
 export {

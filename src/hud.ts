@@ -77,7 +77,8 @@ export function createHud(ctx: HudContext) {
       ...(perf ? [] : [['fps', `${fps.toFixed(0)}   ${ms.toFixed(2)} ms   gpu ${auto.gpuMs.toFixed(2)} ms`]]),
       // (short lines: the panel is as wide as the longest; the user: "wasting space")
       ['plants', `${(gs.instances + gs.impostors).toLocaleString()} shown · ${gs.impostors.toLocaleString()} impostors`],
-      ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount - forest.statueCount)} bushes + ${forest.statueCount} statues`],
+      // (the Lucy scene's: statues alone, src/scene.ts)
+      forest.treeCount ? ['forest', `${millions(forest.treeCount)} trees + ${millions(forest.instanceCount - forest.treeCount - forest.statueCount)} bushes + ${forest.statueCount} statues`] : ['scene', `${millions(forest.statueCount)} statues`],
       ['altitude', `${Math.round(agl())} m · ${Math.round(controls.velocity.length())} m/s`],
       ['clusters', `${(gs.barkClusters + gs.leafClusters + (gs.swClusters ?? 0)).toLocaleString()} (${gs.barkClusters.toLocaleString()} bark · ${(gs.swClusters ?? 0).toLocaleString()} software)`],
       // (every triangle drawn: the clusters' in hardware and software, and the impostors' quads, 2 each)

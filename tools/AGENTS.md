@@ -46,6 +46,8 @@ heatmaps `sweep-*.png` / `dolly-*.png`, probe images `<probe>-<view>.png`.
 
 ```bash
 npm run harness -- --views=ground,canopy                       # numbers + screenshots
+npm run harness -- --scene=lucy --views=ground,slope,phone9k --ab="imppx=0|"   # the Lucy forest: geometry vs impostors
+npm run harness -- --choose=lucy --size=384x832 --dpr=3 --query=touch=1 --views=ground   # the scene choice: choice.png, clicks Lucy, checks the scene
 npm run harness -- --views=zoomref --zoom=5 --probe=occlusion  # zoomed view, occlusion counters
 npm run harness -- --views=bark --probe=occlusion --query=wind=0  # one trunk fills the screen: ~nothing else drawn
 npm run harness -- --ab="imppx=0|imppx=100000" --views=topdown700 --query="farall=1&wind=0"

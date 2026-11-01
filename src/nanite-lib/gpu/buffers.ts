@@ -73,6 +73,10 @@ export const bufferMethods = {
     this.cData = storage(sb(a.cData, 4), 'vec4', nClusters * CD_STRIDE).toReadOnly();
     this.typeValues = typeInfo;
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
+    this.impPxOf = uniformArray<'float'>(trees.map((t) => t.impostorPx ?? 1), 'float');
+    this.shadowPxOf = uniformArray<'float'>(trees.map((t) => t.shadowPx ?? 1), 'float');
+    this.shadowTauOf = uniformArray<'float'>(trees.map((t) => t.shadowTau ?? 0), 'float');
+    this.unfoldOf = uniformArray<'float'>(trees.map((t) => (t.unfold ? 1 : 0)), 'float');
     this.chunks = new InstanceChunks(instances.a, instances.b, typeInfo, this.look.curveRadius);
     this.instA = instances.a;
     this.instB = instances.b;

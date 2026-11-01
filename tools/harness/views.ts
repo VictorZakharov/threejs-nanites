@@ -51,6 +51,19 @@ export const VIEWS: Record<string, HarnessView> = {
   // the spawn point turned away from the road: the waypoint (src/waypoint.ts, --query=waypoint=1) on the screen's edge
   spawnback: { x: 20, z: 40, agl: 1.8, yaw: 160, pitch: 4 },
   // a statue up close (a million triangles: Nanite detail)
+  // the Lucy scene (--scene=lucy): a 2.9 x statue's face from 3 m (the user: "is it supposed to be that non-detailed?")
+  // the Lucy scene from 60 m: statues and their shadows (the user: "zoomed out, they drop shadow in another direction")
+  lucyshadow: { x: 20, z: 40, agl: 60, yaw: 30, pitch: -40 },
+  lucyface: { x: 48.1, z: 38.5, y: 4.6, yaw: 29.3, pitch: 0 },
+  // straight down over a 79 m statue (scale 19.8), climbing: its shadow by altitude (the user: "look directly down,
+  // and move up... see how shadows change"; a gap at its base, the shadow changing with the zoom)
+  ...Object.fromEntries([150, 300, 600, 1200, 2400].map((agl) => [`giant${agl}`, { x: 29, z: -223, agl, yaw: 0, pitch: -89.9 }])),
+  // straight down over a 6 m statue (scale 1.56) through the zoom, climbing (the user: "pick a small statue from far
+  // with full shadow, then move up, looking directly down")
+  ...Object.fromEntries([50, 100, 200, 400, 800, 1600].map((agl) => [`small${agl}`, { x: 99.5, z: -154.8, agl, yaw: 0, pitch: -89.9, zoom: 5 }])),
+  // over the statues towards the horizon, 120 m up (the user: "a circle where statues gain their brightness")
+  lucyhorizon: { x: 400, z: 250, agl: 120, yaw: 20, pitch: -10 },
+  lucyfield: { x: 400, z: 250, agl: 34, yaw: 20, pitch: -4 }, // across the statues, as the user zoomed (34 m up)
   statue: { x: -23.7, z: -35.8, agl: 2, yaw: 210, pitch: 14 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
   horizon: { x: -300, z: -300, agl: 30, yaw: 135, pitch: -2 },
@@ -95,6 +108,16 @@ export const VIEWS: Record<string, HarnessView> = {
   // out... then zoom in 5x")
   lone: { x: 400, z: 600, lone: 1200, yaw: 0, pitch: -30 },
   lone600: { x: 400, z: 600, lone: 600, yaw: 0, pitch: -30 },
+  // the loading screen's pictures (public/thumbs): the same tree from 18 m and a statue of the Lucy forest, each against
+  // the sun (it's at yaw ~35, 32 degrees up): the tree in god rays
+  thumbtree: { x: 400, z: 600, lone: 18, yaw: 35, pitch: 15 },
+  // (--scene=lucy: the closest statue to (50, 30) from 7 m, the sun right behind her: a silhouette in its halo, against the sky)
+  thumblucy: { x: 50, z: 30, agl: 0.6, yaw: 35, nearTree: 7 },
+  // the same statue's foot from the side, its shadow running across the view (does the shadow start at the foot?)
+  lucyfoot: { x: 50, z: 30, agl: 7, yaw: 125, nearTree: 4, aim: 0 },
+  // the same tree from 8 sides as lone600 (600 m off, 30 degrees up), through the zoom (the impostor is baked from one side:
+  // `--typematch --views=lone0,lone45,...` compares its pixels and colour with the geometry's from each)
+  ...Object.fromEntries([0, 45, 90, 135, 180, 225, 270, 315].map((yaw) => [`lone${yaw}`, { x: 400, z: 600, lone: 600, yaw, pitch: -30, zoom: 5 }])),
 };
 
 /** The views run when --views isn't given: the everyday set, not every special-purpose one. */

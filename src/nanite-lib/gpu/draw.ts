@@ -3,14 +3,17 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
   normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
-  cameraViewMatrix, positionView,
+  cameraViewMatrix, positionView, normalView, normalFlat,
 } from 'three/tsl';
 import { FADE_HI, MAX_TRIS, LIST_CAP, ARGS, minU } from './constants.ts';
+
+/** Added to a bark vertex's texture layer for a type that unfolds (NaniteType.unfold): layers stay under it. */
+const UNFOLD = 256;
 import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Uint, Vec3 } from '../types.ts';
 import type { ClusterVertex, CullSet, View } from './types.ts';
 import { setEmissive } from '../three-gaps.ts';
-import { makeLeafAlpha, a2cDither, dither, typeId, switchPx, mipBias } from './shading.ts';
+import { makeLeafAlpha, a2cDither, dither, typeId, switchPx, mipBias, unfold, FOLD_FIX } from './shading.ts';
 
 /**
  * The leaf draws' index buffer, shared by every leaf cluster: a cluster's cards are quads from its first vertex
@@ -63,7 +66,7 @@ export const drawMethods = {
     const ti = this.typeInfo.element(uint(b.z));
     const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(a.w), 0)).sub(lodPos));
     const px = ti.w.mul(a.w).mul(u.projScale).div(max(dCam, 0.1)); // (same as the instance pass)
-    const sw = switchPx(u, inst);
+    const sw = switchPx(u, inst, this.impPxOf.element(uint(b.z)));
     return smoothstep(sw, sw.mul(FADE_HI), px);
   },
 
@@ -95,7 +98,7 @@ export const drawMethods = {
     // crown: ~10 leaf triangles a pixel) the vertex outputs cost (11 locations, now 7). vA: uv and the wind's offset
     // since last frame (world x, y), vC: the debug colour and the offset's z (the fragment projects its view position
     // with and without it: the wind's motion on screen, for TAA); vB: texture layer, the share drawn as geometry
-    // (impostor cross-fade), the look's tint and cardValue (the forest's autumn).
+    // (impostor cross-fade), the look's tint and cardValue (the forest's autumn; solid triangles: solidValue).
     const vA = varying(vec4(0), 'vA'), vB = varying(vec4(0, 1, 1, 0), 'vB'), vC = varying(vec4(0, 0, 0, 1), 'vC');
     const uUv = varying(vec2(0), 'vUv'), uLayer = varying(float(0), 'vLayer'), uTint = varying(float(1), 'vTint');
     const uAutumn = varying(float(0), 'vAutumn'), uFade = varying(float(1), 'vFade');
@@ -117,13 +120,14 @@ export const drawMethods = {
         : this._vertex(inst, c, uint(0), true, this.idx.element(m.x).add(minU(vertexIndex, m.y.mul(2).sub(1))));
       const type = vx.type;
       normalLocal.assign(vx.normal);
-      const layer = (kind === 0 ? textures.barkLayerOf : textures.leafLayerOf)(type);
+      // (bark: + UNFOLD for a scan's types, NaniteType.unfold: packed with the layer, a varying fewer)
+      const layer = kind === 0 ? float(textures.barkLayerOf(type)).add(this.unfoldOf.element(type).mul(UNFOLD)) : textures.leafLayerOf(type);
       let fade: Float = float(1), tint: Float = float(1), value: Float = float(0), debug: Vec3 = vec3(0);
       let back: Vec3 = vec3(0); // (last frame's position minus this one's: the wind's offset)
       if (!shadowOnly) {
         fade = this._geometryShare(inst, view);
         tint = this.look.tint(inst);
-        value = this.look.cardValue(inst, this._b(inst));
+        value = kind === 0 ? (this.look.solidValue?.(inst, this._b(inst), type) ?? float(0)) : this.look.cardValue(inst, this._b(inst));
         debug = this._debugColour(inst, c, type);
         const viewProj = cameraProjectionMatrix.mul(cameraViewMatrix);
         if (motionOut) {
@@ -155,7 +159,9 @@ export const drawMethods = {
     const leafAlpha = makeLeafAlpha(textures.leaf, vUv);
     // the layer index must be exact: an interpolated 2.9999 truncates to the wrong texture (aspen speckles on pines,
     // shimmering from frame to frame)
-    const layerI = vLayer.round();
+    const layerRaw = vLayer.round();
+    const unfolds = kind === 0 && FOLD_FIX ? layerRaw.greaterThanEqual(UNFOLD) : null;
+    const layerI = kind === 0 ? select(layerRaw.greaterThanEqual(UNFOLD), layerRaw.sub(UNFOLD), layerRaw) : layerRaw;
     let mat;
     if (shadowOnly) {
       // depth-only caster: just the alpha cut-out for leaves
@@ -163,9 +169,10 @@ export const drawMethods = {
       if (kind === 1) mat.colorNode = vec4(1, 1, 1, leafAlpha(texture(textures.leaf, vUv).depth(layerI).bias(mipBias).a, layerI));
     } else if (kind === 0) {
       mat = new THREE.MeshStandardNodeMaterial({ roughness: 0.92, metalness: 0, alphaTest: 0.5 });
-      const col = this.look.solidColour(texture(textures.bark, vUv).depth(layerI).bias(mipBias).rgb);
+      const col = this.look.solidColour(texture(textures.bark, vUv).depth(layerI).bias(mipBias).rgb, vTint, vAutumn);
       mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), float(1), float(0)));
       mat.emissiveNode = select(u.debug.equal(4), vDebug, vec3(0));
+      if (unfolds) mat.normalNode = select(unfolds, unfold(normalView, normalFlat, positionView.negate()), normalView); // (folds of a scan: shading.ts)
     } else {
       // Lambert: no specular sheen on leaves, and cheaper for the heavy foliage overdraw
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });

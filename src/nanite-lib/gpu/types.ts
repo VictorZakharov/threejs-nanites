@@ -136,6 +136,23 @@ export interface NaniteType extends DagResult {
   height: number;
   /** Never drawn as an impostor (with the instances from `firstModel` on: the renderer's instances are in type order). */
   noImpostor?: boolean;
+  /** Its impostor switch size, x the renderer's impostorPx (1; a mesh whose one view per elevation shows less, smaller). */
+  impostorPx?: number;
+  /**
+   * Where its shadow switches from its geometry to its impostor's quad turned to the sun, x its impostor switch (1:
+   * where the camera's does). Smaller for a mesh that isn't round its axis: it casts a shadow by its facing (the demo's
+   * statues: a quad cast every one the same blob, and switched with the camera's).
+   */
+  shadowPx?: number;
+  /**
+   * Its shadow casters' own tau, whatever the renderer's (none: the renderer's): a mesh whose coarse levels lose its
+   * shape (the demo's statues: from ~10 px tall at tau 8 Lucy's shadow came from a 70-triangle root and went), or
+   * whose shadows shouldn't change with an application's quality steps (a tau step after a zoom flipped medium
+   * statues' shadows between that root and her finer levels, 1.3x longer).
+   */
+  shadowTau?: number;
+  /** A scan: its folds (triangles facing against their normals) are lit by their face (unfold in shading.ts). */
+  unfold?: boolean;
   /** The full-detail source meshes (the impostor bake's frame, and its full-detail bake). */
   src: { bark: BarkSource; leaves: LeafSource };
   /**

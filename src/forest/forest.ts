@@ -17,7 +17,7 @@ export class NaniteForest extends NaniteRenderer {
   constructor(renderer: THREE.WebGPURenderer, trees: BuiltTree[], instances: TreeInstances, textures: NaniteTextures) {
     const { wind, windOf } = forestWind(trees.map((t) => isModel(t.variant)));
     const n = instances.a.length / 4;
-    super(renderer, trees, { a: instances.a, b: instances.b, firstModel: n - instances.statues }, textures, forestLook(wind, windOf, textures));
+    super(renderer, trees, { a: instances.a, b: instances.b, firstModel: instances.modelImpostors ? n : n - instances.statues }, textures, forestLook(wind, windOf, textures));
     this.u.wind = wind;
     this.windOf = windOf;
     this.treeCount = instances.trees;

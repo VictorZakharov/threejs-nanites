@@ -23,7 +23,7 @@ export function setupGround(terrain: THREE.Group, floorMaps: FloorMaps, radius: 
   // darkened by how much canopy stands over it
   const groundShade = uniform(Number(new URLSearchParams(location.search).get('groundshade') ?? 0.82));
   const coverMap = texture(cover.texture, positionWorld.xz.div(cover.extent * 2).add(0.5));
-  const groundFar = float(1).sub(coverMap.r.mul(groundShade));
+  const groundFar = float(1).sub(coverMap.r.add(coverMap.a).mul(groundShade)); // (alpha: the Lucy scene's statues)
   for (const m of terrain.userData.materials as THREE.NodeMaterial[]) m.receivedShadowNode = receivedShadow(groundFar);
   // the forest floor near the viewer: leaf litter under the canopy, parallax relief
   const litter = createLitterMap(); // (which tree's leaves lie where near the viewer)

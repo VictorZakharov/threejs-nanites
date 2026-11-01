@@ -69,6 +69,29 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   pixels).
 - A headless benchmark harness (see below).
 
+## Scenes
+
+The loading screen offers two scenes while it loads; with no choice in 5 seconds it starts the forest (keys: 1 or
+Enter for the forest, 2 for Lucy).
+
+- **Forest** (the default): 1M trees and 1.5M bushes, 38B triangles at full detail.
+- **Lucy forest:** 250,000 copies of Stanford's Lucy at 4M triangles each (a denser copy of the scan: 1T triangles
+  at full detail) round the start, as close as the forest's trees, each painted its own colour: 1× to 3× her 4 m, a third of the 30 m squares a 3-8× one,
+  and a quarter of the 90 m squares a giant up to 20× (80 m). No trees, bushes or fallen
+  leaves; the terrain, grass, sky and the plaza stay.
+
+`?scene=forest` or `?scene=lucy` skips the choice (`?lucys=N`: that many statues). The Lucy forest downloads its 23 MB
+Lucy (17.8 MB gzipped) once chosen; the forest's 12 statues keep the 5.9 MB, 1M-triangle copy. The WebGL mode (no WebGPU) has only
+the forest.
+
+| ![The scene choice on the loading screen](screenshots/scene-choice.jpg) | ![The Lucy forest at eye height](screenshots/lucy-ground.jpg) | ![A 3x statue's face from 3 m](screenshots/lucy-face.jpg) | ![The Lucy forest from 450 m](screenshots/lucy-slope.jpg) |
+|---|---|---|---|
+| The choice, counting down to the forest | At eye height: 1.7k statues as geometry (9.3M triangles), 6.7k impostors, GPU 4.0 ms | A 3× statue's face from 3 m, at full detail | 450 m up: 47k impostors, GPU 1.5 ms |
+
+Far statues are impostors, as trees are, but smaller (under ~14 px tall: an impostor shows every statue from the front),
+and they always cast their real shadows: 2.3-3.6 ms frames from the air, 5.5 ms on the ground (the dev GPU,
+1600x900).
+
 ## Controls
 
 Click to capture the mouse; Esc releases it and opens the settings. F11, or the settings' button, toggles
@@ -105,6 +128,9 @@ breakdown to it.
 
 | Parameter | Default | What it does |
 |---|---|---|
+| `scene` | (the choice) | `forest` or `lucy`: skips the loading screen's choice |
+| `lucys` | 250000 | the Lucy forest's number of statues |
+| `statueshade` | 3.5 | m² of ground each statue shades from high up, past the shadow map (the Lucy forest) |
 | `trees` | 1000000 | number of trees (bushes: `bushes` per tree) |
 | `bushes` | 1.5 (0.5 on touch) | bushes per tree |
 | `tau` | 1 | error threshold in pixels (auto quality changes it) |
@@ -172,7 +198,7 @@ guaranteed minimum; a Mac allowed no more).
 - Stands the mesh up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
   (`public/models/NAME.nm`; the site only decodes it).
 - A variant with `model: 'models/NAME.nm'` (`src/trees.ts`) then gets cluster LOD, shadows and occlusion like a tree.
-- The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 6.5 MB file with
+- The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 5.9 MB file with
   its 15.7k-cluster DAG). They stand round a plaza at the end of a cobblestone road from the start point;
   `?statues=N` scatters more through the clearings.
 
@@ -303,6 +329,7 @@ also:
 - A/B URL parameters (`--ab`).
 - Sweep the LOD for popping (`--sweep`) and count flicker in motion (`--dolly`).
 - Run page-side probes (`--probe=`, in `tools/probes/`).
+- Benchmark the Lucy forest (`--scene=lucy`) and click through the loading screen's scene choice (`--choose=lucy`).
 
 `npm run harness -- --help` lists the options.
 

@@ -13,6 +13,10 @@ export const WG = 64;
 export const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
 export const MAX_DIM = 65535;
 export const LIST_CAP = 1 << 20; // max visible clusters per list
+// max clusters in the software rasterizer's list (its ids pack slot << 7: up to 2^25). Zoomed 5x at tau 1 over the Lucy forest
+// 1.17M clusters were listed, 128M triangles: past 2^20 the rest were dropped, statues in pieces until auto quality
+// raised tau (the user: "a visible redraw cycle from near to far"). 32 MB.
+export const SW_CAP = 1 << 22;
 // marks an impostor in the phase 2 retest list (tree indices are below it); a tree in the cross-fade band is listed
 // both as geometry and as an impostor
 export const IMP_BIT = 0x80000000;

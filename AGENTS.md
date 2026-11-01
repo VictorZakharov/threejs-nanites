@@ -269,6 +269,79 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   the dev machine (relief and cobbles ~0.6 of it; the rest is the PBR material with shadows), and the atlas read-back
   queues behind them. Starting the terrain's compile before its grids (a stand-in geometry) finished no earlier.
   `--probe=nodebuild` times each material's compile and the main thread's share (small: it's the GPU process).
+- Scenes (`src/scene.ts`): the loading screen offers the forest and the Lucy forest (the user's: 1T triangles at full detail, 250k
+  Lucys of 4M; the forest's are 38B: each type's full-detail count x its instances), two buttons (each with its picture, `public/thumbs/`, so one picks without reading: the harness's
+  `thumbtree` and (`--scene=lucy`) `thumblucy` views at `--dpr=2 --query="wind=0&tau=0.5"`, a tree in god
+  rays and a statue in the sun's halo against the open sky (the user's: "visually very different"), centred 384 px
+  crops; above the text on phones) and a 5 s countdown to the forest; `?scene=forest|lucy` skips it, the harness
+  skips it (forest) unless `--choose=` (`?choose=1`; `--scene=lucy` for the Lucy forest). Only the planting waits for
+  the choice (`beginLoading` in `main.ts`): textures, trees and terrain run during the countdown (Lucy's download after: the scene picks her file). The
+  Lucy forest is the same pipeline, with a denser Lucy (`denseModel`: `lucy4m.nm`, `npm run model -- lucy.ply
+  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 23 MB, 17.8 gzipped; downloaded once the scene is chosen): at 1M a
+  3x statue's face from 3 m was the decimation's facets at level 0 (the user: "people would laugh at it"; `lucyface`,
+  `tau=0.05` the same image). Its buffers: indices 95 MB, vertices 70, under WebGPU's guaranteed 128 MB a binding (an
+  8M Lucy would not fit). It: `plantForest(count, 'lucy')` plants `?lucys=` (250k) statues and no trees or bushes
+  (so no canopy cover and no litter: grass everywhere) on a disc of their own at the trees' spacing (2.9 km for 250k;
+  over the forest's 5.8 km they stood ~20 m apart: "can we have them denser?") on a jittered grid in the plant workers (`plantGrid`/`tryStatue`
+  in `planting.ts`; at random, the 3x ones stood in each other), 1-3x her 4 m (even in log; from 0.2, the user: "clamp min statue size at 5x"), plus `TIERS` of
+  bigger ones on coarser grids (`tierAt`: 3-8x on 30 m, a third of the cells; 8-20x on 90 m, a quarter; with only a few
+  giants it read as one height, the user), each tier clearing the smaller ones from under its plinths (`underBigger`),
+  each with a hue in its
+  b.w as 1 + hue (no wind for models: the phase is free). The look's `solidValue` hook (the library's, for solid
+  triangles; 0 by default) reads it and `solidColour` paints the marble (`paintOf`, `painted` in `forest/look.ts`);
+  impostors get minus it (autumn levels run 0..2: a plain `>= 1` painted red trees' impostors). Measured plain first
+  (statues never impostors): 20-45 ms frames from the air, all compute (24-63M software triangles: `slope`, `oblique`,
+  `orbit`, `phone9k`), 3 ms on the ground. So in that scene models may be impostors (`modelImpostors`: `firstModel` =
+  the instance count) and Lucy is awaited before the bake (her tile baked like a tree's; ~1 s into the load she's
+  there anyway): ~2 ms frames everywhere (250k of the 4M), the image's mean colour within ~1/255 of all geometry (`--ab="imppx=0|"`);
+  the impostors' shadows are a little heavier (the shadow quads' growth is fitted to crowns). The plaza's ring stays
+  unpainted marble. Lucy's impostor gains (`impGain`) are fitted on `ground` (side) and `topdown700` (top): uncalibrated,
+  her side impostors were ~22% brighter than her geometry, a statue changing brightness at the switch (the user). Not
+  on `slope` / `d1100`: there `imppx=0` (all geometry) lists 160-360M software triangles and most statues vanish
+  (their shadows stay), so the fit chased nothing (`impCov` 0.34). Scans fold: ~0.9% of Lucy's triangles face
+  against their vertices' normals (rebuilt from the faces; `node tools/nanite-model.ts public/models/lucy.nm`), and lit
+  by them a fold facing the camera was a black sliver (the user). Types with `unfold` (the models) light those by
+  their face (`unfold` in `shading.ts`: the bark draw's flag packed into its layer varying, `UNFOLD`; the software
+  resolve too; `?foldfix=0`); for every solid triangle, ez-tree's twigs changed ~11k pixels on `canopy`. The atlas
+  has one view per elevation (trees look alike from every side), so a statue's impostor faces the camera and its shadow
+  quad cast every statue the same blob, in the wrong shape, shorter, and switched with it (the user: "shadow in another
+  direction", "shadows disappear, then fade in"). So per type (`NaniteType.impostorPx`, `shadowPx`; arrays
+  `impPxOf`, `shadowPxOf`): the statues switch at 0.7 x (`?statuepx=`; 0.4: 75M software triangles from 450 m, 9 ms;
+  1: 2.6) and the shadow view makes them impostors only under a quarter of that (`?statueshadowpx=` 0.25, ~3.5 px tall:
+  `lucyshadow` and `slope` as all geometry's, means within 0.5/255; always geometry, every statue in the kilometres
+  of shadow map listed its clusters: `slope` 8.6 -> 4.4 ms, `topdown` 7.3 -> 2.2). Their shadows cost: ~10M shadow
+  triangles on the ground. Next step if it matters: azimuth tiles for the models (the
+  trees don't need them: from 8 sides round `lone600`, views `lone0`..`lone315` under `--typematch`, each type's
+  geometry / impostor pixels and colour stay within ~5%: random rotations, round crowns). The instance pass's
+  binary search for the clusters a tree can select (`emit` in `culling.ts`) took 14 halvings, 16k clusters a type:
+  Lucy 4M's 62.9k stopped up to 4 short, and where only her root or a few coarse clusters were wanted (shadow casters
+  at 5 x tau, far statues) nothing was drawn: shadows vanished as the camera moved off, came back, went (the user).
+  20 now; the forest's types converge in 14 (same image). Zoomed 5x at tau 1 over the statues the software list took
+  1.17M clusters (128M triangles): past its 2^20 the rest were dropped, statues in pieces until auto quality raised
+  tau ("a redraw cycle from near to far"): `SW_CAP` 2^22 (32 MB; `lucyfield` view). From high up (the shadow map
+  skipped, `shadowFarOnly`) the ground's average shade had only the trees' canopy: the statues' shadow area
+  (`?statueshade=` 3.5 m² at scale 1, fitted on `topdown700` and `slope` with `farall=1` to within 0.1/255 of the
+  real map) is the cover map's alpha, added to its red in `groundFar` only (no litter, no thinner grass under them).
+  The shadow view switches casters by the unzoomed size, as its LOD (`px x SHADOW_TAU_MUL / tauMul`): by the zoomed
+  one, zooming in swapped statues' quads for their real shadows (the user). Climbing straight down over a 6 m statue
+  (views `small50`..`small1600`, `giant150`..`giant2400`) its own shadow fades out from ~200 m: the map spans
+  kilometres there (sized for views to the horizon), a texel ~1.25 m at 400 m for a ~1 m wide statue. A depth bias
+  fixed in metres (it's a share of the growing depth range: ~1.2 m at 400 m) changed nothing visible. So looking
+  down the map covers only the ground in view (`groundSeen` in `lighting.ts`: the view's corners on the
+  plane under the camera, zoomed too (by the unzoomed view, zoomed in its texels were 5x as big on screen and small
+  statues had no shadow: the user; the casters' LOD stays unzoomed: at the zoomed one Lucy's shadows went 1M ->
+  27-34M triangles, +2-3.5 ms, her errors stalling at 1.76 m above a 70-triangle root), their circle at 0.75 of the half-extent, inside the edge fade; by altitude as before when
+  a corner sees the sky or further): small statues keep their shadows to ~1.6 km; the forest's counters are the
+  same, its shadows sharper from above (means: `topdown700`, `zoomdown`, `slope` within 0.3/255, `topdown` +1.2,
+  `d1100` -1.5). Past the map receivers fade to the trees' canopy self-shade (`treeshade` 0.35 of the sun): the Lucy
+  scene sets it to 1 (no canopy; the normals shade a statue's far side), else statues went darker past a circle
+  round the viewer (the user); her impostor gains were refitted with it. Their shadow casters take tau 2 whatever auto
+  quality's (`NaniteType.shadowTau`, `?statueshadowtau=`; it was at most 2: under it, the jump after a zoom flipped
+  medium statues' shadows between her root and finer levels, "1.3x longer", the user): at auto quality's tau 8 (shadow LOD 40 px) a statue ~10 px tall
+  cast from her 70-triangle root (her errors stall at 1.76 m from level 12: the normals' weight) and its shadow went,
+  and each tau step after a zoom changed them, near ones first (the user: "zooming in still redraws over 1-2 sec...
+  shadows change lots"; `small400` at tau 8: 86k shadow triangles, 2.7M capped at 2, +0.5 ms GPU; at 1 +1.7). Load: 4.0 s to the first frame (her 19 MB, now 17.8, in ~1 s on the dev machine's line) vs the forest's 4.2 (production build). The WebGL mode has only the
+  forest (`?scene=lucy` there, or a null adapter after choosing Lucy: the forest is planted).
 - Models (any mesh as a variant: `model:` in `VARIANTS`, `isModel`): `tools/nanite-model.ts` (`npm run model`)
   reads a PLY, glTF / GLB or OBJ by its extension (issue #19; the readers are `tools/model-input/`, no new
   dependencies: a glTF's meshes merged with their node transforms, mirrored ones' winding turned, meshopt-compressed
@@ -289,8 +362,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   user, close up on her drapery and hair); the DAG builder weights normals too, so the file is rebuilt with them. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
-  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 6.45 MB (positions 1.9, DAG
-  triangles 4.1, clusters 0.5). Statues stand on the lowest
+  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 5.9 MB (positions 1.9, DAG
+  triangles 3.5, clusters 0.5). The vertices are numbered in the order the DAG's triangles first use them (`firstUse`
+  in `encode.ts`): in the simplifier's order the coarser levels' triangles jumped across the whole vertex range, and
+  the index codec stores the jumps (`lucy4m` 25.2 -> 23.0 MB, 19.5 -> 17.8 gzipped; `lucy` 6.45 -> 5.9). `npm run
+  model -- public/models/X.nm --reencode` rewrites a built file in the current encoding without the scan (not in the
+  repo), checking every triangle and cluster reads back the same; images match (only depth-tie pixels: the software
+  rasterizer breaks ties by triangle id). Smaller still: per-cluster local indices (#62); streaming the DAG (#63). Statues stand on the lowest
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
@@ -364,7 +442,14 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
   is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
   last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). A resolution step down is a trial: if it saved under a third of its share of the pixels
+  "optimize the algo before we downgrade"). From the unzoomed tau it jumps twice (`leap`): the zoomed view's first
+  median cost (from 120 ms after the zoom is within 5%: the jumps land while it still eases in) sets tau by cost ~
+  tau^-k towards 0.9 of the budget (k 1, then the secant of the two points, 0.5..2), and past tau 8 the resolution
+  by its pixels in the same jump; while zoomed, tau goes down (more detail) only under half the budget, and the
+  resolution moves only far from it (over 1.5x, under 0.5x) with no trials: on `lucyfield` a x0.75 step and a trial
+  undone were redraws at 2 and 3.3 s (the user: zooming "parallel to ground, the redraw after 1-2sec"). x0.91 every half second, then every second or so, was a re-cut of the
+  statues each time, a redraw after the zoom (the user; `--zoomtime` on Lucy's `small200` / `giant1200` at
+  2560x1440: 6.8 -> 1 within 0.5 s, then held; `?autojump=0` for the steps). A resolution step down is a trial: if it saved under a third of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off
@@ -582,10 +667,28 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   map up on its sun side (`vShadowPos`: past its own caster quad) times the average self-shadow `?treeshade=`.
 - The shadow map's side follows the drawing buffer (`fitShadowMap` in `lighting.ts`): 2048 at 1080p, a power of two
   from 512 to 2048 by sqrt(pixels), `?smap=` fixes it. A fixed 2048 at a laptop iGPU's half resolution filled 8x more
-  texels than screen pixels (at its settings on the dev GPU: 5.97 -> 4.51 ms frame with 1024).
+  texels than screen pixels (at its settings on the dev GPU: 5.97 -> 4.51 ms frame with 1024). It shrinks only once
+  the smaller size has been wanted for 10 s (the first fit at once): auto quality's resolution steps after a zoom
+  halved it, every shadow twice as coarse for a second or two (the user: "zooming in... changes shadows too much").
+  The shadow casters' LOD is measured against the scene's height at scale 1 (`NaniteRenderer.shadowLodHeight`, set
+  by `webgpu-frame.ts`): in this frame's pixels each resolution step reshaped a giant statue's shadow. `--zoomtime`
+  (`tools/harness/zoomtime.ts`) runs the page's loop with auto quality, zooms and screenshots the 6 s after, with tau /
+  scale / map size by 250 ms; `budget=2` makes auto quality move on the dev GPU. Now only the statues' own detail
+  changes at its steps. `--flytime=ShiftLeft,KeyW` flies with the page's loop instead (6 s holding those keys; the
+  shadow map's extent steps are counted: climbing with Shift from 150 m, 13 steps of x1.25 in 6 s).
 - The shadow map's extent grows with altitude (texels ~2 px at the nearest ground) up to `?shadowmax=` (6000 m
   half-extent); the light's depth range grows with it. Capped at 640 m, it was a rectangle of real shadows inside
-  an evenly shaded forest seen from 1.8 km.
+  an evenly shaded forest seen from 1.8 km. It's a rectangle in light space: up the sun's direction the ground is
+  foreshortened to sin(32 degrees), 0.53, and a square map spent half its texels there on nothing; that half is the
+  ground's times 0.53 plus cos(32 degrees) of the relief round the focus (5x5 heights) and `RISE` (80 m: the 20x
+  statues), in 10 m steps. Looking down from 400 m a texel along the sun is 1.03 m (was 1.5; across it 0.8):
+  `--probe=shadowmap`. Forest means within 0.6/255 (a little darker: sharper), the same cost and casters. Zoomed in
+  (the map fits the zoomed view) small statues' shadows are their full length; unzoomed their thin far end is under a
+  pixel (~0.6 m at 400 m) and fades: the user's "1.5x longer" zoomed in, now less so. The biases are in texels
+  (`?shadowbias=`, 1: the normal offset one texel on the ground, the depth bias as much along the sun): fixed at 0.6 m
+  and ~0.64 m, near the ground (0.1-0.2 m texels) they cut the first metre of each shadow, statues standing in a lit
+  ring "as if hanging in the air" (the user; `lucyfoot` view). No acne on `statue`, `closeup`, `bark`; the forest
+  0.2-2.6/255 darker (its contact shadows back).
 - Far-field shadow: past the shadow map, receivers fade to an *average* shadow instead of none (`makeFadeShadow` in
   `lighting.ts`): a constant canopy self-shadow on trees (`?treeshade=`) and forest-density darkening on the ground
   (`forestDensity`, `?groundshade=` 0.82, `?crown=`). Fading to fully sunlit made distant forest brighter, with a line

@@ -23,13 +23,20 @@ export interface PlantConfig {
   bushLeafy: number[];
   treeDensity: number; // candidates per m² (densityFor)
   bushDensity: number;
+  /** The Lucy scene's statues (src/scene.ts): their types, and the grid's step (m; 0: none). */
+  statue: number[];
+  statueStep: number;
 }
 
-/** A tile's plants: 8 floats each, the instance's a (x, y, z, scale) and b (cos, sin, type, wind phase + autumn). */
+/**
+ * A tile's plants: 8 floats each, the instance's a (x, y, z, scale) and b (cos, sin, type, wind phase + autumn; a
+ * statue's 1 + its hue, see paintOf in src/forest/look.ts).
+ */
 export interface TilePlants {
   tile: number;
   trees: Float32Array;
   bushes: Float32Array;
+  statues: Float32Array;
 }
 
 /**
@@ -103,13 +110,81 @@ export const tryBush: Try = (cfg, x, z, rnd, out) => {
   return true;
 };
 
+/** Lucy's base radius at scale 1 (her 4 m), a little over: a statue stands on the lowest ground under it. */
+export const PLINTH = 0.7;
+/**
+ * The Lucy scene's statue sizes (x her 4 m, evenly in log): 1 to 3 on the dense grid, then two coarser grids of bigger
+ * ones (TIERS), each tier's statues clearing the smaller tiers' from under them (the user's: "vary size more, like
+ * 100x", the smallest 5 x bigger, from 0.2, then "more variety in height": 1 to 3 and a few giants read as one height).
+ */
+const STATUE_SCALE = [1, 3];
+interface Tier { step: number; share: number; scale: [number, number]; salt: number }
+const TIERS: Tier[] = [
+  { step: 30, share: 0.35, scale: [3, 8], salt: 0x3c6e }, // (15 m apart at the least: 8 x plinths are 11 m wide)
+  { step: 90, share: 0.25, scale: [8, 20], salt: 0x6a09 }, // (45 m: 20 x plinths are 28 m wide)
+];
+
+/** The lowest ground under a plinth of `r` m at (x, z) (by its centre alone, one edge floated on a slope: the user). */
+export function plinthY(x: number, z: number, r: number): number {
+  let y = heightAt(x, z);
+  for (let k = 0; k < 12; k++) y = Math.min(y, heightAt(x + Math.cos(k * 0.5236) * r, z + Math.sin(k * 0.5236) * r));
+  return y;
+}
+
+/**
+ * A statue candidate at (x, z) (the Lucy scene): within the forest's ragged edge, off the road and the spawn point,
+ * clearings too. A random size, facing and hue.
+ */
+export const tryStatue: Try = (cfg, x, z, rnd, out) => {
+  const r = Math.hypot(x, z);
+  if (r > cfg.radius * TREE_DISC) return false;
+  const edge = edgeAt(Math.atan2(z, x), cfg.radius);
+  if (r > edge && rnd() > Math.exp(-(r - edge) / 35)) return false;
+  if (fromSpawn2(x, z) < 14 * 14 || roadDistance(x, z) < 4) return false;
+  if (!out) return true;
+  addStatue(cfg, x, z, STATUE_SCALE[0] * (STATUE_SCALE[1] / STATUE_SCALE[0]) ** rnd(), rnd, out);
+  return true;
+};
+
+/** A statue's 8 floats: on the lowest ground under its plinth, a random facing and hue (b.w = 1 + hue). */
+function addStatue(cfg: PlantConfig, x: number, z: number, scale: number, rnd: () => number, out: number[]): void {
+  const rot = rnd() * Math.PI * 2;
+  out.push(x, plinthY(x, z, PLINTH * scale) - 0.05 * scale, z, scale, Math.cos(rot), Math.sin(rot), cfg.statue[Math.floor(rnd() * cfg.statue.length)], 1 + rnd());
+}
+
+/**
+ * The statue of cell (gx, gz) of a tier's grid, if it has one: [x, z, scale, plinth radius]. From its cell's own seed,
+ * jittered by a quarter of a cell, clear of the road and the spawn point by its plinth, inside the forest's edge.
+ */
+function tierAt(cfg: PlantConfig, t: Tier, gx: number, gz: number): [number, number, number, number] | null {
+  const rnd = mulberry32(Math.imul(gx, 0x27d4eb2f) ^ Math.imul(gz, 0x165667b1) ^ t.salt);
+  if (rnd() > t.share) return null;
+  const x = (gx + 0.5 + (rnd() - 0.5) * 0.5) * t.step, z = (gz + 0.5 + (rnd() - 0.5) * 0.5) * t.step;
+  const scale = t.scale[0] * (t.scale[1] / t.scale[0]) ** rnd(), r = PLINTH * scale;
+  if (Math.hypot(x, z) > edgeAt(Math.atan2(z, x), cfg.radius) || fromSpawn2(x, z) < (14 + r) ** 2 || roadDistance(x, z) < 4 + r) return null;
+  return [x, z, scale, r];
+}
+
+/** Whether a statue of plinth radius `r` at (x, z) stands under a bigger tier's (TIERS from `from` on): it's left out. */
+function underBigger(cfg: PlantConfig, x: number, z: number, r: number, from: number): boolean {
+  for (const t of TIERS.slice(from)) {
+    const gx = Math.floor(x / t.step), gz = Math.floor(z / t.step);
+    for (let dz = -1; dz <= 1; dz++)
+      for (let dx = -1; dx <= 1; dx++) {
+        const g = tierAt(cfg, t, gx + dx, gz + dz);
+        if (g && Math.hypot(x - g[0], z - g[1]) < g[3] + r) return true;
+      }
+  }
+  return false;
+}
+
 /**
  * Candidates per m² that keep `count` plants on average: the share of candidates `tryOne` keeps, sampled over its
  * disc (radius x `disc`). The tiles then plant that density, so the totals land within a fraction of a percent.
  */
 export function densityFor(cfg: PlantConfig, count: number, tryOne: Try, seed: number): number {
   if (count <= 0) return 0;
-  const disc = cfg.radius * (tryOne === tryTree ? TREE_DISC : BUSH_DISC);
+  const disc = cfg.radius * (tryOne === tryBush ? BUSH_DISC : TREE_DISC);
   const rnd = mulberry32(seed), M = 40000;
   let kept = 0;
   for (let i = 0; i < M; i++) {
@@ -175,5 +250,31 @@ export function plantTile(cfg: PlantConfig, t: number): TilePlants {
     for (let k = Math.floor(density * TILE * TILE + rnd()); k > 0; k--) tryOne(cfg, x0 + rnd() * TILE, z0 + rnd() * TILE, rnd, out);
     return mortonOrder(out, x0, z0);
   };
-  return { tile: t, trees: plant(cfg.treeDensity, tryTree, 1), bushes: plant(cfg.bushDensity, tryBush, 2) };
+  return { tile: t, trees: plant(cfg.treeDensity, tryTree, 1), bushes: plant(cfg.bushDensity, tryBush, 2), statues: plantGrid(cfg, x0, z0) };
+}
+
+/**
+ * The statues of the tile at (x0, z0): one candidate per cell of a grid of `statueStep` over the land, jittered by a
+ * quarter of a cell, each from its cell's own seed (the same whichever tile plants it). At the largest size (3 x 0.7 m
+ * plinths) neighbours stay apart from a 8.4 m step; scattered at random, they stood in each other. Then each
+ * tier's (TIERS, tierAt) whose cells start in the tile, the smaller ones cleared from under the bigger.
+ */
+function plantGrid(cfg: PlantConfig, x0: number, z0: number): Float32Array {
+  const g = cfg.statueStep, out: number[] = [];
+  if (!g) return new Float32Array(0);
+  for (let gz = Math.ceil(z0 / g); gz * g < z0 + TILE; gz++)
+    for (let gx = Math.ceil(x0 / g); gx * g < x0 + TILE; gx++) {
+      const rnd = mulberry32(Math.imul(gx, 0x9e3779b1) ^ Math.imul(gz, 0x85ebca6b) ^ 0x51ed);
+      const x = (gx + 0.5 + (rnd() - 0.5) * 0.5) * g, z = (gz + 0.5 + (rnd() - 0.5) * 0.5) * g;
+      if (!underBigger(cfg, x, z, PLINTH * STATUE_SCALE[1], 0)) tryStatue(cfg, x, z, rnd, out);
+    }
+  // each tier's statues whose cells start in this tile
+  TIERS.forEach((t, k) => {
+    for (let gz = Math.ceil(z0 / t.step); gz * t.step < z0 + TILE; gz++)
+      for (let gx = Math.ceil(x0 / t.step); gx * t.step < x0 + TILE; gx++) {
+        const s = tierAt(cfg, t, gx, gz);
+        if (s && !underBigger(cfg, s[0], s[1], s[3], k + 1)) addStatue(cfg, s[0], s[1], s[2], mulberry32(Math.imul(gx, 7919) ^ gz ^ t.salt), out);
+      }
+  });
+  return mortonOrder(out, x0, z0);
 }

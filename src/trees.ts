@@ -1,5 +1,6 @@
 import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type ModelHeader, type NaniteType } from './nanite-lib/index.ts';
 import type { LoadingScreen } from './loading.ts';
+import type { SceneName } from './scene.ts';
 import { workerError } from './worker-error.ts';
 
 type RGB = [number, number, number];
@@ -11,6 +12,8 @@ export interface TreeVariant {
   leaf: string; // ('none': a model)
   /** A model file (tools/nanite-model.ts) instead of an ez-tree preset: any high-poly mesh, as a variant. */
   model?: string;
+  /** The Lucy scene's denser copy of the model (src/scene.ts: a quarter of the statues, each 4 x the triangles). */
+  denseModel?: string;
   /** Impostor colour gains for side and top-down views. */
   impGain: { side: RGB; top: RGB };
   /** Impostor coverage scale for side and top-down views (impostorCov in src/nanite-lib/gpu/billboards.ts). */
@@ -43,7 +46,7 @@ export interface BuiltTree extends NaniteType {
 }
 
 /** The renderer's names for a variant's type. */
-const typeOf = (v: TreeVariant): { name: string; noImpostor: boolean } => ({ name: v.preset, noImpostor: isModel(v) });
+const typeOf = (v: TreeVariant): { name: string; noImpostor: boolean; unfold: boolean } => ({ name: v.preset, noImpostor: isModel(v), unfold: isModel(v) });
 
 /** A bound on a model's radius around its axis from its header's box (positions at height 1, base at y = 0). */
 function boundRadius(h: ModelHeader, height: number): number {
@@ -67,7 +70,7 @@ export const VARIANTS: TreeVariant[] = [
   { preset: 'Bush 3', seed: 37, height: 1.4, bark: 'oak', leaf: 'pine', impGain: { side: [2.03, 1.42, 2.55], top: [1.03, 0.73, 0.89] }, impCov: [1, 0.6] },
   // a model through the same pipeline (placeStatues): Stanford's Lucy scan, decimated to 1M triangles
   // (tools/nanite-model.ts; credit: Stanford Computer Graphics Laboratory, non-commercial use)
-  { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', impGain: { side: [1, 1, 1], top: [1, 1, 1] }, impCov: [1, 1] },
+  { preset: 'Lucy', seed: 0, height: 4, bark: 'stone', leaf: 'none', model: 'models/lucy.nm', denseModel: 'models/lucy4m.nm', impGain: { side: [0.59, 0.63, 0.69], top: [0.72, 0.74, 0.62] }, impCov: [1, 1] },
 ];
 
 /** Bushes are variants too (same cluster LOD, impostors and shadows); the tree scatter leaves them out. */
@@ -78,9 +81,10 @@ export const isModel = (v: TreeVariant): boolean => Boolean(v.model);
 
 /**
  * Grows every variant and builds its cluster DAG, each in its own worker (dag-worker.ts), all at once; the models'
- * DAGs come prebuilt in their files. `ui` is the LoadingScreen.
+ * DAGs come prebuilt in their files, downloaded once the scene is chosen (the Lucy scene's denser copy). `ui` is the
+ * LoadingScreen.
  */
-export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) => Promise<LeafMask | null>): Promise<BuiltTree[]> {
+export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) => Promise<LeafMask | null>, scene: Promise<SceneName>): Promise<BuiltTree[]> {
   const n = VARIANTS.length;
   let done = 0;
   const q = new URLSearchParams(location.search);
@@ -91,7 +95,8 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
       // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build. Lucy's is ~5 MB: only its
       // header is waited for, the forest fills the model in when it's arrived (the statues may come after the first
       // frame on a slow connection)
-      const { header, model } = loadModel(`./${v.model}`, v.height);
+      const file = (await scene) === 'lucy' && v.denseModel ? v.denseModel : v.model;
+      const { header, model } = loadModel(`./${file}`, v.height);
       const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download, ms)
       const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(({ dag, src }): BuiltTree => {
         ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
