@@ -277,7 +277,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   skips it (forest) unless `--choose=` (`?choose=1`; `--scene=lucy` for the Lucy forest). Only the planting waits for
   the choice (`beginLoading` in `main.ts`): textures, trees and terrain run during the countdown (Lucy's download after: the scene picks her file). The
   Lucy forest is the same pipeline, with a denser Lucy (`denseModel`: `lucy4m.nm`, `npm run model -- lucy.ply
-  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 23 MB, 17.8 gzipped; downloaded once the scene is chosen): at 1M a
+  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 20.9 MB, 15.7 gzipped; downloaded once the scene is chosen): at 1M a
   3x statue's face from 3 m was the decimation's facets at level 0 (the user: "people would laugh at it"; `lucyface`,
   `tau=0.05` the same image). Its buffers: indices 95 MB, vertices 70, under WebGPU's guaranteed 128 MB a binding (an
   8M Lucy would not fit). It: `plantForest(count, 'lucy')` plants `?lucys=` (250k) statues and no trees or bushes
@@ -347,8 +347,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   dependencies: a glTF's meshes merged with their node transforms, mirrored ones' winding turned, meshopt-compressed
   and quantized buffers read, Draco refused; an OBJ's faces by their `v` positions; materials ignored), stands it up
   (longest axis, a glTF's y, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
-  simplifies to `--tris`, quantizes to 16 bits, builds the cluster DAG at `--height` (the variant's metres: errors
-  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 2;
+  simplifies to `--tris`, quantizes to 14 bits, builds the cluster DAG at `--height` (the variant's metres: errors
+  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 3;
   the encoding is the library's `nanite-lib/model/encode.ts`, the tool reads the mesh and writes the file), then
   decodes the file as the site does and checks it matches. glTF and OBJ split vertices at uv / normal seams and
   between meshes: the readers weld equal positions (`generatePositionRemap`), or the simplifier opens the seams as
@@ -362,13 +362,19 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   user, close up on her drapery and hair); the DAG builder weights normals too, so the file is rebuilt with them. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
-  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 5.9 MB (positions 1.9, DAG
-  triangles 3.5, clusters 0.5). The vertices are numbered in the order the DAG's triangles first use them (`firstUse`
+  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 5.4 MB (positions 1.5, DAG
+  triangles 3.5, clusters 0.3). The vertices are numbered in the order the DAG's triangles first use them (`firstUse`
   in `encode.ts`): in the simplifier's order the coarser levels' triangles jumped across the whole vertex range, and
   the index codec stores the jumps (`lucy4m` 25.2 -> 23.0 MB, 19.5 -> 17.8 gzipped; `lucy` 6.45 -> 5.9). `npm run
-  model -- public/models/X.nm --reencode` rewrites a built file in the current encoding without the scan (not in the
-  repo), checking every triangle and cluster reads back the same; images match (only depth-tie pixels: the software
-  rasterizer breaks ties by triangle id). Smaller still: per-cluster local indices (#62); streaming the DAG (#63). Statues stand on the lowest
+  model -- public/models/X.nm --reencode` rewrites a built file in the current format without the scan (not in the
+  repo), checking every triangle reads back within a step and every sphere holds the old one. Format 3 (#62): positions
+  in 14 bits (16 was finer than the scan: Lucy 4M's edges were ~40 steps, ~10 now whatever the statue's scale) and the
+  clusters' spheres in 16 bits over their own box, radii rounded up (culling and LOD stay conservative), the errors
+  as floats: `lucy4m` 17.8 -> 15.7 MB gzipped, `lucy` 4.6 -> 4.1; `lucyface`, `lucyfoot`, `statue`, `lucyshadow`
+  with `taa=0`: the same mean colours, specks on edges and creases, ~0.1% more clusters. Tried and dropped (#62):
+  per-cluster local indices (9.79 -> 9.74 MB gzipped: the index codec plus gzip already get it), per-level
+  numbering (9.69), parallelogram-predicted positions (at best ~0.5 MB for a decoder of its own). Next: streaming
+  the DAG (#63). Statues stand on the lowest
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).

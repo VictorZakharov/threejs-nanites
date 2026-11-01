@@ -2,13 +2,13 @@
 // readers are in model-input/: a glTF's or OBJ's meshes merged into one, node transforms applied, materials ignored),
 // stands it up (its longest axis, a glTF's y, or --up=x|y|z|-x|-y|-z), centres it on its base, decimates it to --tris
 // with meshoptimizer and writes a compact model file for the site (public/models/<name>.nm): positions quantized to
-// 16 bits, and its cluster DAG built here at --height (metres, the variant's: the LOD errors are in metres), all
+// 14 bits, and its cluster DAG built here at --height (metres, the variant's: the LOD errors are in metres), all
 // meshopt-compressed (src/nanite-lib/model/encode.ts). The site only decodes it (decode.ts); it's read back to check.
 //
 //   node tools/nanite-model.ts <in.ply|.gltf|.glb|.obj> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
 //   node tools/nanite-model.ts public/models/lucy.nm --height=4     (a built file: its folds, see folds())
-//   node tools/nanite-model.ts public/models/lucy.nm --reencode     (a built file rewritten in the current encoding,
-//                                                                    its vertices in first-use order: nothing rebuilt)
+//   node tools/nanite-model.ts public/models/lucy.nm --reencode     (a built file rewritten in the current format:
+//                                                                    14-bit positions, packed records: nothing rebuilt)
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
@@ -41,20 +41,35 @@ function folds(vtx: Float32Array, idx: Uint32Array): number {
   }
   return n;
 }
+/** '' if the file's records `r` stand for the built ones `p`: the same errors and levels, each sphere holding its own. */
+function recordsHold(p: Float32Array, r: Float32Array): string {
+  if (p.length !== r.length) return `${r.length / 16} clusters, built ${p.length / 16}`;
+  for (let c = 0; c < p.length / 16; c++) {
+    for (const k of [12, 13, 14, 15]) if (p[c * 16 + k] !== r[c * 16 + k]) return `cluster ${c}: errors, level or kind differ`;
+    for (let j = 0; j < 3; j++) {
+      const at = c * 16 + j * 4, d = Math.hypot(p[at] - r[at], p[at + 1] - r[at + 1], p[at + 2] - r[at + 2]);
+      if (d + p[at + 3] > r[at + 3] * (1 + 1e-6) + 1e-6) return `cluster ${c}: sphere ${j} doesn't hold the built one`;
+    }
+  }
+  return '';
+}
 if (input?.endsWith('.nm') && args.reencode) {
   const { reencodeModel } = await import('../src/nanite-lib/model/encode.ts');
   const { decodeModel } = await import('../src/nanite-lib/model/decode.ts');
   const before = new Uint8Array(readFileSync(input)), after = await reencodeModel(before);
-  // (read back: the same triangles over the same positions, corner for corner up to the codec's rotation)
+  // (read back: the same triangles, corner for corner up to the codec's rotation, each corner within the new
+  // quantization's step of where it was; the same errors; each sphere holding the one it stands for)
   const [a, b] = [await decodeModel(before, 4), await decodeModel(after, 4)];
-  const key = (d: typeof a.dag, t: number): string => {
-    const c = [0, 1, 2].map((k) => Array.from(d.vtx.subarray(d.idx[t + k] * 8, d.idx[t + k] * 8 + 3)).join(','));
-    return [0, 1, 2].map((m) => [c[m], c[(m + 1) % 3], c[(m + 2) % 3]].join(';')).sort()[0]; // (the smallest rotation: two corners may share a position)
+  const tol = 4 / 2 ** 13; // (metres at height 4: half a 14-bit step plus half a 16-bit one, with room)
+  const near = (t: number, r: number): boolean => {
+    for (let k = 0; k < 3; k++) for (let j = 0; j < 3; j++) if (Math.abs(a.dag.vtx[a.dag.idx[t + k] * 8 + j] - b.dag.vtx[b.dag.idx[t + (k + r) % 3] * 8 + j]) > tol) return false;
+    return true;
   };
-  for (let t = 0; t < a.dag.idx.length; t += 3) if (key(a.dag, t) !== key(b.dag, t)) throw new Error(`triangle ${t / 3} differs after re-encoding`);
-  if (a.dag.rec.some((v, i) => v !== b.dag.rec[i]) || a.dag.meta.some((v, i) => v !== b.dag.meta[i])) throw new Error('cluster records differ');
+  for (let t = 0; t < a.dag.idx.length; t += 3) if (!near(t, 0) && !near(t, 1) && !near(t, 2)) throw new Error(`triangle ${t / 3} moved after re-encoding`);
+  const bad = recordsHold(a.dag.rec, b.dag.rec);
+  if (bad) throw new Error(bad);
   writeFileSync(input, after);
-  console.log(`${input}: ${(before.length / 1e6).toFixed(2)} -> ${(after.length / 1e6).toFixed(2)} MB, every triangle and cluster read back the same`);
+  console.log(`${input}: ${(before.length / 1e6).toFixed(2)} -> ${(after.length / 1e6).toFixed(2)} MB, every triangle within a step and every sphere holding the old`);
   process.exit(0);
 }
 if (input?.endsWith('.nm')) {
@@ -153,7 +168,7 @@ const outDir = join(root, 'public', 'models');
 mkdirSync(outDir, { recursive: true });
 const out = join(outDir, `${args.name}.nm`);
 writeFileSync(out, file);
-log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(head.vertexBytes / 1e6).toFixed(2)}, DAG triangles ${(head.indexBytes / 1e6).toFixed(2)}, clusters ${((head.recBytes + head.metaBytes) / 1e6).toFixed(2)})`);
+log(`wrote ${out}: ${(file.length / 1e6).toFixed(2)} MB (positions ${(head.vertexBytes / 1e6).toFixed(2)}, DAG triangles ${(head.indexBytes / 1e6).toFixed(2)}, clusters ${((head.recBytes + (head.errBytes ?? 0) + head.metaBytes) / 1e6).toFixed(2)})`);
 
 // read it back as the site does
 const back = await decodeModel(file, height);
@@ -179,8 +194,9 @@ const canon = (a: Uint32Array): Uint32Array => {
   }
   return o;
 };
-if (!same(canon(dag.idx), canon(back.dag.idx)) || !same(dag.rec, back.dag.rec) || !same(dag.meta, back.dag.meta) || dv > 1e-5 || turned > unique * 1e-4) {
-  console.error(`round trip FAILED (largest position/uv difference ${dv}, ${turned} normals; same triangles ${same(canon(dag.idx), canon(back.dag.idx))}, records ${same(dag.rec, back.dag.rec)}, meta ${same(dag.meta, back.dag.meta)})`);
+const held = recordsHold(dag.rec, back.dag.rec);
+if (!same(canon(dag.idx), canon(back.dag.idx)) || held || !same(dag.meta, back.dag.meta) || dv > 1e-5 || turned > unique * 1e-4) {
+  console.error(`round trip FAILED (largest position/uv difference ${dv}, ${turned} normals; same triangles ${same(canon(dag.idx), canon(back.dag.idx))}, records ${held || 'held'}, meta ${same(dag.meta, back.dag.meta)})`);
   process.exit(1);
 }
 log(`round trip ok`);
