@@ -10,6 +10,9 @@ export const HELP = `Nanite Forest harness: headless benchmark, screenshots and 
 views and settings
   --views=a,b        viewpoints from tools/harness/views.ts (default: ${DEFAULT_VIEWS.join(',')})
   --query=k=v&...    URL parameters of the demo (see README)
+  --scene=lucy       the Lucy forest (250k statues of 4M triangles; = --query=scene=lucy) instead of the forest
+  --choose=lucy      show the loading screen's scene choice (the harness skips it) and click that button (forest or
+                     lucy; wait: let the countdown run out; hover: move over Lucy 7 s, held, then the forest); saves tools/out/choice.png and checks the scene
   --zoom=5           look through the right-mouse zoom (default: the view's own, else 1)
   --dist[=dir]       the production build in dist/ (npx vite build first), served gzipped as GitHub Pages does; another
                      build's folder (a baseline's worktree: --dist=tools/tmp/base/dist)
@@ -28,6 +31,10 @@ measuring
   --turn=DEG         --dolly: also turn the camera this many degrees (yaw) per step (mouse look; --step=0 to only turn)
   --rise=M           --dolly: also climb this many metres per step (negative: descend)
   --rect=x,y,w,h     --dolly: count only the tiles inside this screen rectangle (e.g. the distant treeline)
+  --zoomtime         the real loop with auto quality: 5 s unzoomed, then the 5x zoom; screenshots over the 6 s after
+                     (zoomtime-<view>-<ms>.png), tau / resolution / shadow map / GPU ms by 250 ms, pixels changed between shots
+  --flytime=ShiftLeft,KeyW   the same, but holding these keys for 6 s from the view (flying; Shift: fast) instead of the
+                     zoom: screenshots every 500 ms (flytime-<view>-<ms>.png), and the shadow map's extent steps
   --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
                      (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
   --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
@@ -70,7 +77,9 @@ export function parseOptions(argv: string[]) {
     height,
     dpr: Number(args.dpr ?? 1),
     frames: Number(args.frames ?? 120),
-    query: String(args.query ?? ''),
+    // (--scene and --choose are URL parameters too, see src/scene.ts)
+    query: [args.query, args.scene && `scene=${args.scene}`, args.choose && 'choose=1'].filter((q) => typeof q === 'string' && q).join('&'),
+    choose: args.choose ? String(args.choose) : null,
     views,
     zoom: args.zoom === undefined ? undefined : Number(args.zoom), // (unset: the view's own zoom, else 1)
     url: args.url ? String(args.url) : null,
@@ -80,6 +89,8 @@ export function parseOptions(argv: string[]) {
     variants: args.ab ? String(args.ab).split('|') : null,
     sweep: args.sweep ? String(args.sweep).split(',') : null,
     dolly: Boolean(args.dolly),
+    zoomtime: Boolean(args.zoomtime),
+    flytime: args.flytime ? String(args.flytime).split(',') : null,
     turn: args.turn ? Number(args.turn) : 0,
     rise: args.rise ? Number(args.rise) : 0,
     rect: args.rect ? String(args.rect).split(',').map(Number) : null,
@@ -105,9 +116,9 @@ export function parseOptions(argv: string[]) {
 export type Options = ReturnType<typeof parseOptions>;
 
 /** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
-function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; steps: number | null; typematch: string | null }): number {
+function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; zoomtime: boolean; flytime: string[] | null; steps: number | null; typematch: string | null }): number {
   const runs = o.views.length * (o.variants?.length ?? 1);
-  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0);
+  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0) + (o.zoomtime || o.flytime ? 25 : 0);
   if (o.load) return 30 + o.load * (o.variants?.length ?? 1) * 120; // (throttled boots can take a minute or two)
   return Math.round(30 + runs * (8 + steps));
 }

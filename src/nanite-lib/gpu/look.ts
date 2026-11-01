@@ -49,8 +49,10 @@ export interface NaniteLook {
   cardValue: (inst: Uint, b: Vec4) => Float;
   /** The same for the impostors' colour hook. */
   impostorValue: (inst: Uint, b: Vec4, type: Uint) => Float;
-  /** Solid triangles' colour before lighting, from the texture's. */
-  solidColour: (rgb: Vec3) => Vec3;
+  /** A per-instance value the solid colour hook gets (none: 0; the demo's painted statues). */
+  solidValue?: (inst: Uint, b: Vec4, type: Uint) => Float;
+  /** Solid triangles' colour before lighting: the texture's, the instance's tint and solidValue (the bake: 1 and 0). */
+  solidColour: (rgb: Vec3, tint: Float, value: Float) => Vec3;
   /** Cards' colour before lighting: the texture's, its array layer, the instance's tint and cardValue. */
   cardColour: (rgb: Vec3, layer: Float, tint: Float, value: Float) => Vec3;
   /** An impostor's colour before lighting: the baked albedo, its type's colour gain, the tint and impostorValue. */

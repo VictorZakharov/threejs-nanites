@@ -6,6 +6,7 @@ import { LoadingScreen } from './loading.ts';
 import { loadLayer } from './textures.ts';
 import { forestRadius, plantForest } from './placement.ts';
 import { startWebGPU } from './webgpu-start.ts';
+import { chooseScene, SCENE_TITLES, type SceneName } from './scene.ts';
 import type { DemoState } from './harness-api.ts';
 
 declare global {
@@ -34,22 +35,31 @@ demo.loadLog = ui.entries; // (the harness's --load: the boot's timeline)
 const gpu = params.get('nogpu') === '1' || params.get('webgl') === '1' ? undefined : navigator.gpu;
 const adapterReady = gpu?.requestAdapter({ powerPreference: 'high-performance' });
 
+// The scene (src/scene.ts): the forest or the Lucy forest, chosen on the loading screen while the rest loads (WebGPU
+// only: the WebGL mode has the forest)
+const choice = gpu ? chooseScene(params, HARNESS) : null;
+const scene: Promise<SceneName> = (choice?.scene ?? Promise.resolve<SceneName>('forest')).then((s) => {
+  demo.sceneName = s;
+  if (choice) ui.note(`Scene: ${SCENE_TITLES[s]} (${choice.how()})`);
+  return s;
+});
+
 // ---------------------------------------------------------------- setup
 // Everything that needs no GPU starts in workers at once, before the GPU is even ready: the bark and leaf texture
 // arrays' layers (src/texture-worker.ts), the forest floor's maps (src/ground/), the planting (src/planting.ts), the
-// trees grown with their cluster DAGs (src/trees.ts) and Lucy's download.
+// trees grown with their cluster DAGs (src/trees.ts) and Lucy's download; the planting once the scene is chosen.
 const barkTypes = ['oak', 'birch', 'pine', 'stone']; // (stone: the models')
 const leafTypes = ['oak', 'ash', 'aspen', 'pine'];
 // terrain reaches past the ragged forest edge (trees go out to 1.35 x radius) and the fog (its grids: terrain-worker.ts)
 const terrainSize = Math.max(9000, Math.ceil(forestRadius(TREE_COUNT) * 2.7 + 3000));
 const t0 = performance.now();
 let plantedMs = 0;
-function beginLoading() {
+function beginLoading(scene: Promise<SceneName>) {
   const barkLayers = barkTypes.map((t) => loadLayer(t === 'stone' ? 'stone' : `./textures/${t}_color_1k.jpg`, 1024));
   const leafLayers = leafTypes.map((t) => loadLayer(`./textures/${t}_color.png`, 1024, true));
   const floorMaps = loadFloorMaps();
-  const planting = plantForest(TREE_COUNT).then((p) => ((plantedMs = performance.now() - t0), p));
-  const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask));
+  const planting = scene.then((s) => plantForest(TREE_COUNT, s)).then((p) => ((plantedMs = performance.now() - t0), p));
+  const growing = buildAllTrees(ui, (leaf) => leafLayers[leafTypes.indexOf(leaf)].then((l) => l.mask), scene);
   const terrainReady = createTerrain(terrainSize);
   // (a failure surfaces where it's awaited; meanwhile no unhandled-rejection noise)
   for (const p of [...barkLayers, ...leafLayers, floorMaps.ready, planting, growing, terrainReady]) p.catch(() => {});
@@ -59,11 +69,17 @@ function beginLoading() {
 type Loading = ReturnType<typeof beginLoading>;
 
 async function start(adapterReady: Promise<GPUAdapter | null>) {
-  const loading = beginLoading();
+  const loading = beginLoading(scene);
   await ui.update(0.02, 'Waking the GPU');
   const adapter = await adapterReady;
-  if (!adapter) return webgl('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).', loading);
-  await startWebGPU({ adapter, ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs: () => plantedMs, ...loading });
+  if (!adapter) {
+    // (the WebGL mode has only the forest: the choice ends, and a Lucy forest already chosen is loaded again as one: its
+    // planting and its denser Lucy; a rare path, so simply all of it)
+    choice?.cancel();
+    const forest = (await scene) === 'forest' ? loading : beginLoading(Promise.resolve('forest'));
+    return webgl('This browser has WebGPU, but no GPU it can use (blocklisted or turned off).', forest);
+  }
+  await startWebGPU({ adapter, ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs: () => plantedMs, scene, ...loading });
 }
 
 /** No WebGPU: the warning, then (on Continue) the reduced WebGL mode, with the loading already started if it was. */
@@ -73,7 +89,7 @@ async function webgl(reason: string, loading?: Loading): Promise<void> {
   const asked = ui.ask(reason, WEBGL_HINT, 'Continue in WebGL mode', HARNESS && params.get('gate') !== '1');
   if (HARNESS && params.get('gate') === '1') demo.error = 'stopped at the WebGL warning (?gate=1)';
   await asked;
-  await startWebGL({ ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, ...(loading ?? beginLoading()) });
+  await startWebGL({ ui, demo, params, harness: HARNESS, trees: TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, ...(loading ?? beginLoading(scene)) });
 }
 
 const fail = (e: unknown): void => {

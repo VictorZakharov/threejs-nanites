@@ -6,6 +6,9 @@
 // meshopt-compressed (src/nanite-lib/model/encode.ts). The site only decodes it (decode.ts); it's read back to check.
 //
 //   node tools/nanite-model.ts <in.ply|.gltf|.glb|.obj> --name=lucy --tris=1000000 --height=4 [--up=z] [--attr=n,uv]
+//   node tools/nanite-model.ts public/models/lucy.nm --height=4     (a built file: its folds, see folds())
+//   node tools/nanite-model.ts public/models/lucy.nm --reencode     (a built file rewritten in the current encoding,
+//                                                                    its vertices in first-use order: nothing rebuilt)
 //
 // Very large scans (Lucy: 28M triangles) are first merged on a vertex grid down to ~4x the target (meshopt's
 // simplifier on the full scan needs more memory than wasm has), then simplified properly.
@@ -20,6 +23,48 @@ import { readObj } from './model-input/obj.ts';
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
 const input = process.argv[2];
+
+/**
+ * Triangles that face against their own vertices' normals (rebuilt from the faces, src/nanite-lib/model/source.ts): a
+ * fold of the scan or of the simplification lying back over its neighbours. Lit by its normals it's black (a dark
+ * sliver on a statue's face, the user). Over the full-detail mesh and over every level's triangles.
+ */
+function folds(vtx: Float32Array, idx: Uint32Array): number {
+  let n = 0;
+  for (let t = 0; t < idx.length; t += 3) {
+    const [a, b, c] = [idx[t] * 8, idx[t + 1] * 8, idx[t + 2] * 8];
+    const ux = vtx[b] - vtx[a], uy = vtx[b + 1] - vtx[a + 1], uz = vtx[b + 2] - vtx[a + 2];
+    const vx = vtx[c] - vtx[a], vy = vtx[c + 1] - vtx[a + 1], vz = vtx[c + 2] - vtx[a + 2];
+    const nx = uy * vz - uz * vy, ny = uz * vx - ux * vz, nz = ux * vy - uy * vx;
+    const mx = vtx[a + 4] + vtx[b + 4] + vtx[c + 4], my = vtx[a + 5] + vtx[b + 5] + vtx[c + 5], mz = vtx[a + 6] + vtx[b + 6] + vtx[c + 6];
+    if (nx * mx + ny * my + nz * mz < 0) n++;
+  }
+  return n;
+}
+if (input?.endsWith('.nm') && args.reencode) {
+  const { reencodeModel } = await import('../src/nanite-lib/model/encode.ts');
+  const { decodeModel } = await import('../src/nanite-lib/model/decode.ts');
+  const before = new Uint8Array(readFileSync(input)), after = await reencodeModel(before);
+  // (read back: the same triangles over the same positions, corner for corner up to the codec's rotation)
+  const [a, b] = [await decodeModel(before, 4), await decodeModel(after, 4)];
+  const key = (d: typeof a.dag, t: number): string => {
+    const c = [0, 1, 2].map((k) => Array.from(d.vtx.subarray(d.idx[t + k] * 8, d.idx[t + k] * 8 + 3)).join(','));
+    return [0, 1, 2].map((m) => [c[m], c[(m + 1) % 3], c[(m + 2) % 3]].join(';')).sort()[0]; // (the smallest rotation: two corners may share a position)
+  };
+  for (let t = 0; t < a.dag.idx.length; t += 3) if (key(a.dag, t) !== key(b.dag, t)) throw new Error(`triangle ${t / 3} differs after re-encoding`);
+  if (a.dag.rec.some((v, i) => v !== b.dag.rec[i]) || a.dag.meta.some((v, i) => v !== b.dag.meta[i])) throw new Error('cluster records differ');
+  writeFileSync(input, after);
+  console.log(`${input}: ${(before.length / 1e6).toFixed(2)} -> ${(after.length / 1e6).toFixed(2)} MB, every triangle and cluster read back the same`);
+  process.exit(0);
+}
+if (input?.endsWith('.nm')) {
+  const { decodeModel } = await import('../src/nanite-lib/model/decode.ts');
+  const { dag, src } = await decodeModel(new Uint8Array(readFileSync(input)), Number(args.height ?? 4));
+  const level0 = src.bark.idx;
+  const vtx0 = dag.vtx;
+  console.log(`${input}: ${folds(vtx0, level0).toLocaleString()} of ${(level0.length / 3).toLocaleString()} full-detail triangles face against their normals; ${folds(vtx0, dag.idx).toLocaleString()} of ${(dag.idx.length / 3).toLocaleString()} over every level`);
+  process.exit(0);
+}
 if (!input || !args.name) {
   console.log('usage: node tools/nanite-model.ts <in.ply|.gltf|.glb|.obj> --name=NAME [--tris=1000000] [--height=1] [--up=z] [--attr=1,1]');
   process.exit(1);

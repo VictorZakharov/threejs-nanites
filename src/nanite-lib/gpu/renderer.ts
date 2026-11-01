@@ -48,6 +48,12 @@ export interface NaniteRenderer
 export class NaniteRenderer {
   readonly renderer: THREE.WebGPURenderer;
   frozen = false;
+  /**
+   * The viewport height the shadow casters' LOD is measured against (null: this frame's). An application that scales
+   * its resolution sets its height at scale 1, so the shadows don't change with each step (the demo's auto quality:
+   * a step after a zoom reshaped a giant statue's shadow for a second or two).
+   */
+  shadowLodHeight: number | null = null;
   /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (the demo's webgpu-frame.ts). */
   occlusionOn = true;
   /** The shadow view ran this frame (its stats are stale otherwise: shadows off, or the average shadow from high up). */
@@ -65,6 +71,10 @@ export class NaniteRenderer {
   instB!: Float32Array;
   typeInfo!: UniformArrayNode<'vec4'>; // per type (first cluster, clusters, radius, height)
   typeValues!: THREE.Vector4[]; // (its values)
+  impPxOf!: UniformArrayNode<'float'>; // per type: its impostor switch size x impostorPx (NaniteType.impostorPx)
+  shadowTauOf!: UniformArrayNode<'float'>; // per type: its shadow casters' own tau, 0: the view's (NaniteType.shadowTau)
+  shadowPxOf!: UniformArrayNode<'float'>; // per type: its shadow's switch x its impostor switch (NaniteType.shadowPx)
+  unfoldOf!: UniformArrayNode<'float'>; // per type: 1 for a scan whose folds are lit by their face (NaniteType.unfold)
   chunks!: InstanceChunks; // (the instances in compact runs: the instance passes cull them on the CPU first)
   // per tree type its impostor frame (width, height in metres at scale 1), from the atlas once it's baked (until
   // then wide: no impostor is thinned out, see _impostorKept)
@@ -195,7 +205,7 @@ export class NaniteRenderer {
     // keep the shadow casters' LOD where it is unzoomed
     // (the main view gets full zoomed detail, as if 5x closer: the narrow view culls most of the forest, and the
     // auto quality trims tau if it's still too much)
-    this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1);
+    this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1) * (viewportHeight / (this.shadowLodHeight ?? viewportHeight));
     this.sw.begin(this.renderer, camera, size.x, size.y);
     this.splats.begin();
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)

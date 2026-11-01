@@ -13,7 +13,7 @@ scope.onmessage = (e) => {
   try {
     for (const t of e.data.tiles) {
       const r = plantTile(e.data.cfg, t);
-      scope.postMessage(r, [r.trees.buffer, r.bushes.buffer]);
+      scope.postMessage(r, [r.trees.buffer, r.bushes.buffer, r.statues.buffer]);
     }
     scope.postMessage({ done: true });
   } catch (err) {

@@ -103,9 +103,9 @@
       .loading small [data-loading-status] { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
       .loading small [data-loading-progress] { color: rgb(166 220 142 / 70%); font-variant-numeric: tabular-nums; text-align: right; }
       .loading__log {
-        height: clamp(112px, 24vh, 200px); box-sizing: border-box; margin: 18px 0 0; padding: 10px 12px; overflow-y: auto; list-style: none;
+        height: clamp(80px, 16vh, 140px); box-sizing: border-box; margin: 18px 0 0; padding: 10px 12px; overflow-y: auto; list-style: none;
         border: 1px solid rgb(166 220 142 / 13%); background: rgb(2 8 4 / 58%); color: rgb(205 228 200 / 62%);
-        font: 500 0.64rem/1.45 ui-monospace, Consolas, monospace; scrollbar-color: rgb(166 220 142 / 30%) transparent;
+        font: 500 0.56rem/1.4 ui-monospace, Consolas, monospace; scrollbar-color: rgb(166 220 142 / 30%) transparent;
       }
       .loading__log li { display: grid; grid-template-columns: 4rem minmax(0, 1fr); gap: 10px; }
       .loading__log li + li { margin-top: 3px; }
@@ -123,6 +123,24 @@
       .loading.is-asking .loading__error code { color: #f2e6b8; }
       .loading__error button { display: block; margin: 12px 0 0 auto; padding: 8px 16px; color: #fff3c8; font: 600 0.7rem ui-monospace, Consolas, monospace; letter-spacing: 0.12em; text-transform: uppercase; cursor: pointer; background: linear-gradient(rgb(110 96 40 / 70%), rgb(50 42 14 / 70%)); border: 1px solid rgb(242 230 184 / 55%); border-radius: 3px; touch-action: manipulation; }
       .loading__error button[hidden] { display: none; }
+      /* the scene choice (src/scene.ts): two buttons, the forest's draining with the countdown */
+      .loading__choice { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; width: min(760px, 94vw); margin: 0 0 26px; }
+      .loading__choice[hidden] { display: none; }
+      .loading__choice button { position: relative; overflow: hidden; display: grid; grid-template-columns: clamp(96px, 15vw, 132px) 1fr; grid-template-rows: auto auto 1fr; column-gap: 14px; row-gap: 6px; align-items: center; padding: 12px 14px 14px 12px; text-align: left; color: #f2e6b8; font: 600 1.15rem Cinzel, Georgia, serif; letter-spacing: 0.14em; text-transform: uppercase; cursor: pointer; background: linear-gradient(rgb(40 70 46 / 70%), rgb(12 24 15 / 80%)); border: 1px solid rgb(242 230 184 / 45%); border-radius: 3px; touch-action: manipulation; }
+      .loading__choice button:hover, .loading__choice button:focus-visible { border-color: #f2e6b8; background: linear-gradient(rgb(60 96 64 / 80%), rgb(18 34 21 / 85%)); outline: none; }
+      .loading__choice button strong { color: #fff6d2; font: 700 clamp(1.6rem, 6vw, 2.4rem)/1.1 Cinzel, Georgia, serif; letter-spacing: 0.04em; text-transform: none; text-shadow: 0 0 18px rgb(242 230 184 / 35%); }
+      /* the scene's picture on the left (public/thumbs, from the harness's thumbtree view and thumblucy with --scene=lucy, against the sun): pick without reading */
+      .loading__choice button img { grid-row: 1 / 4; width: 100%; height: auto; aspect-ratio: 1; object-fit: cover; border: 1px solid rgb(242 230 184 / 35%); border-radius: 2px; box-shadow: 0 2px 10px rgb(0 0 0 / 45%); transition: transform 0.2s; }
+      .loading__choice button:hover img, .loading__choice button:focus-visible img { transform: scale(1.04); border-color: rgb(242 230 184 / 80%); }
+      @media (max-width: 560px) {
+        .loading__choice button { grid-template-columns: 1fr; grid-template-rows: auto; text-align: center; padding: 10px 10px 14px; }
+        .loading__choice button img { grid-row: auto; aspect-ratio: 16 / 9; object-position: 50% 10%; }
+        .loading__choice button[data-scene="lucy"] img { object-position: 50% 35%; }
+      }
+      .loading__choice button span { color: rgb(205 228 200 / 75%); font: 500 clamp(0.72rem, 2.6vw, 0.9rem)/1.35 ui-monospace, Consolas, monospace; letter-spacing: 0.02em; text-transform: none; }
+      .loading__choice button i { position: absolute; left: 0; bottom: 0; height: 2px; width: 100%; background: #a6dc8e; animation: countdown var(--countdown, 5s) linear forwards; }
+      .loading__choice em { grid-column: 1 / -1; color: rgb(205 228 200 / 55%); font: 500 0.9rem ui-monospace, Consolas, monospace; font-style: normal; text-align: center; font-variant-numeric: tabular-nums; }
+      @keyframes countdown { to { width: 0; } }
       body:not(.is-ready) #corner, body:not(.is-ready) #hud, body:not(.is-ready) #help, body:not(.is-ready) #start { visibility: hidden; }
       /* ---- the waypoint to the plaza (src/waypoint.ts): placed by transform at the target, the marker centred on it */
       #waypoint { position: fixed; left: 0; top: 0; z-index: 2; pointer-events: none; will-change: transform; transition: opacity 0.3s; color: #f2e6b8; }
@@ -280,6 +298,11 @@
       <h1>NANITE FOREST</h1>
       <div class="loading__rule" aria-hidden="true">◆</div>
       <p>cluster LOD · WebGPU · three.js</p>
+      <div class="loading__choice" data-scene-choice hidden>
+        <button type="button" data-scene="forest"><img src="thumbs/forest.jpg" alt="" width="384" height="384" /><b>Forest</b><strong>38B triangles</strong><span>1M trees<br />1.5M bushes</span><i></i></button>
+        <button type="button" data-scene="lucy"><img src="thumbs/lucy.jpg" alt="" width="384" height="384" /><b>Lucy forest</b><strong>1T triangles</strong><span>250k statues<br />4M triangles each</span></button>
+        <em data-scene-countdown>Forest in 5 s</em>
+      </div>
       <div class="loading__track"><i data-loading-bar></i></div>
       <small><span data-loading-status>Waking the GPU</span><span data-loading-progress>0%</span></small>
       <ol class="loading__log" data-loading-log aria-label="Startup log"></ol>

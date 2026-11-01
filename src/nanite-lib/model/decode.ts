@@ -43,8 +43,8 @@ export function readHeader(buf: Uint8Array): ModelHeader | null {
   return head;
 }
 
-/** The file's DAG and source mesh, at `height` m. */
-export async function decodeModel(buf: Uint8Array, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
+/** The file's header and its four blocks as stored: positions (4 x 16 bits a vertex), the DAG's triangles, records, meta. */
+export async function readBlocks(buf: Uint8Array): Promise<{ head: ModelHeader; q: Uint16Array; idx: Uint32Array; rec: Float32Array; meta: Uint32Array }> {
   const head = readHeader(buf);
   if (!head) throw new Error('model file cut short');
   const headLen = new DataView(buf.buffer, buf.byteOffset).getUint32(0, true);
@@ -59,6 +59,12 @@ export async function decodeModel(buf: Uint8Array, height: number): Promise<{ da
   MeshoptDecoder.decodeVertexBuffer(new Uint8Array(rec.buffer), head.clusters, 64, take(head.recBytes));
   const meta = new Uint32Array(head.clusters * 4);
   MeshoptDecoder.decodeVertexBuffer(new Uint8Array(meta.buffer), head.clusters, 16, take(head.metaBytes));
+  return { head, q, idx, rec, meta };
+}
+
+/** The file's DAG and source mesh, at `height` m. */
+export async function decodeModel(buf: Uint8Array, height: number): Promise<{ dag: Omit<DagResult, 'id'>; src: ModelSource }> {
+  const { head, q, idx, rec, meta } = await readBlocks(buf);
 
   // the full-detail mesh: the level-0 clusters' triangles (normals, the impostor bake's frame)
   let n0 = 0;

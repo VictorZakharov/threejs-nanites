@@ -107,6 +107,7 @@ export function createFrame(c: FrameContext): (dt: number) => void {
     const castShadows = shadowFarOnly() ? false : shadowsOn();
     sun.shadow.autoUpdate = castShadows;
 
+    forest.shadowLodHeight = Math.round(window.innerHeight * res.basePR); // (the scene's height at scale 1, renderer.ts)
     forest.update(camera, size, time, castShadows ? sun.shadow.camera : null);
     // phase 1: terrain, sky and the trees visible last frame (+ the shadow map)
     renderer.setRenderTarget(sceneRT);

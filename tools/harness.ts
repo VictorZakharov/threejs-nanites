@@ -16,6 +16,7 @@ import { useProjectTemp, startServer, startStatic, launchBrowser, openPage } fro
 import { boot, runViews } from './harness/session.ts';
 import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
+import { zoomTime, flyTime } from './harness/zoomtime.ts';
 import { typeMatch } from './harness/typematch.ts';
 import { runExample } from './harness/example.ts';
 import { status, at } from './harness/status.ts';
@@ -105,6 +106,8 @@ try {
     report.views = await runViews(page, opts, { root, outDir, tag });
     if (opts.sweep) report.sweeps = await sweeps(page, opts, outDir, tag);
     if (opts.dolly) report.dolly = await dolly(page, opts, outDir, tag);
+    if (opts.zoomtime) report.zoomtime = await zoomTime(page, opts, outDir, tag);
+    if (opts.flytime) report.flytime = await flyTime(page, opts, outDir, tag);
     if (opts.typematch) report.typematch = await typeMatch(page, opts, outDir);
     reports.push(report);
   }

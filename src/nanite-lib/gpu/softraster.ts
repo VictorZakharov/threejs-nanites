@@ -19,15 +19,15 @@ import {
   Fn, If, Loop, Discard, storage, uniform, uint, int, float, vec2, vec3, vec4, uvec2, min, max, abs, clamp, log2,
   select, smoothstep, atomicAdd, atomicMin, atomicMax, atomicLoad, atomicStore, floatBitsToUint, workgroupId, localId,
   numWorkgroups, instanceIndex, screenCoordinate, texture, positionGeometry, output, mix, cameraViewMatrix, normalize,
-  length,
+  length, cross, cameraPosition,
 } from 'three/tsl';
 import type { ComputeNode, StorageBufferNode } from 'three/webgpu';
-import { LIST_CAP, MAX_TRIS, PHASE2_LAYER, SW, SPLAT_BIT, minU, minI, maxI } from './constants.ts';
+import { SW_CAP, MAX_TRIS, PHASE2_LAYER, SW, SPLAT_BIT, minU, minI, maxI } from './constants.ts';
 import type { NaniteRenderer } from './renderer.ts';
 import type { Bool, Float, Int, Uint, Vec2, Vec3 } from '../types.ts';
 import type { ClusterVertex, Counters, Shading, U } from './types.ts';
 import { setEmissive, asReceivedShadow, floatBits, computeBatch } from '../three-gaps.ts';
-import { makeLeafAlphaLod, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER, mipBias } from './shading.ts';
+import { makeLeafAlphaLod, ditherAt, ditherAlt, LEAF_COV, LEAF_DITHER, mipBias, unfold, FOLD_FIX } from './shading.ts';
 
 /** Visibility buffer capacity (pixels of the drawing buffer); a bigger screen falls back to hardware only. */
 export const MAX_PIXELS = 3840 * 2160;
@@ -54,7 +54,7 @@ export class SoftRaster {
   readonly size = uniform(new THREE.Vector2(1, 1)); // drawing buffer pixels
   readonly viewProj = uniform(new THREE.Matrix4());
   readonly near = uniform(0.3);
-  readonly listAttr = new THREE.StorageBufferAttribute(new Uint32Array(LIST_CAP * 2), 2);
+  readonly listAttr = new THREE.StorageBufferAttribute(new Uint32Array(SW_CAP * 2), 2);
   // (its counts: clusters, triangles (appended), clusters (clamped), in the main view's counters at SW)
   readonly ctr: Counters;
   readonly dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
@@ -87,7 +87,7 @@ export class SoftRaster {
     const ctr = nanite.mainCtr;
     this.ctr = ctr;
 
-    const list = storage(this.listAttr, 'uvec2', LIST_CAP);
+    const list = storage(this.listAttr, 'uvec2', SW_CAP);
     /** True if a cluster (curved centre cw, radius rad) is small enough on screen for the software rasterizer. */
     /**
      * True if a cluster (curved centre cw, radius rad, `tris` triangles) is for the software rasterizer: its
@@ -105,7 +105,7 @@ export class SoftRaster {
     this.append = (inst, c, tris) => {
       const slot = atomicAdd(ctr.atomic.element(SW), uint(1)).toVar();
       atomicAdd(ctr.atomic.element(SW + 1), tris);
-      If(slot.lessThan(LIST_CAP), () => list.element(slot).assign(uvec2(inst, c)));
+      If(slot.lessThan(SW_CAP), () => list.element(slot).assign(uvec2(inst, c)));
     };
     this.reset = Fn(() => {
       atomicStore(ctr.atomic.element(SW), uint(0));
@@ -116,7 +116,7 @@ export class SoftRaster {
     const count = (i: number) => ctr.rw.element(SW + i);
     const disp = storage(this.dispatchAttr, 'uint', 4);
     this.args = Fn(() => {
-      const n = minU(count(0), LIST_CAP).toVar();
+      const n = minU(count(0), SW_CAP).toVar();
       count(2).assign(n);
       disp.element(0).assign(minU(n, 65535));
       disp.element(1).assign(n.add(65534).div(65535));
@@ -179,7 +179,7 @@ export class SoftRaster {
 
   _rasterPass(mode: 'depth' | 'id'): ComputeNode {
     const f = this.nanite;
-    const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
+    const list = storage(this.listAttr, 'uvec2', SW_CAP).toReadOnly();
 
     const depthA = storage(this.depthAttr, 'uint', MAX_PIXELS).toAtomic();
     const idA = storage(this.idAttr, 'uint', MAX_PIXELS).toAtomic();
@@ -248,7 +248,7 @@ export class SoftRaster {
           });
         });
       });
-    })().compute(LIST_CAP * MAX_TRIS, [MAX_TRIS]);
+    })().compute(SW_CAP * MAX_TRIS, [MAX_TRIS]);
   }
 
   /** Per frame, before the phase 2 render: rasterize this frame's list (after the occlusion pass appended to it). */
@@ -282,7 +282,7 @@ export class SoftRaster {
   buildResolveMesh(shading: Shading): THREE.Mesh {
     const f = this.nanite, u = f.u, tex = f.textures;
     const ids = storage(this.idAttr, 'uint', MAX_PIXELS).toReadOnly();
-    const list = storage(this.listAttr, 'uvec2', LIST_CAP).toReadOnly();
+    const list = storage(this.listAttr, 'uvec2', SW_CAP).toReadOnly();
     const pix = uvec2(screenCoordinate.xy);
     const id = ids.element(pix.y.mul(uint(this.size.x)).add(pix.x));
     // (debug 5: magenta where the depth pass covered the pixel but the id pass found no triangle at that depth)
@@ -298,13 +298,16 @@ export class SoftRaster {
     const lerp3 = (k: 'world' | 'normal'): Vec3 => t.V[0][k].mul(w.q[0]).add(t.V[1][k].mul(w.q[1])).add(t.V[2][k].mul(w.q[2]));
     const world = lerp3('world');
     const uv = t.V[0].uv.mul(w.q[0]).add(t.V[1].uv.mul(w.q[1])).add(t.V[2].uv.mul(w.q[2]));
-    const normal = normalize(lerp3('normal'));
     const type = t.V[0].type;
+    const smooth = normalize(lerp3('normal'));
+    // (folds of a scan lit by their face, as the hardware-drawn ones: shading.ts)
+    const face = normalize(cross(t.V[1].world.sub(t.V[0].world), t.V[2].world.sub(t.V[0].world)));
+    const normal = FOLD_FIX ? select(leaf.or(f.unfoldOf.element(type).equal(0)), smooth, unfold(smooth, face, cameraPosition.sub(world))) : smooth;
     const slopes = this._uvSlopes(t);
     const bark = texture(tex.bark, uv).depth(tex.barkLayerOf(type)).level(this._lod(slopes, tex.bark.image.width)).rgb;
     const leafLayer = tex.leafLayerOf(type);
     const leafRgb = texture(tex.leaf, uv).depth(leafLayer).level(this._lod(slopes, tex.leaf.image.width)).rgb;
-    const albedo = select(leaf, f.look.cardColour(leafRgb, leafLayer, f.look.tint(inst), f.look.cardValue(inst, f._b(inst))), f.look.solidColour(bark));
+    const albedo = select(leaf, f.look.cardColour(leafRgb, leafLayer, f.look.tint(inst), f.look.cardValue(inst, f._b(inst))), f.look.solidColour(bark, f.look.tint(inst), f.look.solidValue?.(inst, f._b(inst), type) ?? float(0)));
     const dbg = f._debugColour(inst, c, type);
 
     const mat = new THREE.MeshLambertNodeMaterial();

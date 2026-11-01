@@ -5,35 +5,44 @@ import { autumnOfPhase, fallOf, NEEDLES } from './autumn-cpu.ts';
 export interface CoverJob {
   a: Float32Array<ArrayBuffer>; // the trees' instances (x, y, z, scale)
   b: Float32Array<ArrayBuffer>; // (cos, sin, type, wind phase + autumn)
-  /** Per type: 0 not canopy (bushes, models), 1 broadleaf, 2 conifer. */
+  /** Per type: 0 not counted (bushes, the forest's statues), 1 broadleaf, 2 conifer, 3 a statue (shade only). */
   kinds: number[];
   N: number;
   extent: number;
   crown: number; // m² of shade per tree at scale 1
+  statue: number; // m² of shadow per statue at scale 1
 }
 
-/** Red canopy cover, green the fallen leaves' amount, blue their autumn level / 2 (RGBA bytes, N x N). */
-export function coverPixels({ a, b, kinds, N, extent, crown: crownM2 }: CoverJob): Uint8Array<ArrayBuffer> {
+/**
+ * Red canopy cover, green the fallen leaves' amount, blue their autumn level / 2, alpha the statues' shadow cover
+ * (the Lucy scene's: shade on the ground from high up, no litter, no thinner grass) (RGBA bytes, N x N).
+ */
+export function coverPixels({ a, b, kinds, N, extent, crown: crownM2, statue: statueM2 }: CoverJob): Uint8Array<ArrayBuffer> {
   const cell = (extent * 2) / N;
-  const cov = new Float32Array(N * N), fall = new Float32Array(N * N), hue = new Float32Array(N * N);
-  const crown = crownM2 / (cell * cell); // (scaled by tree size; low sun: long shadows)
+  const cov = new Float32Array(N * N), fall = new Float32Array(N * N), hue = new Float32Array(N * N), stat = new Float32Array(N * N);
+  const crown = crownM2 / (cell * cell), statue = statueM2 / (cell * cell); // (scaled by tree size; low sun: long shadows)
   for (let i = 0; i < a.length; i += 4) {
     const kind = kinds[b[i + 2]];
     if (!kind) continue; // (cover is the trees' canopy)
     const x = Math.floor((a[i] / (extent * 2) + 0.5) * N), z = Math.floor((a[i + 2] / (extent * 2) + 0.5) * N);
     if (x < 0 || z < 0 || x >= N || z >= N) continue;
+    if (kind === 3) {
+      stat[z * N + x] += statue * a[i + 3] * a[i + 3];
+      continue;
+    }
     const w = crown * a[i + 3] * a[i + 3], turn = autumnOfPhase(b[i + 3]);
     const f = w * (kind === 2 ? NEEDLES : fallOf(turn)); // (the grass thins under the needles too)
     cov[z * N + x] += w;
     fall[z * N + x] += f;
     hue[z * N + x] += f * turn;
   }
-  const [c, fl, h] = [cov, fall, hue].map((m) => blur(m, N));
+  const [c, fl, h, st] = [cov, fall, hue, stat].map((m) => blur(m, N));
   const data = new Uint8Array(N * N * 4);
   for (let i = 0; i < N * N; i++) {
     data[i * 4] = Math.round(Math.min(1, c[i]) * 255);
     data[i * 4 + 1] = c[i] > 1e-4 ? Math.round(Math.min(1, fl[i] / c[i]) * 255) : 0;
     data[i * 4 + 2] = fl[i] > 1e-4 ? Math.round(Math.min(1, h[i] / fl[i] / 2) * 255) : 0;
+    data[i * 4 + 3] = Math.round(Math.min(1, st[i]) * 255);
   }
   return data;
 }

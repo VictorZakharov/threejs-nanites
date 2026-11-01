@@ -35,6 +35,20 @@ const params = new URLSearchParams(location.search);
 export const LEAF_DITHER = (params.get('leafalpha') ?? (params.get('taa') === '0' ? 'a2c' : 'dither')) === 'dither';
 /** Coverage scale of the software rasterizer's dithered leaf alpha (`?leafcov=`): matches the hardware leaves' colour. */
 export const LEAF_COV = Number(params.get('leafcov') ?? 0.9);
+/** A scan's folds lit by their face (`unfold`, for the types that ask: NaniteType.unfold; `?foldfix=0`: none). */
+export const FOLD_FIX = params.get('foldfix') !== '0';
+
+/**
+ * A solid triangle's shading normal `n`, or its face's where `n` points away from it: a fold of a scan (or of its
+ * simplification) lying back over its neighbours faces against its vertices' normals, rebuilt from the faces
+ * (model/source.ts), and lit by them it was black (a dark sliver on a statue's face, the user; Lucy: ~0.9% of her
+ * triangles, `node tools/nanite-model.ts public/models/lucy.nm`). `face`: the triangle's normal either way round,
+ * `toEye`: from the point towards the camera (the front face is the one seen). Same space for all three.
+ */
+export const unfold = (n: Vec3, face: Vec3, toEye: Vec3): Vec3 => {
+  const f = select(dot(face, toEye).lessThan(0), face.negate(), face);
+  return select(dot(n, f).lessThan(0), f, n);
+};
 
 /**
  * Alpha to coverage with one sample per pixel (under TAA; the leaf material in draw.ts): three.js's antialiased
@@ -88,5 +102,5 @@ const SPREAD = Number(params.get('impspread') ?? 1.6);
  * (the statues, last in the instances) never are: a handful, cheap as geometry at their coarsest LOD, and their
  * impostors came out as pale blobs from above, some missing (the user: "statues disappear").
  */
-export const switchPx = (u: { impostorPx: Float; firstModel: Uint }, inst: Index): Float =>
-  select(uint(inst).greaterThanEqual(u.firstModel), float(0), u.impostorPx.mul(exp2(hash(uint(inst).add(101)).mul(2).sub(1).mul(Math.log2(SPREAD)))));
+export const switchPx = (u: { impostorPx: Float; firstModel: Uint }, inst: Index, typeMul: Float = float(1)): Float =>
+  select(uint(inst).greaterThanEqual(u.firstModel), float(0), u.impostorPx.mul(typeMul).mul(exp2(hash(uint(inst).add(101)).mul(2).sub(1).mul(Math.log2(SPREAD)))));

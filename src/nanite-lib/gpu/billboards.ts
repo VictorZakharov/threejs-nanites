@@ -191,7 +191,7 @@ export const billboardMethods = {
         // same projected height as the instance pass (geometry share of the cross-fade)
         const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0)).sub(this.main.lodPos));
         const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1));
-        const sw = switchPx(u, inst);
+        const sw = switchPx(u, inst, this.impPxOf.element(type));
         q.vFade.assign(smoothstep(sw, sw.mul(FADE_HI), px));
       }
       const w = frameW.element(type).mul(s).mul(grow), h = h0.mul(grow);

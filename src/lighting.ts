@@ -56,22 +56,40 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
    * integrated GPU at half resolution filled 8x more shadow texels than screen pixels (on the dev GPU at its settings
    * 42% of the frame), a phone's 30x.
    */
+  // (a smaller map only once it's been wanted for SHRINK_MS: auto quality's resolution steps after a zoom halved it,
+  // every shadow twice as coarse for a second or two, the user's "zooming in... changes shadows too much")
+  const SHRINK_MS = 10000;
+  let smallerSince = 0, fitted = false;
   function fitShadowMap(pixels: number): void {
     const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * Math.sqrt(pixels / (1920 * 1080))))));
-    if (n !== sun.shadow.mapSize.x) sun.shadow.mapSize.set(n, n);
+    const now = performance.now(), have = sun.shadow.mapSize.x;
+    if (n < have && !smapParam && fitted) {
+      smallerSince ||= now;
+      if (now - smallerSince < SHRINK_MS) return;
+    }
+    smallerSince = 0;
+    fitted = true; // (the first fit at once: a phone starts at 60% resolution)
+    if (n !== have) sun.shadow.mapSize.set(n, n);
   }
   // One shadow map that follows the view. Its half-extent grows with altitude (in steps, so texels don't crawl),
   // and receivers fade the shadow out towards its edge, so there's no hard "shadow stops here" line.
-  let SH = 0;
+  // SH: the half-extent across the sun (and the ground's along it); SV: the map's other half, up the sun's direction.
+  // Seen from the sun, the ground along its azimuth is foreshortened to sin(elevation) (0.53): a square map spent half
+  // its texels there on nothing. SV is the ground's SH that short, plus what stands above or below it (the relief
+  // round the focus, the tallest trees and statues: cos(elevation) of each metre): ~1.7x finer texels looking down
+  // (the user: shadows "1.5x longer" zoomed in, their thin ends lost in 0.8 m texels unzoomed).
+  let SH = 0, SV = 0;
   const sunBack = () => Math.max(800, SH * 1.2);
-  function setShadowExtent(h: number): void {
-    if (h === SH) return;
-    SH = h;
+  const sinE = Math.max(0.2, sunDir.y), cosE = Math.sqrt(1 - sinE * sinE);
+  function setShadowExtent(h: number, rise: number): void {
+    const v = Math.min(h, h * sinE + rise * cosE);
+    if (h === SH && v === SV) return;
+    (SH = h), (SV = v);
     // (depth range: the sun sits `sunBack` from the focus; the ground across the map spans about its width in depth)
-    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SH, bottom: -SH, near: 1, far: 2 * sunBack() });
+    Object.assign(sun.shadow.camera, { left: -SH, right: SH, top: SV, bottom: -SV, near: 1, far: 2 * sunBack() });
     sun.shadow.camera.updateProjectionMatrix();
   }
-  setShadowExtent(110);
+  setShadowExtent(110, 110);
   const shadowMatrix = uniform(sun.shadow.matrix);
   // Beyond the shadow map, receivers fade to an *average* shadow instead of none: a constant canopy self-shadow
   // for trees and a forest-density darkening for the ground (and the impostors carry the same darkening). Fading
@@ -94,20 +112,43 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   // altitude, not the map's stepped extent): the coarse map lets light through the crowns, the calibrated average is
   // 6-8/255 darker, a jump as you climbed.
   const FAR_TEXEL = Number(params.get('fartexel') ?? 5);
-  let agl = 0;
+  let agl = 0, half = 110; // (half: the map's half-extent before its steps)
+  const RISE = 80; // (m: the tallest above the ground, the Lucy scene's 20x statues; trees ~35 m: the map's height up the sun)
   /** Per frame, after follow(): the average shadow's share everywhere; true when it's all of it (skip the pass). */
   function shadowFarOnly(): boolean {
-    const texel = (2 * Math.min(SHADOW_MAX, 110 * (1 + agl / 40))) / sun.shadow.mapSize.x;
+    const texel = (2 * half) / sun.shadow.mapSize.x;
     const t = Math.min(1, Math.max(0, (texel - FAR_TEXEL / 2) / (FAR_TEXEL / 2)));
     farEverywhere.value = params.get('farall') === '1' ? 1 : t * t * (3 - 2 * t);
     return farEverywhere.value >= 1;
   }
-  sun.shadow.bias = -0.0004;
-  sun.shadow.normalBias = 0.6;
+  // The biases (follow) are in texels: fixed at 0.6 m and ~0.64 m of depth, sized for metre texels, near the ground
+  // (0.1 m texels) they cut the first metre of every shadow, a statue standing in a lit ring "as if hanging in the
+  // air" (the user). `?shadowbias=` scales both.
+  const BIAS = Number(params.get('shadowbias') ?? 1);
   sun.shadow.camera.layers.set(1); // the forest has dedicated (coarser, light-culled) shadow-caster meshes on layer 1
   scene.add(sun, sun.target);
   hemi.layers.enable(PHASE2_LAYER);
   sun.layers.enable(PHASE2_LAYER);
+
+  /**
+   * The ground the view sees (zoomed too), as the plane at `gy` under its four corners: their middle and the furthest
+   * of them from it; null when a corner sees the sky or ground further than `max` (the map then sized by altitude).
+   */
+  function groundSeen(camera: THREE.PerspectiveCamera, gy: number, max: number): { centre: THREE.Vector3; r: number } | null {
+    const tv = Math.tan(THREE.MathUtils.degToRad(camera.fov) / 2), th = tv * camera.aspect;
+    const e = camera.matrixWorld.elements;
+    const right = new THREE.Vector3(e[0], e[1], e[2]), up = new THREE.Vector3(e[4], e[5], e[6]), fwd = new THREE.Vector3(-e[8], -e[9], -e[10]);
+    const h = camera.position.y - gy, hits: THREE.Vector3[] = [];
+    for (const [x, y] of [[-1, -1], [1, -1], [1, 1], [-1, 1]]) {
+      const d = fwd.clone().addScaledVector(right, x * th).addScaledVector(up, y * tv);
+      if (d.y > -1e-3 || h <= 0) return null;
+      const p = camera.position.clone().addScaledVector(d, h / -d.y);
+      if (Math.hypot(p.x - camera.position.x, p.z - camera.position.z) > max) return null;
+      hits.push(p);
+    }
+    const centre = hits.reduce((a, p) => a.add(p), new THREE.Vector3()).multiplyScalar(0.25);
+    return { centre, r: Math.max(...hits.map((p) => Math.hypot(p.x - centre.x, p.z - centre.z))) };
+  }
 
   /** Per frame: the shadow map centred on the ground the camera looks at (`gy`: ground height under the camera). */
   function follow(camera: THREE.Camera, gy: number, shift: THREE.Vector3): void {
@@ -115,16 +156,33 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
     agl = Math.max(0, camera.position.y - gy);
     // (no lower cap than the view needs: at 1.8 km a 640 m map was a rectangle of real shadows in an evenly shaded
     // forest; the texels stay ~2 px at the nearest ground as the map grows with altitude)
-    setShadowExtent(Math.min(SHADOW_MAX, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(1 + agl / 40) / Math.log(1.25))))));
+    const high = Math.min(SHADOW_MAX, 110 * (1 + agl / 40));
+    // looking down, only the ground in view: the square round it (its corners inside the edge fade). Sized for views
+    // to the horizon, looking straight down from 400 m a texel was 1.25 m, ~4 px, and a statue's shadow (~1 m wide)
+    // faded out from ~200 m up (the user). The zoomed view's ground: by the unzoomed one, its texels were 5x as big
+    // on screen and small statues had no shadow (the user). The casters' LOD stays as unzoomed (renderer.ts): at the
+    // zoomed one Lucy's shadows were 1M -> 27-34M triangles (her errors stall at 1.76 m, then the 70-triangle root),
+    // +2-3.5 ms, and they look the same in the finer texels. The map steps as the zoom eases in, not after.
+    const seen = groundSeen(camera as THREE.PerspectiveCamera, gy, high);
+    half = seen ? Math.max(110, seen.r / 0.75) : high;
+    const ext = Math.min(SHADOW_MAX, 110 * Math.pow(1.25, Math.max(0, Math.ceil(Math.log(half / 110) / Math.log(1.25) - 1e-9))));
     const dir = camera.getWorldDirection(new THREE.Vector3());
-    const reach = dir.y < -0.05 ? Math.min(SH * 0.9, agl / -dir.y) : SH * 0.5;
-    const focus = camera.position.clone().addScaledVector(dir, reach).add(shift);
+    const reach = dir.y < -0.05 ? Math.min(ext * 0.9, agl / -dir.y) : ext * 0.5;
+    const focus = (seen ? seen.centre.clone() : camera.position.clone().addScaledVector(dir, reach)).add(shift);
     focus.y = heightAt(focus.x, focus.z);
+    // (the relief over the map's ground, on a 5x5 grid, plus RISE for what stands on it; in 10 m steps, so the map's
+    // texels don't change size with every metre the focus moves)
+    let relief = 0;
+    for (let i = -2; i <= 2; i++) for (let j = -2; j <= 2; j++) relief = Math.max(relief, Math.abs(heightAt(focus.x + (i * ext) / 2, focus.z + (j * ext) / 2) - focus.y));
+    setShadowExtent(ext, Math.ceil((relief + RISE) / 10) * 10);
+    const groundTexel = Math.max(2 * SH, (2 * SV) / sinE) / sun.shadow.mapSize.x; // (m on the ground: the coarser way)
+    sun.shadow.normalBias = BIAS * groundTexel;
+    sun.shadow.bias = (-BIAS * groundTexel * sinE) / (2 * sunBack()); // (in the depth range's units: along the sun)
     // snap in light space (the sun is diagonal: snapping world x/z doesn't stop shimmer)
-    const texel = (2 * SH) / sun.shadow.mapSize.x;
+    const tx = (2 * SH) / sun.shadow.mapSize.x, ty = (2 * SV) / sun.shadow.mapSize.y;
     const lx = new THREE.Vector3().crossVectors(new THREE.Vector3(0, 1, 0), sunDir).normalize();
     const ly = new THREE.Vector3().crossVectors(sunDir, lx);
-    const fx = Math.round(focus.dot(lx) / texel) * texel, fy = Math.round(focus.dot(ly) / texel) * texel, fz = focus.dot(sunDir);
+    const fx = Math.round(focus.dot(lx) / tx) * tx, fy = Math.round(focus.dot(ly) / ty) * ty, fz = focus.dot(sunDir);
     focus.copy(lx).multiplyScalar(fx).addScaledVector(ly, fy).addScaledVector(sunDir, fz);
     sun.target.position.copy(focus);
     sun.position.copy(focus).addScaledVector(sunDir, sunBack());

@@ -13,7 +13,7 @@
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
 import * as THREE from 'three/webgpu';
-import { Fn, If, Discard, texture, vec4, attribute, normalLocal, uint, uniform, uniformArray } from 'three/tsl';
+import { Fn, If, Discard, texture, vec4, attribute, normalLocal, uint, uniform, uniformArray, float } from 'three/tsl';
 import type { UniformArrayNode } from 'three/webgpu';
 import { dagCut, type MeshPart } from '../dag/cut.ts';
 import type { NaniteLook } from '../gpu/look.ts';
@@ -159,7 +159,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
     const barkMat = new THREE.MeshBasicNodeMaterial();
     // (the layer and tint as uniforms: every tree's materials compile to the same four shaders; as constants, each
     // tree had its own, ~36 pipelines compiled one after another, ~1 s of loading)
-    barkMat.colorNode = vec4(look.solidColour(texture(tex.bark, attribute('uv', 'vec2')).depth(uniform(tex.barkLayers[i])).rgb), 1);
+    barkMat.colorNode = vec4(look.solidColour(texture(tex.bark, attribute('uv', 'vec2')).depth(uniform(tex.barkLayers[i])).rgb, float(1), float(0)), 1);
     const barkNrm = new THREE.MeshBasicNodeMaterial();
     barkNrm.colorNode = normalOut(1);
     scenes[0].add(new THREE.Mesh(barkGeo, barkMat));

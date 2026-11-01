@@ -7,7 +7,7 @@ import {
 import { switchPx } from './shading.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
-  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST,
+  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST, SHADOW_TAU_MUL,
 } from './constants.ts';
 import type { NaniteRenderer } from './renderer.ts';
 import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
@@ -32,7 +32,7 @@ export const cullingMethods = {
    * occ: null (no occlusion), 'retest' (phase 1: failures go to the retest list), 'final' (phase 2); k: the set's
    * index in the view (its slice of the view's counters).
    */
-  _buildSet(this: NaniteRenderer, v: ViewBase, tau: Float, occ: Occ, k: number): CullSet {
+  _buildSet(this: NaniteRenderer, v: ViewBase, tauOf: (type: Uint) => Float, occ: Occ, k: number): CullSet {
     const sb = (arr: Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);
     const u = this.u;
     const base = k * SET_STRIDE;
@@ -77,10 +77,13 @@ export const cullingMethods = {
     /** Emits the work items for tree i (called from an instance pass). */
     const emit = (i: Uint, ti: TypeInfo, s: Float, dCam: Float, r: Float): void => {
       // clusters whose parent error (local units) is below this can never be selected for this tree
-      const thr = tau.mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
+      const thr = tauOf(uint(this._b(i).z)).mul(max(dCam.sub(r), 0.05)).div(u.projScale.mul(s));
       const start = uint(ti.x);
       const lo = uint(0).toVar(), hi = uint(ti.y).toVar();
-      Loop(14, () => {
+      // (20 halvings: up to 2^20 clusters a type. It was 14, 16k: Lucy 4M's 62.9k stopped up to 4 short, and where only
+      // her root or a few coarse clusters were wanted none were listed: far statues and their shadows gone, the user's
+      // "shadows disappear, then reappear, then disappear forever". Past convergence a step is one comparison.)
+      Loop(20, () => {
         If(lo.lessThan(hi), () => {
           const mid = lo.add(hi).div(2).toVar();
           If(this._cd(start.add(mid), 3).y.greaterThan(thr), () => lo.assign(mid.add(1))).Else(() => hi.assign(mid));
@@ -127,6 +130,7 @@ export const cullingMethods = {
           return err.mul(s).mul(u.projScale).div(dist);
         };
         // DAG cut: fine enough itself, but the parent group is too coarse
+        const tau = tauOf(uint(b.z)).toVar();
         const cut = projErr(lod, e.x).lessThanEqual(tau).and(projErr(par, e.y).greaterThan(tau));
         If(cut, () => {
           const cw = this.look.curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
@@ -240,6 +244,12 @@ export const cullingMethods = {
       retest: main ? this._buildRetest(ctr) : null,
     };
     const tau = u.tau.mul(v.tauMul);
+    // (the shadow view: a type's casters may have a tau of their own, NaniteType.shadowTau; 0: the view's)
+    const tauOf = (type: Uint): Float => {
+      if (main) return tau;
+      const own = this.shadowTauOf.element(type);
+      return select(own.greaterThan(0), own, u.tau).mul(v.tauMul);
+    };
     const impList = storage(v.impListAttr, 'uint', this.instanceCount);
     const impCount = ctr.atomic.element(IMP_ARGS + 1);
     // (a tree is listed once at most: by the instance pass, or by phase 2 when it tests the impostors)
@@ -261,8 +271,8 @@ export const cullingMethods = {
       atomicStore(impCount, uint(0));
       atomicStore(splatCount, uint(0));
     })().compute(1, [1]);
-    const sets = [this._buildSet(v, tau, main ? 'retest' : null, 0)];
-    if (main) sets.push(this._buildSet(v, tau, 'final', 1));
+    const sets = [this._buildSet(v, tauOf, main ? 'retest' : null, 0)];
+    if (main) sets.push(this._buildSet(v, tauOf, 'final', 1));
 
     /** The per-tree basics shared by the instance passes. */
     const treeInfo = (i: Uint) => {
@@ -291,8 +301,11 @@ export const cullingMethods = {
         const i = first.add(slot).toVar();
         const { ti, s, centerC, r, dCam, px, visible } = treeInfo(i);
         // between 1 x and FADE_HI x the impostor threshold a tree is drawn both ways, dithered (see dither)
-        const swPx = switchPx(u, i).toVar(); // (each tree its own, see switchPx)
-        const far = px.lessThan(swPx);
+        const type = uint(this._b(i).z);
+        const swPx = switchPx(u, i, this.impPxOf.element(type)).toVar(); // (each tree its own, see switchPx)
+        // (the shadow view: a type may cast from its geometry further out, NaniteType.shadowPx; by the unzoomed size,
+        // as its LOD (renderer.ts): by the zoomed one, zooming in swapped a statue's shadow quad for its real shadow)
+        const far = v.retest ? px.lessThan(swPx) : px.mul(SHADOW_TAU_MUL).div(v.tauMul).lessThan(swPx.mul(this.shadowPxOf.element(type)));
         const retest = v.retest;
         if (!retest) If(visible.and(far), () => impAppend(i)); // (impostor shadow casters)
         else {
@@ -327,7 +340,7 @@ export const cullingMethods = {
             // an impostor: listed if it's not hidden
             If(hidden, () => {
               atomicAdd(setB.stat(4), uint(1));
-            }).Else(() => impAppend(i, px, switchPx(u, i)));
+            }).Else(() => impAppend(i, px, switchPx(u, i, this.impPxOf.element(uint(this._b(i).z)))));
           })
             .ElseIf(hidden, () => {
               atomicAdd(setB.stat(3), uint(1));

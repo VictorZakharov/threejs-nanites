@@ -27,6 +27,7 @@ export async function boot(page: Page, url: string, query: string, opts: Options
     await new Promise((r) => setTimeout(r, 1500));
     await page.setViewportSize({ width, height });
   }
+  if (opts.choose) await choose(page, opts.choose, outDir);
   if (opts.loadingShots) {
     for (let i = 0; i < 12 && !(await page.evaluate(() => window.__demo?.ready || window.__demo?.error)); i++) {
       await page.screenshot({ path: join(outDir, `loading-${i}.png`) });
@@ -36,7 +37,37 @@ export async function boot(page: Page, url: string, query: string, opts: Options
   await page.waitForFunction(() => window.__demo?.ready || window.__demo?.error, null, { timeout: 300000, polling: 250 });
   const err = await page.evaluate(() => window.__demo.error);
   if (err) throw new Error('page failed to start: ' + err);
+  if (opts.choose) {
+    const want = opts.choose === 'wait' || opts.choose === 'hover' ? 'forest' : opts.choose, got = await page.evaluate(() => window.__demo.sceneName);
+    if (got !== want) throw new Error(`scene choice: wanted ${want}, got ${got}`);
+    console.log(`scene choice: ${got} (${opts.choose === 'wait' || opts.choose === 'hover' ? 'after the countdown' : 'clicked'})`);
+  }
   return page.evaluate(() => window.__demo.info());
+}
+
+/** The loading screen's scene choice (src/scene.ts): a screenshot, then a click on `pick`'s button, or the countdown ('wait'). */
+async function choose(page: Page, pick: string, outDir: string): Promise<void> {
+  at('scene choice');
+  const choice = page.locator('[data-scene-choice]');
+  await choice.waitFor({ state: 'visible', timeout: 60000 });
+  await new Promise((r) => setTimeout(r, 1200)); // (into the countdown: its bar part drained)
+  await page.screenshot({ path: join(outDir, 'choice.png') });
+  if (pick === 'hover') {
+    // the pointer moving over a button holds the countdown, which goes on 3 s after it stops (src/scene.ts)
+    const box = (await page.locator('[data-scene-choice] button[data-scene="lucy"]').boundingBox())!;
+    for (let i = 0; i < 35; i++) {
+      await page.mouse.move(box.x + box.width * (0.3 + 0.4 * (i % 2)), box.y + box.height / 2);
+      await new Promise((r) => setTimeout(r, 200));
+    }
+    const text = await page.locator('[data-scene-countdown]').textContent();
+    if (!(await choice.isVisible()) || !text?.includes('paused')) throw new Error(`--choose=hover: after 7 s of moving the countdown read "${text}", visible ${await choice.isVisible()}`);
+    const t0 = Date.now();
+    await choice.waitFor({ state: 'hidden', timeout: 9000 });
+    console.log(`hover: held 7 s ("${text}"), the forest ${((Date.now() - t0) / 1000).toFixed(1)} s after the pointer stopped`);
+    return;
+  }
+  if (pick !== 'wait') await page.locator(`[data-scene-choice] button[data-scene="${pick}"]`).click();
+  await choice.waitFor({ state: 'hidden', timeout: pick === 'wait' ? 10000 : 2000 });
 }
 
 /**
