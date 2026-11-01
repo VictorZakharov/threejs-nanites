@@ -277,7 +277,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   skips it (forest) unless `--choose=` (`?choose=1`; `--scene=lucy` for the Lucy forest). Only the planting waits for
   the choice (`beginLoading` in `main.ts`): textures, trees and terrain run during the countdown (Lucy's download after: the scene picks her file). The
   Lucy forest is the same pipeline, with a denser Lucy (`denseModel`: `lucy4m.nm`, `npm run model -- lucy.ply
-  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 20.9 MB, 15.7 gzipped; downloaded once the scene is chosen): at 1M a
+  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 21.4 MB, 16.1 gzipped; downloaded once the scene is chosen, built
+  from its coarse copy, the first 0.44 MB, see Models below): at 1M a
   3x statue's face from 3 m was the decimation's facets at level 0 (the user: "people would laugh at it"; `lucyface`,
   `tau=0.05` the same image). Its buffers: indices 95 MB, vertices 70, under WebGPU's guaranteed 128 MB a binding (an
   8M Lucy would not fit). It: `plantForest(count, 'lucy')` plants `?lucys=` (250k) statues and no trees or bushes
@@ -348,7 +349,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   and quantized buffers read, Draco refused; an OBJ's faces by their `v` positions; materials ignored), stands it up
   (longest axis, a glTF's y, or `--up=`), grid-merges huge scans to ~4x the target then meshopt-
   simplifies to `--tris`, quantizes to 14 bits, builds the cluster DAG at `--height` (the variant's metres: errors
-  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 3;
+  are in metres; another height is scaled, inexactly) and meshopt-compresses both (`public/models/*.nm`, format 4;
   the encoding is the library's `nanite-lib/model/encode.ts`, the tool reads the mesh and writes the file), then
   decodes the file as the site does and checks it matches. glTF and OBJ split vertices at uv / normal seams and
   between meshes: the readers weld equal positions (`generatePositionRemap`), or the simplifier opens the seams as
@@ -362,7 +363,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   user, close up on her drapery and hair); the DAG builder weights normals too, so the file is rebuilt with them. The index codec may rotate a triangle's corners. It's "bark" with no
   leaves: stone layer in the bark array (`stone.ts`, a generated marble), no wind (`windOf`), not in the canopy cover
   or the litter. Lucy (Stanford, non-commercial with credit; "don't animate or morph" her: hence no wind): 28M ->
-  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 5.4 MB (positions 1.5, DAG
+  1M tris, DAG 15.7k clusters with max group errors (see bark simplification below): 5.6 MB (positions 1.5, DAG
   triangles 3.5, clusters 0.3). The vertices are numbered in the order the DAG's triangles first use them (`firstUse`
   in `encode.ts`): in the simplifier's order the coarser levels' triangles jumped across the whole vertex range, and
   the index codec stores the jumps (`lucy4m` 25.2 -> 23.0 MB, 19.5 -> 17.8 gzipped; `lucy` 6.45 -> 5.9). `npm run
@@ -373,8 +374,17 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   as floats: `lucy4m` 17.8 -> 15.7 MB gzipped, `lucy` 4.6 -> 4.1; `lucyface`, `lucyfoot`, `statue`, `lucyshadow`
   with `taa=0`: the same mean colours, specks on edges and creases, ~0.1% more clusters. Tried and dropped (#62):
   per-cluster local indices (9.79 -> 9.74 MB gzipped: the index codec plus gzip already get it), per-level
-  numbering (9.69), parallelogram-predicted positions (at best ~0.5 MB for a decoder of its own). Next: streaming
-  the DAG (#63). Statues stand on the lowest
+  numbering (9.69), parallelogram-predicted positions (at best ~0.5 MB for a decoder of its own). Format 4 (#63)
+  starts with a coarse copy: the coarsest levels holding at most 1/32 of the triangles (`COARSE_SHARE` in
+  `encode.ts`; `lucy4m` levels 6-16, 128k triangles, 0.44 MB gzipped, +2.8% on the file; `lucy` 62k, 0.22 MB), its
+  vertices numbered on their own, with octahedral normals (it hasn't the full detail they're built from). The worker
+  posts it as soon as those bytes are in (`decodeCoarse`), its finest level's errors 0, so the cut draws it however
+  near and there are no holes; `fillType` writes it in, then the whole model over it. The Lucy forest waits for the
+  coarse copy only (its impostor tiles are baked from it) rather than all 16 MB; with `?modeldelay=` (the whole model
+  held back) `lucyface` reads the same mean colour, softer up close (62k clusters to 65k). Ordering the whole file
+  coarse levels first was ~50% bigger (the finer levels' triangles jumped back to the coarse levels' vertices). Not
+  done (#63's rest): pages fetched by need, a resident pool, eviction: every statue here is the same mesh, so all of
+  it ends up needed. The WebGL mode still waits for the whole model. Statues stand on the lowest
   ground under the plinth (`PLINTH`; by the centre one edge floated on the plaza's slope, the user). Models are never
   impostors (`firstModel` in `switchPx`: the statues are last in the instances): theirs came out as pale blobs from
   above, some missing (the user); views `plazatop`, `plazahigh`. Their atlas tiles stay empty (the bake skips them).
@@ -382,7 +392,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   arrived, the forest reserves the model's share of its buffers by it with no clusters (`BuiltTree.later`), and
   `fillType` (`src/nanite-lib/gpu/buffers.ts`) writes it in when it's decoded, uploads those ranges and refits the boxes of
   the chunks holding the statues (her LOD spheres reach 8.4 m, her mesh's box 2.4). On a slow connection the statues
-  appear after the first frame; `?modeldelay=ms` delays her to test that.
+  appear after the first frame, coarse first; `?modeldelay=ms` delays all but her coarse copy to test that.
   Once, 4 harness runs in a row came out ~2x slower in every pass (compute too) and then didn't reproduce with the
   same code: re-run before bisecting a regression (and compare with the live site via `--url`).
 - The road (`src/road.ts`): a cobblestone road from the spawn point ~80 m to a plaza (radius 24 m) with a ring of

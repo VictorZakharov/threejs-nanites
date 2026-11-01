@@ -81,7 +81,8 @@ Enter for the forest, 2 for Lucy).
   leaves; the terrain, grass, sky and the plaza stay.
 
 `?scene=forest` or `?scene=lucy` skips the choice (`?lucys=N`: that many statues). The Lucy forest downloads its 21 MB
-Lucy (15.7 MB gzipped) once chosen; the forest's 12 statues keep the 5.4 MB, 1M-triangle copy. The WebGL mode (no WebGPU) has only
+Lucy (16.1 MB gzipped) once chosen, and starts as soon as the file's coarse copy (its first 0.44 MB) is in; the
+forest's 12 statues keep the 5.6 MB, 1M-triangle copy. The WebGL mode (no WebGPU) has only
 the forest.
 
 | ![The scene choice on the loading screen](screenshots/scene-choice.jpg) | ![The Lucy forest at eye height](screenshots/lucy-ground.jpg) | ![A 3x statue's face from 3 m](screenshots/lucy-face.jpg) | ![The Lucy forest from 450 m](screenshots/lucy-slope.jpg) |
@@ -198,7 +199,7 @@ guaranteed minimum; a Mac allowed no more).
 - Stands the mesh up, decimates it, builds its cluster DAG and writes both into one meshopt-compressed file
   (`public/models/NAME.nm`; the site only decodes it).
 - A variant with `model: 'models/NAME.nm'` (`src/trees.ts`) then gets cluster LOD, shadows and occlusion like a tree.
-- The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 5.4 MB file with
+- The demo's proof is twelve copies of Stanford's **[Lucy](http://graphics.stanford.edu/data/3Dscanrep/)** scan (28M triangles, decimated to 1M; a 5.6 MB file with
   its 15.7k-cluster DAG). They stand round a plaza at the end of a cobblestone road from the start point;
   `?statues=N` scatters more through the clearings.
 

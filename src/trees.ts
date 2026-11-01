@@ -1,4 +1,4 @@
-import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type ModelHeader, type NaniteType } from './nanite-lib/index.ts';
+import { loadModel, type BarkSource, type DagRequest, type DagResult, type LeafMask, type LeafSource, type LoadedModel, type ModelHeader, type NaniteType } from './nanite-lib/index.ts';
 import type { LoadingScreen } from './loading.ts';
 import type { SceneName } from './scene.ts';
 import { workerError } from './worker-error.ts';
@@ -40,9 +40,10 @@ export interface BuiltTree extends NaniteType {
   src: TreeSource;
   /**
    * A model still downloading (its arrays are empty, its radius a bound from the header): the sizes the forest
-   * reserves for it in its buffers, and the model once it's in (NaniteForest.fillType).
+   * reserves for it in its buffers, its coarse copy as soon as that's in (the model itself, a file without one), and
+   * the model once it's in (NaniteForest.fillType).
    */
-  later?: { verts: number; indices: number; clusters: number; tree: Promise<BuiltTree> };
+  later?: { verts: number; indices: number; clusters: number; coarse: Promise<BuiltTree>; tree: Promise<BuiltTree> };
 }
 
 /** The renderer's names for a variant's type. */
@@ -94,15 +95,18 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
     if (v.model) {
       // a model's DAG comes prebuilt in its file (tools/nanite-model.ts): nothing to build. Lucy's is ~5 MB: only its
       // header is waited for, the forest fills the model in when it's arrived (the statues may come after the first
-      // frame on a slow connection)
+      // frame on a slow connection), first its coarse copy (#63: the file's first ~3%)
       const file = (await scene) === 'lucy' && v.denseModel ? v.denseModel : v.model;
-      const { header, model } = loadModel(`./${file}`, v.height);
-      const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download, ms)
-      const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(({ dag, src }): BuiltTree => {
-        ui.note(`Loaded ${v.preset}: ${dag.stats.barkTris.toLocaleString()} triangles, ${dag.stats.barkClusters.toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
+      const { header, coarse: first, model } = loadModel(`./${file}`, v.height);
+      const delay = Number(q.get('modeldelay') ?? 0); // (debug: a slow download of all but the coarse copy, ms)
+      const built = (what: string) => ({ dag, src }: LoadedModel): BuiltTree => {
+        ui.note(`Loaded ${v.preset}${what}: ${(dag.idx.length / 3).toLocaleString()} triangles, ${(dag.meta.length / 4).toLocaleString()} clusters, ${v.height} m (done ${Math.round(performance.now() - t0)} ms in)`);
         return { ...dag, id, radius: src.radius, height: src.height, variant: v, ...typeOf(v), src };
-      });
+      };
+      const tree = model.then((m) => new Promise<typeof m>((r) => setTimeout(() => r(m), delay))).then(built(''));
+      const coarse = first.then(built(' (coarse copy)'));
       tree.catch(() => {}); // (surfaces where the forest awaits it)
+      coarse.catch(() => {});
       const h = await header;
       finished();
       const none = new Float32Array(0);
@@ -110,7 +114,7 @@ export async function buildAllTrees(ui: LoadingScreen, leafMask: (leaf: string) 
         id, vtx: none, idx: new Uint32Array(0), rec: none, meta: new Uint32Array(0), stats: { ...h.stats, ms: 0 },
         radius: boundRadius(h, v.height), height: v.height, variant: v, ...typeOf(v),
         src: { bark: { pos: none, nrm: none, uv: none, idx: new Uint32Array(0) }, leaves: { pos: none, nrm: none, uv: none, vpl: 4 }, radius: 0, height: v.height },
-        later: { verts: h.vertices, indices: h.indices, clusters: h.clusters, tree },
+        later: { verts: h.vertices, indices: h.indices, clusters: h.clusters, coarse, tree },
       };
     }
     return new Promise<BuiltTree>((resolve, reject) => {

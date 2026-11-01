@@ -19,6 +19,7 @@ import { MeshoptSimplifier } from 'meshoptimizer';
 import { readPly } from './model-input/ply.ts';
 import { readGltf } from './model-input/gltf.ts';
 import { readObj } from './model-input/obj.ts';
+import type { LoadedModel } from '../src/nanite-lib/model/decode.ts';
 
 const root = join(dirname(fileURLToPath(import.meta.url)), '..');
 const args: Record<string, string | undefined> = Object.fromEntries(process.argv.slice(3).map((a) => { const [k, v] = a.replace(/^--/, '').split('='); return [k, v ?? 'true']; }));
@@ -53,6 +54,37 @@ function recordsHold(p: Float32Array, r: Float32Array): string {
   }
   return '';
 }
+/**
+ * '' if the file's coarse copy (format 4) is its model's coarsest levels, cluster for cluster: the same triangles over
+ * the same positions and uvs, the same records (but its finest level's error, 0), normals within the octahedral step.
+ */
+async function coarseHolds(file: Uint8Array, full: LoadedModel, height: number): Promise<string> {
+  const { decodeCoarse, readHeader } = await import('../src/nanite-lib/model/decode.ts');
+  const level = readHeader(file)?.coarse?.level, c = await decodeCoarse(file, height);
+  if (level === undefined) return ''; // (a model too small for one)
+  if (!c) return 'no coarse copy';
+  const f = full.dag, d = c.dag;
+  let k = 0;
+  for (let fc = 0; fc < f.meta.length / 4; fc++) {
+    if (f.meta[fc * 4 + 2] < level) continue;
+    for (let j = 1; j < 4; j++) if (f.meta[fc * 4 + j] !== d.meta[k * 4 + j]) return `coarse cluster ${k}: meta differs`;
+    for (let j = 0; j < 16; j++) if (d.rec[k * 16 + j] !== (j === 12 && f.meta[fc * 4 + 2] === level ? 0 : f.rec[fc * 16 + j])) return `coarse cluster ${k}: record differs`;
+    // (corner for corner up to the index codec's rotation)
+    const same = (ft: number, dt: number, r: number): boolean => {
+      for (let m = 0; m < 3; m++) {
+        const a = f.idx[ft + m] * 8, b = d.idx[dt + ((m + r) % 3)] * 8;
+        for (let j = 0; j < 8; j++) if (Math.abs(f.vtx[a + j] - d.vtx[b + j]) > (j >= 4 && j < 7 ? 1e-3 : 0)) return false;
+      }
+      return true;
+    };
+    for (let t = 0; t < f.meta[fc * 4 + 1] * 3; t += 3) {
+      const ft = f.meta[fc * 4] + t, dt = d.meta[k * 4] + t;
+      if (!same(ft, dt, 0) && !same(ft, dt, 1) && !same(ft, dt, 2)) return `coarse cluster ${k}: triangle ${t / 3} differs`;
+    }
+    k++;
+  }
+  return k === d.meta.length / 4 ? '' : `${d.meta.length / 4} coarse clusters, ${k} expected`;
+}
 if (input?.endsWith('.nm') && args.reencode) {
   const { reencodeModel } = await import('../src/nanite-lib/model/encode.ts');
   const { decodeModel } = await import('../src/nanite-lib/model/decode.ts');
@@ -66,10 +98,10 @@ if (input?.endsWith('.nm') && args.reencode) {
     return true;
   };
   for (let t = 0; t < a.dag.idx.length; t += 3) if (!near(t, 0) && !near(t, 1) && !near(t, 2)) throw new Error(`triangle ${t / 3} moved after re-encoding`);
-  const bad = recordsHold(a.dag.rec, b.dag.rec);
+  const bad = recordsHold(a.dag.rec, b.dag.rec) || (await coarseHolds(after, b, 4));
   if (bad) throw new Error(bad);
   writeFileSync(input, after);
-  console.log(`${input}: ${(before.length / 1e6).toFixed(2)} -> ${(after.length / 1e6).toFixed(2)} MB, every triangle within a step and every sphere holding the old`);
+  console.log(`${input}: ${(before.length / 1e6).toFixed(2)} -> ${(after.length / 1e6).toFixed(2)} MB, every triangle within a step, every sphere holding the old, the coarse copy its coarsest levels`);
   process.exit(0);
 }
 if (input?.endsWith('.nm')) {
@@ -194,7 +226,7 @@ const canon = (a: Uint32Array): Uint32Array => {
   }
   return o;
 };
-const held = recordsHold(dag.rec, back.dag.rec);
+const held = recordsHold(dag.rec, back.dag.rec) || (await coarseHolds(file, back, height));
 if (!same(canon(dag.idx), canon(back.dag.idx)) || held || !same(dag.meta, back.dag.meta) || dv > 1e-5 || turned > unique * 1e-4) {
   console.error(`round trip FAILED (largest position/uv difference ${dv}, ${turned} normals; same triangles ${same(canon(dag.idx), canon(back.dag.idx))}, records ${held || 'held'}, meta ${same(dag.meta, back.dag.meta)})`);
   process.exit(1);

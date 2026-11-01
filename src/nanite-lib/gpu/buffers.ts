@@ -1,6 +1,7 @@
 // The renderer's GPU data (NaniteRenderer's methods, attached in renderer.ts): every type's vertices, triangles and
 // clusters in a few merged buffers, the instances, and per type where its clusters are. A type still downloading
-// (NaniteType.later: the demo's Lucy, ~5 MB) has its share reserved, with no clusters, and is filled in when it arrives.
+// (NaniteType.later: the demo's Lucy, ~5 MB) has its share reserved, with no clusters or a coarse copy's, and is
+// filled in when it arrives (a coarse copy too: fillType again).
 import * as THREE from 'three/webgpu';
 import { storage, uniformArray } from 'three/tsl';
 import { CD_STRIDE } from './constants.ts';
@@ -62,9 +63,9 @@ export const bufferMethods = {
     const typeInfo: THREE.Vector4[] = [];
     this.stats = { clusters: nClusters, verts: nVerts, tris: nIdx / 3, types: [] };
     trees.forEach((t, k) => {
-      // (a late model: no clusters yet, so nothing of it is drawn; its radius a bound for the chunks' boxes)
-      const radius = t.later ? t.radius : pack(t, a, at[k]);
-      typeInfo.push(new THREE.Vector4(at[k].co, t.later ? 0 : t.meta.length / 4, radius, t.height));
+      // (a late model with no clusters yet: nothing of it is drawn; its radius a bound for the chunks' boxes)
+      const radius = t.meta.length ? pack(t, a, at[k]) : t.radius;
+      typeInfo.push(new THREE.Vector4(at[k].co, t.meta.length / 4, radius, t.height));
       this.stats.types.push({ name: t.name, ...t.stats, radius: +radius.toFixed(1) });
     });
     const sb = (arr: Float32Array | Uint32Array, item: number) => new THREE.StorageBufferAttribute(arr, item);

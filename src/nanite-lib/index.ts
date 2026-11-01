@@ -18,7 +18,7 @@ export { coverageScales, maskOf, select } from './alpha.ts';
 
 // the model file (.nm): a mesh with its DAG built offline, meshopt-compressed
 export { encodeModel, type EncodeOptions, type EncodedModel } from './model/encode.ts';
-export { decodeModel, readHeader, dequantize, loadModel, MODEL_FORMAT, type ModelHeader, type LoadedModel } from './model/decode.ts';
+export { decodeModel, decodeCoarse, readHeader, dequantize, loadModel, MODEL_FORMAT, type ModelHeader, type LoadedModel } from './model/decode.ts';
 export { modelSource, type ModelSource } from './model/source.ts';
 
 // a worker's error event as an Error naming the worker

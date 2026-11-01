@@ -61,14 +61,15 @@ export async function buildForest(o: ForestSetup) {
   const { cover: density, litter, groundFar } = o.ground;
   const { sun, sunDir, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn } = o.lighting;
   const grown = await growing;
-  // the Lucy scene's statues become impostors far off like trees (a million of them, src/scene.ts): Lucy is waited
-  // for (her ~5 MB, downloading since the start) and her tile baked; the forest's dozen never are, and come in later
+  // the Lucy scene's statues become impostors far off like trees (a million of them, src/scene.ts): Lucy's coarse copy
+  // is waited for (the file's first ~0.4 MB, #63) and her tile baked from it; the rest of her comes in later (the
+  // forest's dozen are never impostors, and come in later whole)
   const lucy = (await sceneName) === 'lucy';
   // (past the shadow map, and from high up everywhere, receivers fade to an average: the trees' canopy self-shade,
   // 0.35 of the sun. The statues have no canopy, their normals shade their far side: with it they went darker past a
   // circle round the viewer, the map's edge, the user's "a circle where statues gain their brightness")
   if (lucy && !params.has('treeshade')) treeFarShadow.value = 1;
-  const trees = lucy ? await Promise.all(grown.map(async (t) => (t.later ? { ...(await t.later.tree), noImpostor: false, ...LUCY_IMPOSTORS } : t))) : grown;
+  const trees = lucy ? await Promise.all(grown.map(async (t) => (t.later ? { ...(await t.later.coarse), later: t.later, noImpostor: false, ...LUCY_IMPOSTORS } : t))) : grown;
   const buildMs = performance.now() - t0;
   await ui.update(0.77, 'Pressing leaves and bark into texture arrays');
 
@@ -94,7 +95,12 @@ export async function buildForest(o: ForestSetup) {
     leafDither: samples === 1 && LEAF_DITHER,
   });
   lap('Forest buffers and passes');
-  for (const t of trees) t.later?.tree.then((full) => forest.fillType(full)); // (Lucy, whenever she's downloaded)
+  // (Lucy, whenever she's downloaded: her coarse copy first, unless she's in already, then the whole of her)
+  for (const t of grown) {
+    let whole = false;
+    if (!lucy) t.later?.coarse.then((c) => whole || forest.fillType(c));
+    t.later?.tree.then((full) => ((whole = true), forest.fillType(full)));
+  }
   forest.u.tau.value = Number(params.get('tau') ?? 1);
   forest.u.maxDist.value = fogFar.value; // beyond the fog a tree is invisible: don't even cull its clusters
   forest.u.debug.value = Number(params.get('debug') ?? 0);
