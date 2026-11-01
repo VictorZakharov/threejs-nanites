@@ -156,8 +156,8 @@ export interface NaniteType extends DagResult {
   /** The full-detail source meshes (the impostor bake's frame, and its full-detail bake). */
   src: { bark: BarkSource; leaves: LeafSource };
   /**
-   * Still downloading (its arrays empty, its radius a bound): the sizes reserved for it in the renderer's buffers, and
-   * the type once it's in (NaniteRenderer.fillType).
+   * Still downloading: the sizes reserved for it in the renderer's buffers, and the type once it's in
+   * (NaniteRenderer.fillType). Its arrays are empty (its radius a bound), or hold a coarse copy to draw meanwhile.
    */
   later?: { verts: number; indices: number; clusters: number; tree: Promise<NaniteType> };
 }
