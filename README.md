@@ -199,8 +199,8 @@ breakdown to it.
    - Each sphere grows by the wind's reach at its height.
    - What passes is drawn in phase 2, with the impostors (tested once, against this frame's HZB).
 6. **Software rasterizer:** a compute pass rasterizes the tiny clusters into a visibility buffer (depth, then
-   triangle id); a fullscreen pass shades it. It only runs from 25 m above the ground up, where far trees are many
-   and small.
+   triangle id); a fullscreen pass shades it. It runs from 2 km above the ground up, for the tiny impostors
+   (splats); its clusters no longer paid anywhere (#8).
 7. **Shadow map:** the same culling and LOD passes for the sun, at a coarser τ, for the casters whose shadow can
    land in view.
 8. **Then:** god rays, and the TAA resolve, which upscales to the screen's resolution.
@@ -254,8 +254,8 @@ difference, the parts don't add up exactly to the total.
   cost 0.24 ms and at 8.8 km 0.4 ms. (off) means it wasn't running.
 - **The shadow map** gives way to an average canopy shadow once its texels are too coarse to draw one tree's shadow
   (from ~1 km up on desktop): at 8.8 km there's no shadow pass.
-- **The software rasterizer** pays only where many triangles are pixel-sized (the zoom). Elsewhere it costs up to
-  0.2 ms, since the coarser leaf levels left few tiny triangles.
+- **The software rasterizer** no longer pays for clusters: the coarser leaf levels and bark errors left few tiny
+  triangles, and it cost 0.06-0.73 ms on the views it ran on, zoomed too. It runs from 2 km up, for the splats.
 - **Reproduce:**
 
   ```sh
