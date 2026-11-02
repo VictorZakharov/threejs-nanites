@@ -34,6 +34,7 @@ import type { DagStats } from '../dag/types.ts';
 import type { Float, Uint, UVec4 } from '../types.ts';
 import type { Counters, NaniteInstances, NaniteStats, NaniteTextures, NaniteType, NaniteUniforms, View } from './types.ts';
 import type { Hzb } from './hzb.ts';
+import { ListGuard } from './list-guard.ts';
 
 type TypeStats = DagStats & { name: string; radius: number };
 
@@ -97,6 +98,9 @@ export class NaniteRenderer {
   readonly leafPrepass: LeafPrepass;
   readonly main: View;
   readonly shadow: View;
+  /** Raises a view's tau when its lists near their caps (list-guard.ts); `mainGuard.scale` over 1: less detail than tau asks. */
+  readonly mainGuard: ListGuard;
+  readonly shadowGuard: ListGuard;
   readonly group: THREE.Group;
 
   /** `types`: the mesh types, in the order the instances' b.z refers to them; `look`: see gpu/look.ts. */
@@ -127,6 +131,8 @@ export class NaniteRenderer {
     this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (splats.ts)
     this.main = this._buildView('main', 1);
     this.shadow = this._buildView('shadow', SHADOW_TAU_MUL);
+    this.mainGuard = new ListGuard(renderer, this.main);
+    this.shadowGuard = new ListGuard(renderer, this.shadow);
     this.group = new THREE.Group();
     this.leafPrepass = new LeafPrepass(this);
     for (const kind of [0, 1] as const) {
@@ -207,7 +213,10 @@ export class NaniteRenderer {
     // keep the shadow casters' LOD where it is unzoomed
     // (the main view gets full zoomed detail, as if 5x closer: the narrow view culls most of the forest, and the
     // auto quality trims tau if it's still too much)
-    this.shadow.tauMul.value = SHADOW_TAU_MUL * (camera.userData.zoom ?? 1) * (viewportHeight / (this.shadowLodHeight ?? viewportHeight));
+    this.mainGuard.update();
+    if (shadowCamera) this.shadowGuard.update();
+    this.main.tauMul.value = this.mainGuard.scale;
+    this.shadow.tauMul.value = this.shadowGuard.scale * SHADOW_TAU_MUL * (camera.userData.zoom ?? 1) * (viewportHeight / (this.shadowLodHeight ?? viewportHeight));
     this.sw.begin(this.renderer, camera, size.x, size.y);
     this.splats.begin();
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)

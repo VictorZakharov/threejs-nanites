@@ -154,6 +154,7 @@ export interface DemoExtras {
 function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
   return {
+    auto, // (--probe=zoompan: its raw GPU samples)
   renderer, scene, camera, forest, controls, instances, sceneRT, taa,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
