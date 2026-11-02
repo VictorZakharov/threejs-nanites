@@ -34,7 +34,7 @@ export function createAutoQuality(
   setScale: (s: number) => void,
   maxScale: () => number,
   zoom: { zoom: number; zoomTarget: number } | null,
-): (dt: number) => void {
+): { step: (dt: number) => void; followZoom: () => void } {
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
@@ -99,7 +99,12 @@ export function createAutoQuality(
     lastAdjust = performance.now();
   };
 
-  /** tau follows the zoom as it eases; zooming out restores the unzoomed setting. */
+  /**
+   * tau follows the zoom as it eases; zooming out restores the unzoomed setting. Called with the zoom, before the culling:
+   * run after the frame, every frame was culled at the new zoom with the last frame's tau. The first frames of the ease move
+   * the zoom by half each, and the Lucy forest's triangles go by about 1 / tau^2.5: 337k clusters mid-way against 70k at
+   * either end (the user: "spikes to 20+ mil triangles").
+   */
   const followZoom = (): void => {
     if (auto.on && !wasOn) saved = null; // (a preset was on in between: start over)
     wasOn = auto.on;
@@ -120,8 +125,7 @@ export function createAutoQuality(
     if (!z && zoom.zoom === 1) saved = null;
   };
 
-  return (dt: number): void => {
-    followZoom();
+  const perFrame = (dt: number): void => {
     // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
     auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
@@ -167,4 +171,5 @@ export function createAutoQuality(
       console.warn('GPU timestamp readback failed', err);
     });
   };
+  return { step: perFrame, followZoom };
 }

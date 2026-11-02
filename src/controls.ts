@@ -42,6 +42,7 @@ export class FlyControls {
   readonly baseFov: number;
   zoom = 1;
   zoomTarget = 1;
+  onZoom?: () => void; // (each update, with the zoom set, before anything is culled: src/auto-quality.ts moves tau with it)
   zoomMax = 5;
   private zoomFrom = 1;
   private zoomGoal = 1;
@@ -142,6 +143,7 @@ export class FlyControls {
       this.camera.fov = fov;
       this.camera.updateProjectionMatrix();
     }
+    this.onZoom?.();
   }
 
   /** On foot: WASD over the ground, gravity, Space jumps; Space again in the air takes off. */
