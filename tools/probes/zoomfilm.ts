@@ -28,7 +28,13 @@ async (demo: Demo) => {
     };
     requestAnimationFrame(grab);
   });
+  // (the key's copy and the report, zoomed: ?perf=1; the mouse stays captured)
+  window.dispatchEvent(new KeyboardEvent('keydown', { code: 'KeyC' }));
+  const report = demo.perfReport?.();
+  await new Promise((r) => setTimeout(r, 300));
+  const copied = (demo.hud?.perf?.el as HTMLElement | undefined)?.dataset.copy; // ('copied', 'failed', none: no key)
   const log = (await demo.live(false)) as number[][];
+  const stillZoomed = demo.controls.zoomTarget > 1;
   demo.controls.zoomTarget = demo.controls.zoom = 1;
   const last = frames[frames.length - 1].d;
   const over = (a: Uint8ClampedArray, b: Uint8ClampedArray): number => {
@@ -55,5 +61,5 @@ async (demo: Demo) => {
     sc.putImageData(new ImageData(new Uint8ClampedArray(f.d), W, H), (i % 4) * W, (i >> 2) * H);
     shots.push(Math.round(f.t));
   });
-  return { frames: frames.length, medianFrameMs: +dts[dts.length >> 1].toFixed(1), rows, shots, png: sheet.toDataURL('image/png') };
+  return { copied, stillZoomed, report, frames: frames.length, medianFrameMs: +dts[dts.length >> 1].toFixed(1), rows, shots, png: sheet.toDataURL('image/png') };
 }

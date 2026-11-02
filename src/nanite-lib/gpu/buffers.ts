@@ -98,6 +98,7 @@ export const bufferMethods = {
 
   /** Fills in a late type (NaniteType.later) once it's arrived: its share of the buffers, then its clusters. */
   fillType(this: NaniteRenderer, t: NaniteType): void {
+    this.fills++;
     const a = this.arrays, at = a.at[t.id], ti = this.typeValues[t.id];
     const n = t.meta.length / 4, nv = t.vtx.length / 8, ni = t.idx.length;
     const next = a.at[t.id + 1] ?? { co: a.cData.length / (CD_STRIDE * 4), vo: a.vtx.length / 8, io: a.idx.length };

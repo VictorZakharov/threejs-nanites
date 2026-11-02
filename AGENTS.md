@@ -483,6 +483,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   `webgpu-start.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
+  C copies it too, with the mouse still captured (a click releases it, which ends a zoom). The report ends with what changed
+  in the 4 s after the last zoom in (`src/zoom-log.ts`): tau, resolution, the shadow map, frames over 50 ms, model fills, and the
+  cluster and impostor counts every 200 ms. `--probe=zoomfilm` is the zoom frame by frame.
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report). Bigger type on desktop; its lines never
   wrap, and the HUD on the right only ever widens (`minWidth`): numbers changing width shifted the layout (the user).
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
