@@ -5,7 +5,7 @@ import * as THREE from 'three/webgpu';
 import { Fn, attribute, float, mix, smoothstep } from 'three/tsl';
 import { TERRAIN_SEGMENTS } from './terrain.ts';
 import { createGrass } from './grass.ts';
-import { VARIANTS, type BuiltTree } from './trees.ts';
+import { VARIANTS, isModel, type BuiltTree } from './trees.ts';
 import { NaniteForest } from './forest/forest.ts';
 import { makeLeafAlpha, LEAF_DITHER } from './nanite-lib/index.ts';
 import { bakeImpostors, createAtlas, impostorCoverage, IMPOSTOR_CUT } from './nanite-lib/index.ts';
@@ -54,8 +54,9 @@ export interface ForestSetup {
  * switched with the impostor: the user's "shadow in another direction"; `?statueshadowpx=`: at 0, every statue in the
  * shadow map listed its clusters, `slope` 8.6 ms, 4.4 at 0.25, the same image). At their baked size (`?statuesolid=0`:
  * GROW's, a crown's, so 0.81 of the area from 15-45 degrees up: far statues covered 0.8 of what they should and the
- * ground showed through them, up to +3.5/255 on `oblique`).
+ * ground showed through them, up to +3.5/255 on `oblique`). Each has the view of her nearest its facing (STATUE_VIEWS).
  */
+const STATUE_VIEWS = Number(new URLSearchParams(location.search).get('statueviews') ?? 8);
 const LUCY_IMPOSTORS = { impostorSolid: new URLSearchParams(location.search).get('statuesolid') !== '0', impostorPx: Number(new URLSearchParams(location.search).get('statuepx') ?? 0.7), shadowPx: Number(new URLSearchParams(location.search).get('statueshadowpx') ?? 0.25), shadowTau: Number(new URLSearchParams(location.search).get('statueshadowtau') ?? 2) };
 
 export async function buildForest(o: ForestSetup) {
@@ -127,7 +128,8 @@ export async function buildForest(o: ForestSetup) {
   });
   // the impostors (quads, splats, shadow quads): built and compiled now, against the atlas before it's baked
   // (createAtlas: the bake and the coverage fill it in place)
-  const atlas = createAtlas(VARIANTS.length);
+  // (the Lucy scene has no trees: no tiles for them, and for Lucy STATUE_VIEWS round her)
+  const atlas = createAtlas(VARIANTS.length, false, lucy ? VARIANTS.map((v) => (isModel(v) ? STATUE_VIEWS : 0)) : undefined);
   const impostorMesh = forest.buildImpostorMesh(atlas, VARIANTS.map((v) => v.impGain));
   impostorMesh.receiveShadow = true;
   // an impostor looks the map up on its sun side (the neighbours' shadows), its own crown's shade is the average

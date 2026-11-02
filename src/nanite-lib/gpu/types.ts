@@ -139,8 +139,8 @@ export interface NaniteType extends DagResult {
   /** Its impostor switch size, x the renderer's impostorPx (1; a mesh whose one view per elevation shows less, smaller). */
   impostorPx?: number;
   /**
-   * Its quad at the size it was baked, not the table's (GROW: fitted to crowns, whose geometry covers less than their
-   * baked tile; a solid mesh covers just what it was baked with).
+   * Its quad at the size it was baked and its alpha as baked, unmirrored (GROW and IMP_COV are fitted to crowns, whose
+   * geometry covers less than their baked tile; a solid mesh covers just what it was baked with).
    */
   impostorSolid?: boolean;
   /**

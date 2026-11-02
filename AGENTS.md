@@ -665,12 +665,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   32 degrees up, so only the second counts). It was 1.45-1.5 from above, fitted while half the trees were missing:
   with all drawn, crowns overlapped many deep and covered ~2x their geometry's pixels. Alpha is
   coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
-- A solid mesh's impostor keeps its baked size (`NaniteType.impostorSolid`, the Lucy scene's statues; `?statuesolid=0`):
-  `GROW` was fitted to crowns, and at 0.9 from 15-45 degrees up far statues covered 0.8 of what they should, reading
-  up to +3.5/255 on `oblique` (the ground shows through). `--lodcheck`'s rows (1440p, `--lodk=15`, tau 4.73, cut / model
-  drawn at high detail): `oblique` 0.80-0.85 -> 0.94-0.97, `slope` 0.85-0.92 -> 1.00-1.05, `down800` 0.83-0.94 ->
-  1.04-1.11; same cost. Still off: `lucyhorizon`'s far rows, 0.90 and +9.7/255 with or without this and at any
-  `statuepx`, and zoomed geometry at tau 8, 0.84-0.88 (0.96 at 4.73): coarse levels lose thin parts.
+- The Lucy scene's statues aren't round their axis, so their impostors have views round it (`createAtlas`'s `viewsOf`,
+  `impostorView`, `?statueviews=`, 8; trees have one, and no tiles in that scene: the atlas is 8192x512). With one, every
+  statue showed its front, the true shape coming in at the switch or through the zoom (the user: "small statues grow
+  wings"); reference coverage changes ~20% with the facing. They snap every 45 degrees: `--dolly --step=0 --turn=0.2`
+  ~+20% flicker events (`oblique` 1311 -> 1591, `slope` 4542 -> 5338). A solid mesh also keeps its baked size and alpha,
+  unmirrored (`NaniteType.impostorSolid`, `?statuesolid=0`): `GROW` (0.9 from 15-45 degrees up) and `IMP_COV` are fitted to
+  crowns, and on a statue the bright ground showed through. `--lodcheck`'s rows (1440p, `--lodk=15`, tau 4.73, cut / model
+  drawn at high detail): `oblique` 0.80-0.85 -> 0.94-0.98, `slope` 0.85-0.92 -> 1.00-1.04, `down800` 0.83-0.94 ->
+  1.00-1.07, `lucyhorizon` 0.90-0.98 -> 0.94-0.98; same frame cost. Its brightness is off by the god rays changing with
+  the zoom, not the statues (compare with `rays=0`).
 - Impostor coverage per type (`impCov` in `VARIANTS`: side, top, mixed by elevation; `impostorCov`, `holes` in
   `billboards.ts`): where a type still covers more than its real trees after `GROW` (Oak Large: 0.8 side, 0.6
   top; the bushes from above) its impostors get holes: the atlas cells of the mip a pixel samples (about a pixel
