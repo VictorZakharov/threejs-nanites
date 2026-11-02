@@ -458,22 +458,21 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
   is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
   last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). While zoomed it stays at the setting it was zoomed in with: it never
-  refines, and it coarsens only far over the budget (over 1.5x): the first median cost (from 120 ms after the zoom is
-  within 5%: the jumps land while it still eases in) sets tau by cost ~ 1 / tau towards 0.9 of the budget, at most twice
-  (`leap`, `?autojump=0` for steps), and past tau 8 the resolution by its pixels in the same jump, with no trials.
-  Refining was the redraw: looking down from high up the zoom is often the cheaper view (2.2 ms against 5.4), and at
-  2560x1440 `down800` re-cut 8 -> 2.1 in six steps, one every 250 ms; and the second jump's slope from two points hit
-  its bound and overshot, walked back after (Lucy forest `oblique`, 1 -> 2.5 -> 7.6 -> 6.1; the user: "a visible redraw,
-  but then it redraws back to the original... can we just stay at the original?"). `--zoomtime` on `down300`..`down6000`,
-  `oblique`, `slope`, `overview`, `lone`, `topdown700`, both scenes: nothing reverses, and only views far over the budget
-  move (`oblique` 1 -> 2.6 -> 4.35). The cost: a zoom cheaper than its unzoomed view doesn't spend the room on detail. The resolution goes last (`ZOOM_RES`: past 2.5x
-  the budget at tau 8): the LOD and the impostors' sizes go by the scene's pixels, so a step down coarsens everything
-  on screen, the user's "it changes statues noticeably" a second after the zoom (Lucy `oblique` at 1440p: tau 4.7 22 ms,
-  tau 8 9 ms, alike to the eye, and at 64% 2.3 ms with 3.5k statues as geometry instead of 7.5k, 6M triangles instead of
-  33M, the small ones smooth front-facing shapes). So a zoom can run over the budget, up to ~2.5x. `--zoomtime` logs it,
-  with `?taa=0` (or its tiles, with TAA) and `?auto=0&tau=` to hold a setting and read a view's real cost: a cost that
-  looks like a transient may not be one. A resolution step down is a trial: if it saved under a third of its share of the pixels
+  "optimize the algo before we downgrade"). While zoomed it stays at the setting it was zoomed in with, over the budget too: the LOD
+  follows the zoom, so the same tau is already finer. Only frames over 75 ms coarsen it (`ZOOM_FLOOR`; the resolution
+  past 125 ms). It used to coarsen to the budget about a second after the zoom, which is the redraw the user kept seeing:
+  "it changes statues noticeably", "far small statues losing their wings", "we should be making them finer, not coarser".
+  Lucy `oblique` zoomed, 1440p, `--lodcheck`: tau 4.73 -> 8 took a 17-32 px statue's shape lost from 10 to 21%, 33-64 px
+  from 6 to 13%, and at 64% resolution (LOD and impostor sizes go by the scene's pixels) 3.5k statues stayed geometry
+  instead of 7.5k. Refining while zoomed was a redraw too (2560x1440 `down800` re-cut 8 -> 2.1 in six steps), and a jump
+  walked back the user's "can we just stay at the original?". `--zoomtime` with `taa=0` (2560x1440, both scenes,
+  `oblique`, `lucyfield`, `lucyhorizon`, `down800`, `canopyzoom`): the setting doesn't move after the zoom, 2-25k pixels
+  differ between shots, as with it held. The cost: zoomed GPU 4.6-15.5 ms, over the 5.5 ms budget on most of them.
+  With it, a zoom shows what the unzoomed setting allows: at 8 / 0.64 the far statues stay coarse. `--zoomtime` tiles
+  miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
+  `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
+  Small statues are off whatever the tau (unzoomed, under 16 px: ~25% of the shape lost, +8..12/255 luma against a
+  control's -2): not explained yet. A resolution step down is a trial: if it saved under a third of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off

@@ -7,18 +7,18 @@
 // The 5x zoom is another scene for the GPU (the far forest at full detail), so zooming in starts from the unzoomed
 // setting (sharp: jumping to the last zoom's setting, learned at a costly spot, was the user's "washed" zoom) and
 // zooming out restores it at once: with one setting it stayed at the zoom's tau 8 for seconds after. While zoomed it
-// stays there: only far over the budget it coarsens, by a jump (`jump`: tau by cost ~ 1 / tau, at most twice, rather
-// than a dozen steps, each a visible re-cut from near to far), and it never refines. Refining (looking down from high
-// up the zoom is often the cheaper view) was a redraw every 250 ms, and a jump that overshot, walked back, was the
-// user's "a visible redraw, but then it redraws back to the original... can we just stay at the original?". The
-// resolution goes last, past ZOOM_RES x the budget at the coarsest tau: the LOD and the impostors' sizes go by the
-// scene's pixels, so a step down coarsens everything on screen ("it changes statues noticeably"; Lucy forest `oblique`
-// at 1440p: tau 8 at 64% drew 3.5k statues as geometry, 6M triangles, against 7.5k, 33M; tau 4.7 and 8 look alike).
+// stays there, over the budget too: the LOD follows the zoom, so the same tau is already finer. Coarsening to the budget
+// a second after the zoom took the wings off the small statues (Lucy forest `oblique` at 1440p, tau 4.7 to 8: 10 -> 21%
+// of a 17-32 px statue's shape, `--lodcheck`; the user: "we should be making them finer, not coarser"), and lowering the
+// resolution, which the LOD and the impostors' sizes go by, was worse ("it changes statues noticeably"). Refining was a
+// redraw every 250 ms, and a jump walked back the user's "can we just stay at the original?". Only frames over
+// 1.5 x ZOOM_FLOOR coarsen it.
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
 
-/** While zoomed, the resolution steps down only over this x the budget. */
+/** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
+const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
 
 /**
@@ -46,16 +46,13 @@ export function createAutoQuality(
   // (compared by the median of the raw samples since the last change: the eased time lags every tau step)
   let trial: { from: number; before: number; at: number } | null = null;
   let futile: { gpu: number; at: number } | null = null;
-  // after zooming in: the jumps left (?autojump=0: steps only)
-  let jump: { left: number } | null = null;
-  const jumps = new URLSearchParams(location.search).get('autojump') !== '0';
   const recent: [number, number][] = []; // (time, GPU ms) of each raw sample, the last 3 s
   const median = (from: number, to: number): number => {
     const v = recent.filter(([t]) => t > from && t <= to).map(([, m]) => m).sort((a, b) => a - b);
     return v.length >= 3 ? v[v.length >> 1] : NaN;
   };
   auto.forget = (): void => {
-    trial = futile = jump = null;
+    trial = futile = null;
     recent.length = 0;
   };
 
@@ -66,14 +63,12 @@ export function createAutoQuality(
     const far = over > 1.5 || over < 0.5;
     // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
     if (now - lastAdjust < (far ? 250 : auto.scale !== 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
-    // (zoomed, only far over the budget, and never back up: it stays at the setting it was zoomed in with)
+    // (zoomed, only past the floor, and never back up: it stays at the setting it was zoomed in with)
     const limit = zoomState ? 1.5 : 1.1;
     if (zoomState && over <= limit) return;
     // over the budget, the resolution above the base goes first (it's the extra: full detail came before it)
     if (over > limit && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
     else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
-    // (zoomed, no trial: a step and a trial undone after were two redraws 1-3 s after the zoom, the user's "zooming
-    // in parallel to the ground, the redraw after 1-2 sec")
     else if (over > (zoomState ? ZOOM_RES : limit) && auto.scale > 0.5 && !futile) {
       const before = median(lastAdjust + 200, now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
@@ -96,32 +91,6 @@ export function createAutoQuality(
     lastAdjust = now;
   };
 
-  /**
-   * One jump of tau towards 0.9 of the budget, from the median cost since the last change, only if it's far over;
-   * false once it's done (at a bound, the resolution off its base) and the steps take over. By cost ~ 1 / tau: the
-   * slope from the last jump's two points came out at its bound whenever a jump changed little, and overshot (Lucy
-   * forest `oblique`, tau 1 -> 2.5 -> 7.6, then under half the budget).
-   */
-  const leap = (t: number): boolean => {
-    // (soon: the frame after a change is already cut by the new tau, and a jump while the zoom still eases in is
-    // hidden in its motion; at 300 ms the second came ~0.85 s after the click, a redraw of its own: the user)
-    const m = t - lastAdjust > 120 ? median(lastAdjust + 50, t) : NaN;
-    if (!(m > 0)) return true; // (not measured yet)
-    const o = m / auto.budget, j = jump!;
-    const done = (): false => ((jump = null), false);
-    if (o <= 1.5 || auto.scale !== 1) return done();
-    const want = tau.value * (o / 0.9), next = Math.min(auto.maxTau, want);
-    // past the coarsest tau and ZOOM_RES, the rest from the resolution in the same jump (by its pixels: x0.75 steps
-    // after were a redraw each, and a trial undone)
-    const rest = want > auto.maxTau ? (o * tau.value) / auto.maxTau / ZOOM_RES : 1;
-    if (rest > 1) setScale(Math.max(0.5, Math.sqrt(1 / rest)));
-    if (Math.abs(next / tau.value - 1) < 0.05) return rest > 1 ? (restart(), done()) : done();
-    tau.value = next;
-    if (--j.left <= 0) jump = null;
-    restart();
-    return true;
-  };
-
   /** Starts the measurement over: the view just changed under it. */
   const restart = (): void => {
     auto.gpuMs = 0;
@@ -140,8 +109,8 @@ export function createAutoQuality(
     const z = zoom.zoomTarget > 1;
     if (z === zoomState) return;
     zoomState = z;
-    trial = futile = jump = null;
-    if (z) (saved = [tau.value, auto.scale]), jumps && (jump = { left: 2 });
+    trial = futile = null;
+    if (z) saved = [tau.value, auto.scale];
     else if (saved && auto.on) {
       tau.value = saved[0];
       if (saved[1] !== auto.scale) setScale(saved[1]);
@@ -155,7 +124,7 @@ export function createAutoQuality(
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
     auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
     const timed = gpuBackend(renderer).trackTimestamp, now = performance.now();
-    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (timed ? 50 : 16.7), false);
+    if (auto.on && (!timed || auto.frameMs > 50)) step(auto.frameMs / (zoomState ? ZOOM_FLOOR : timed ? 50 : 16.7), false);
     if (!timed) return;
     if (auto.busy && now - (auto.busySince ?? 0) < 1000) return; // (a readback that never settles is dropped)
     auto.busy = true;
@@ -186,12 +155,11 @@ export function createAutoQuality(
         return;
       }
       if (trial) return; // (no other step while one is on trial)
-      if (jump && auto.on && leap(t)) return;
       const m = median(Math.max(lastAdjust + 200, t - 1000), t);
       // (held until the cost changes by half, not before 10 s, or for a minute: each retry is a second of blur, and
       // GPU timings drift by 30% on their own)
       if (futile && ((m > 0 && Math.abs(m / futile.gpu - 1) > 0.5 && t - futile.at > 10000) || t - futile.at > 60000)) futile = null;
-      if (auto.on) step(auto.gpuMs / auto.budget, true);
+      if (auto.on && !zoomState) step(auto.gpuMs / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);
