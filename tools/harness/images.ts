@@ -51,11 +51,11 @@ export function meanColour(png: Buffer | PNG, rect: Rect | null = null) {
 }
 
 /** Pixels that differ between two screenshots of the same size. */
-export function diffPixels(a: Buffer, b: Buffer): number {
+export function diffPixels(a: Buffer, b: Buffer, over = 0): number {
   const p = PNG.sync.read(a), q = PNG.sync.read(b);
   let n = 0;
   for (let i = 0; i < p.data.length; i += 4)
-    if (p.data[i] !== q.data[i] || p.data[i + 1] !== q.data[i + 1] || p.data[i + 2] !== q.data[i + 2]) n++;
+    if (Math.abs(p.data[i] - q.data[i]) > over || Math.abs(p.data[i + 1] - q.data[i + 1]) > over || Math.abs(p.data[i + 2] - q.data[i + 2]) > over) n++;
   return n;
 }
 

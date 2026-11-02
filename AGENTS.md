@@ -467,7 +467,13 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   its bound and overshot, walked back after (Lucy forest `oblique`, 1 -> 2.5 -> 7.6 -> 6.1; the user: "a visible redraw,
   but then it redraws back to the original... can we just stay at the original?"). `--zoomtime` on `down300`..`down6000`,
   `oblique`, `slope`, `overview`, `lone`, `topdown700`, both scenes: nothing reverses, and only views far over the budget
-  move (`oblique` 1 -> 2.6 -> 4.35). The cost: a zoom cheaper than its unzoomed view doesn't spend the room on detail. A resolution step down is a trial: if it saved under a third of its share of the pixels
+  move (`oblique` 1 -> 2.6 -> 4.35). The cost: a zoom cheaper than its unzoomed view doesn't spend the room on detail. The resolution goes last (`ZOOM_RES`: past 2.5x
+  the budget at tau 8): the LOD and the impostors' sizes go by the scene's pixels, so a step down coarsens everything
+  on screen, the user's "it changes statues noticeably" a second after the zoom (Lucy `oblique` at 1440p: tau 4.7 22 ms,
+  tau 8 9 ms, alike to the eye, and at 64% 2.3 ms with 3.5k statues as geometry instead of 7.5k, 6M triangles instead of
+  33M, the small ones smooth front-facing shapes). So a zoom can run over the budget, up to ~2.5x. `--zoomtime` logs it,
+  with `?taa=0` (or its tiles, with TAA) and `?auto=0&tau=` to hold a setting and read a view's real cost: a cost that
+  looks like a transient may not be one. A resolution step down is a trial: if it saved under a third of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off

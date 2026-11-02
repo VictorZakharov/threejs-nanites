@@ -1,20 +1,21 @@
 // --zoomtime: what changes on screen in the seconds after zooming in, with the page's own loop and auto quality (the
 // user: "shadows visibly changing 1-2 sec after zoom"). Per view: 5 s unzoomed to settle, then the 5x zoom; a
-// screenshot at each mark, the pixels changed since the last one (after the zoom has eased, ~0.6 s, nothing should
-// change but the wind and the clouds: use wind=0), and tau / resolution scale / shadow map size every 250 ms.
+// screenshot at each mark, the pixels changed since the last one, by more than 8/255 in brackets (after the zoom has
+// eased, ~0.7 s, nothing should change but the wind, the clouds and TAA's jitter: use wind=0&taa=0, and auto=0 to hold
+// the setting), and tau / resolution scale / shadow map size every 250 ms.
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { VIEWS } from './views.ts';
-import { diffPixels } from './images.ts';
+import { diffPixels, tileLuma } from './images.ts';
 import { at } from './status.ts';
 import type { Page } from 'playwright-core';
 import type { Options } from './options.ts';
 
-const MARKS = [0, 700, 1000, 1500, 2000, 2500, 3000, 4000, 6000]; // ms after the zoom starts (0: just before)
+const MARKS = [0, 700, 900, 1100, 1300, 1500, 1750, 2000, 2500, 3000, 4000, 6000]; // ms after the zoom starts (0: just before)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function zoomTime(page: Page, opts: Options, outDir: string, tag = '') {
-  const result: Record<string, { changed: Record<number, number>; track: string }> = {};
+  const result: Record<string, { changed: Record<number, string>; track: string }> = {};
   console.log(`
 zoomtime: the page's loop, auto quality on; 5 s unzoomed, then the zoom (pixels changed since the last shot)`);
   for (const name of opts.views) {
@@ -22,13 +23,19 @@ zoomtime: the page's loop, auto quality on; 5 s unzoomed, then the zoom (pixels 
     await page.evaluate((v) => window.__demo.setView(v), { ...VIEWS[name], zoom: 1 });
     await page.evaluate(() => window.__demo.live(true));
     await sleep(5000);
-    const t0 = Date.now(), changed: Record<number, number> = {};
+    const t0 = Date.now(), changed: Record<number, string> = {};
     let last: Buffer | null = null;
     for (const m of MARKS) {
       await sleep(Math.max(0, m - (Date.now() - t0)));
       const shot = await page.screenshot();
       writeFileSync(join(outDir, `zoomtime-${name}${tag}-${m}.png`), shot);
-      if (last && m > 700) changed[m] = diffPixels(last, shot);
+      if (last && m > 700) {
+        // (and the 16 px tiles whose mean moved over 2/255: TAA's jitter averages out in them, a redraw doesn't)
+        const [x, y] = [tileLuma(last).luma, tileLuma(shot).luma];
+        let tiles = 0;
+        for (let i = 0; i < x.length; i++) if (Math.abs(x[i] - y[i]) > 2) tiles++;
+        changed[m] = `${diffPixels(last, shot)} (${diffPixels(last, shot, 8)}) t${tiles}`;
+      }
       last = shot;
       if (m === 0) await page.evaluate(() => void (window.__demo.controls.zoomTarget = window.__demo.controls.zoomMax));
     }

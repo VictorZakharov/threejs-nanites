@@ -10,10 +10,16 @@
 // stays there: only far over the budget it coarsens, by a jump (`jump`: tau by cost ~ 1 / tau, at most twice, rather
 // than a dozen steps, each a visible re-cut from near to far), and it never refines. Refining (looking down from high
 // up the zoom is often the cheaper view) was a redraw every 250 ms, and a jump that overshot, walked back, was the
-// user's "a visible redraw, but then it redraws back to the original... can we just stay at the original?".
+// user's "a visible redraw, but then it redraws back to the original... can we just stay at the original?". The
+// resolution goes last, past ZOOM_RES x the budget at the coarsest tau: the LOD and the impostors' sizes go by the
+// scene's pixels, so a step down coarsens everything on screen ("it changes statues noticeably"; Lucy forest `oblique`
+// at 1440p: tau 8 at 64% drew 3.5k statues as geometry, 6M triangles, against 7.5k, 33M; tau 4.7 and 8 look alike).
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
+
+/** While zoomed, the resolution steps down only over this x the budget. */
+const ZOOM_RES = 2.5;
 
 /**
  * The per-frame step of the controller. `tau`: the forest's error threshold; `setScale`: the resolution scale (of the
@@ -68,7 +74,7 @@ export function createAutoQuality(
     else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
     // (zoomed, no trial: a step and a trial undone after were two redraws 1-3 s after the zoom, the user's "zooming
     // in parallel to the ground, the redraw after 1-2 sec")
-    else if (over > limit && auto.scale > 0.5 && !futile) {
+    else if (over > (zoomState ? ZOOM_RES : limit) && auto.scale > 0.5 && !futile) {
       const before = median(lastAdjust + 200, now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
       if (timed && !zoomState) trial = { from: auto.scale, before, at: now };
@@ -105,11 +111,11 @@ export function createAutoQuality(
     const done = (): false => ((jump = null), false);
     if (o <= 1.5 || auto.scale !== 1) return done();
     const want = tau.value * (o / 0.9), next = Math.min(auto.maxTau, want);
-    // past the coarsest tau, the rest from the resolution in the same jump (by its pixels: x0.75 steps after were
-    // a redraw each, and a trial undone)
-    const rest = want > auto.maxTau ? (o * tau.value) / auto.maxTau / 0.9 : 1;
-    if (rest > 1.1 / 0.9) setScale(Math.max(0.5, Math.sqrt(1 / rest)));
-    if (Math.abs(next / tau.value - 1) < 0.05) return rest > 1.1 / 0.9 ? (restart(), done()) : done();
+    // past the coarsest tau and ZOOM_RES, the rest from the resolution in the same jump (by its pixels: x0.75 steps
+    // after were a redraw each, and a trial undone)
+    const rest = want > auto.maxTau ? (o * tau.value) / auto.maxTau / ZOOM_RES : 1;
+    if (rest > 1) setScale(Math.max(0.5, Math.sqrt(1 / rest)));
+    if (Math.abs(next / tau.value - 1) < 0.05) return rest > 1 ? (restart(), done()) : done();
     tau.value = next;
     if (--j.left <= 0) jump = null;
     restart();
