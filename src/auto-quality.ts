@@ -6,10 +6,11 @@
 // on detail (fill, the culling of 2.5M instances), and phones hit that.
 // The 5x zoom is another scene for the GPU (the far forest at full detail), so zooming in starts from the unzoomed
 // setting (sharp: jumping to the last zoom's setting, learned at a costly spot, was the user's "washed" zoom) and
-// zooming out restores it at once: with one setting it stayed at the zoom's tau 8 for seconds after. From there it
-// jumps (`jump`): its first measurement of the zoomed view sets tau by cost ~ tau^-k (k 1, then from the two points),
-// twice, rather than a dozen x0.91 steps every half second, each a visible re-cut from near to far (the user: "zooming
-// in still redraws visibly over 1-2 sec").
+// zooming out restores it at once: with one setting it stayed at the zoom's tau 8 for seconds after. While zoomed it
+// stays there: only far over the budget it coarsens, by a jump (`jump`: tau by cost ~ 1 / tau, at most twice, rather
+// than a dozen steps, each a visible re-cut from near to far), and it never refines. Refining (looking down from high
+// up the zoom is often the cheaper view) was a redraw every 250 ms, and a jump that overshot, walked back, was the
+// user's "a visible redraw, but then it redraws back to the original... can we just stay at the original?".
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
@@ -39,8 +40,8 @@ export function createAutoQuality(
   // (compared by the median of the raw samples since the last change: the eased time lags every tau step)
   let trial: { from: number; before: number; at: number } | null = null;
   let futile: { gpu: number; at: number } | null = null;
-  // after zooming in: the jumps left, and the last one's (tau, cost over the budget) (?autojump=0: steps only)
-  let jump: { left: number; t?: number; o?: number } | null = null;
+  // after zooming in: the jumps left (?autojump=0: steps only)
+  let jump: { left: number } | null = null;
   const jumps = new URLSearchParams(location.search).get('autojump') !== '0';
   const recent: [number, number][] = []; // (time, GPU ms) of each raw sample, the last 3 s
   const median = (from: number, to: number): number => {
@@ -59,12 +60,15 @@ export function createAutoQuality(
     const far = over > 1.5 || over < 0.5;
     // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
     if (now - lastAdjust < (far ? 250 : auto.scale !== 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
+    // (zoomed, only far over the budget, and never back up: it stays at the setting it was zoomed in with)
+    const limit = zoomState ? 1.5 : 1.1;
+    if (zoomState && over <= limit) return;
     // over the budget, the resolution above the base goes first (it's the extra: full detail came before it)
-    if (over > 1.1 && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
-    else if (over > 1.1 && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
-    // (zoomed, only far over: the jump set it; a step and a trial undone after were two redraws 1-3 s after the
-    // zoom, the user's "zooming in parallel to the ground, the redraw after 1-2 sec")
-    else if (over > (zoomState ? 1.5 : 1.1) && auto.scale > 0.5 && !futile) {
+    if (over > limit && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
+    else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
+    // (zoomed, no trial: a step and a trial undone after were two redraws 1-3 s after the zoom, the user's "zooming
+    // in parallel to the ground, the redraw after 1-2 sec")
+    else if (over > limit && auto.scale > 0.5 && !futile) {
       const before = median(lastAdjust + 200, now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
       if (timed && !zoomState) trial = { from: auto.scale, before, at: now };
@@ -74,10 +78,10 @@ export function createAutoQuality(
     // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
-    else if (auto.scale < 1 && over < (zoomState ? 0.5 : 0.85)) setScale(Math.min(1, auto.scale / 0.85));
-    // (not before the resolution is back: it ate the room; zoomed, only far under the budget: the jumps set it, and
-    // x0.91 every second or so after was a re-cut of the statues each time, the user's redraw after the zoom)
-    else if (over < (zoomState ? 0.5 : 0.75) && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / (far ? 1.25 : 1.1));
+    else if (zoomState) return;
+    else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
+    // (not before the resolution is back: it ate the room)
+    else if (over < 0.75 && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / (far ? 1.25 : 1.1));
     // at full detail with room to spare, past the base towards the screen's own pixels (a dense screen at 1.5 of
     // its 3 read blurry, the scene's pixels upscaled 2x): a step is x1.32 the pixels (and finer LOD), so under 55%
     // it lands under the budget's 1.1 and doesn't swing back
@@ -87,8 +91,10 @@ export function createAutoQuality(
   };
 
   /**
-   * One jump of tau towards 0.9 of the budget, from the median cost since the last change; false once it's done (in
-   * the dead band, at a bound, the resolution off its base) and the steps take over.
+   * One jump of tau towards 0.9 of the budget, from the median cost since the last change, only if it's far over;
+   * false once it's done (at a bound, the resolution off its base) and the steps take over. By cost ~ 1 / tau: the
+   * slope from the last jump's two points came out at its bound whenever a jump changed little, and overshot (Lucy
+   * forest `oblique`, tau 1 -> 2.5 -> 7.6, then under half the budget).
    */
   const leap = (t: number): boolean => {
     // (soon: the frame after a change is already cut by the new tau, and a jump while the zoom still eases in is
@@ -97,17 +103,14 @@ export function createAutoQuality(
     if (!(m > 0)) return true; // (not measured yet)
     const o = m / auto.budget, j = jump!;
     const done = (): false => ((jump = null), false);
-    if ((o > 0.75 && o < 1.1) || auto.scale !== 1) return done();
-    // (the secant in log-log: a tau step that changed nothing, or the wrong way, is noise: k 1)
-    const k = j.t && j.o && j.t !== tau.value ? Math.log(j.o / o) / Math.log(tau.value / j.t) : 1;
-    const kk = Math.min(2, Math.max(0.5, k || 1)), want = tau.value * (o / 0.9) ** (1 / kk);
-    const next = Math.min(auto.maxTau, Math.max(1, want));
+    if (o <= 1.5 || auto.scale !== 1) return done();
+    const want = tau.value * (o / 0.9), next = Math.min(auto.maxTau, want);
     // past the coarsest tau, the rest from the resolution in the same jump (by its pixels: x0.75 steps after were
     // a redraw each, and a trial undone)
-    const rest = want > auto.maxTau ? (o * (tau.value / auto.maxTau) ** kk) / 0.9 : 1;
+    const rest = want > auto.maxTau ? (o * tau.value) / auto.maxTau / 0.9 : 1;
     if (rest > 1.1 / 0.9) setScale(Math.max(0.5, Math.sqrt(1 / rest)));
     if (Math.abs(next / tau.value - 1) < 0.05) return rest > 1.1 / 0.9 ? (restart(), done()) : done();
-    (j.t = tau.value), (j.o = o), (tau.value = next);
+    tau.value = next;
     if (--j.left <= 0) jump = null;
     restart();
     return true;
