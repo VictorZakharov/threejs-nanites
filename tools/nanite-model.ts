@@ -192,7 +192,11 @@ const height = Number(args.height ?? 1);
 // --attr=n,uv: the simplifier's normal and uv weights x these (src/nanite-lib/dag/build.ts BARK_WEIGHTS): heavier
 // normals switch later, so the shading jumps less at each switch, for more triangles
 const attr = (args.attr ?? '1,1').split(',').map(Number) as [number, number];
-const { file, header: head, dag } = await encodeModel(pos, idx, { height, attr, source: args.source ?? '' });
+// --errscale: the DAG's errors x this. The simplifier adds the normals' difference to the error it returns, as if it were metres:
+// at --attr=2,1 that was up to 1.35 m on a 4 m statue with thousands of triangles left, so a cut at tau 8 kept 15k triangles
+// for a 30 px statue and had nothing between that and the 70-triangle root. Lighter weights give errors nearer the geometry's.
+const errScale = Number(args.errscale ?? 1);
+const { file, header: head, dag } = await encodeModel(pos, idx, { height, attr, errScale, source: args.source ?? '' });
 const unique = head.vertices;
 log(`${unique.toLocaleString()} vertices after reordering`);
 log(`DAG at ${height} m: ${head.clusters.toLocaleString()} clusters, ${dag.stats.barkLevels + 1} levels, ${dag.stats.barkRoots} roots, ${dag.stats.ms} ms`);

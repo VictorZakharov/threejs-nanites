@@ -29,6 +29,8 @@ export interface EncodeOptions {
   height: number;
   /** The bark simplifier's normal and uv weights x these (dag/build.ts BARK_WEIGHTS): heavier normals switch later. */
   attr?: [number, number];
+  /** The LOD errors x this: tau means the same with lighter `attr` (a model's errors are what its cut goes by, see tools/nanite-model.ts). */
+  errScale?: number;
   /** Where the mesh came from (kept in the header). */
   source?: string;
 }
@@ -58,6 +60,7 @@ export async function encodeModel(pos: Float32Array, idx: Uint32Array, opts: Enc
   const { height } = opts, attr = opts.attr ?? [1, 1];
   const src = modelSource(dequantize(q, unique, lo, hi, BITS), idx, height);
   const dag = await buildDag({ id: 0, bark: src.bark, leaves: src.leaves, barkAttr: attr });
+  if (opts.errScale) for (let c = 12; c < dag.rec.length; c += 16) (dag.rec[c] *= opts.errScale), (dag.rec[c + 1] *= opts.errScale);
   firstUse(q, dag.idx, unique, dag.vtx);
   const header = { format: MODEL_FORMAT, vertices: unique, lo, hi, bits: BITS, height, stats: dag.stats, attr, source: opts.source ?? '' };
   const { file, sizes } = write(header, q, dag.idx, dag.rec, dag.meta, (v) => dag.vtx.subarray(v * 8 + 4, v * 8 + 7));
