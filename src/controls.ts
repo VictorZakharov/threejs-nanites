@@ -8,7 +8,7 @@ import * as THREE from 'three/webgpu';
 // menu's Resume went straight back in), and screenshots of the fullscreen window sometimes didn't work (the user).
 // Ctrl+W can't be blocked by a page: a "leave site?" prompt guards it.
 
-const ZOOM_SECONDS = Number(new URLSearchParams(location.search).get('zoomms') ?? 300) / 1000;
+const ZOOM_SECONDS = Number(new URLSearchParams(location.search).get('zoomms') ?? 150) / 1000;
 
 export class FlyControls {
   readonly camera: THREE.PerspectiveCamera;
@@ -131,7 +131,8 @@ export class FlyControls {
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     // zoom: narrow the field of view (the LOD reads camera.fov, so zoomed trees get their detail back)
     // Over a fixed time: an exponential ease looked done at 4.9x after 300 ms and crept on until 700, and while the view moves
-    // TAA can't settle: thin wings stayed blurred away until it stopped (the user: wings coming in "~1sec after" the zoom).
+    // TAA can't settle: thin wings stayed blurred away until it stopped (the user: wings coming in "~1sec after" the zoom;
+    // at 300 ms "some still grow wings, but fewer", at 150 "better").
     if (this.zoomTarget !== this.zoomGoal) [this.zoomFrom, this.zoomGoal, this.zoomT] = [this.zoom, this.zoomTarget, 0];
     this.zoomT = Math.min(1, this.zoomT + dt / ZOOM_SECONDS);
     this.zoom = this.zoomT < 1 ? this.zoomFrom + (this.zoomGoal - this.zoomFrom) * (1 - (1 - this.zoomT) ** 3) : this.zoomGoal;
