@@ -32,6 +32,7 @@ is about using it well.
 | `harness/session.ts` | booting the demo with a query; per view: benchmark table, probes, screenshot, mean colour |
 | `harness/typematch.ts` | `--typematch[=calibrate or cover]`: impostor vs real-tree pixels and colour per tree type (debug=4 masks, single aligned frames), calibrates `impGain` / `impCov` |
 | `harness/status.ts` | the current step, for the watchdog |
+| `harness/lodcheck.ts` | `--lodcheck`: each tau's cut (LOD and impostors) vs the same model actually drawn at high detail and shrunk: coverage lost / added and brightness by height on screen, with a sheet per tau |
 | `harness/motion.ts` | `--sweep` (popping when only the LOD/shadow reference moves) and `--dolly` (flicker while moving) |
 | `harness/load.ts` | `--load=N`: cold boots, the loading log's timeline (median), the downloads, `--profile` of the main thread |
 | `harness/example.ts` | `--example[=gltf]`: the library's example page (`examples/<name>.html`) instead of the demo: waits for its frames, saves `tools/out/example-<name>.png` and its stats line |

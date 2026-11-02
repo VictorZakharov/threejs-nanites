@@ -35,6 +35,10 @@ measuring
                      (zoomtime-<view>-<ms>.png), tau / resolution / shadow map / GPU ms by 250 ms, pixels changed between shots
   --flytime=ShiftLeft,KeyW   the same, but holding these keys for 6 s from the view (flying; Shift: fast) instead of the
                      zoom: screenshots every 500 ms (flytime-<view>-<ms>.png), and the shadow map's extent steps
+  --lodcheck[=2,4.73,8]   each tau's cut vs the model actually drawn at high detail (5x the zoom, no impostors) and
+                     shrunk: coverage lost / added and brightness by height on screen, lodcheck-<view>-z<zoom>-t<tau>.png
+                     (harness/lodcheck.ts);  --lodtype=lucy  which type (a regular expression on its name);
+                     --lodk=5  the reference's extra zoom (higher if its line says CAP)
   --timeout=N        give up after N seconds, naming the step it was in. Default: what the run should take
                      (30 s + 8 s per view and variant + 1 s per sweep/dolly step), so a stuck run fails fast
   --typematch        per tree type: coverage and colour of the real trees vs the impostors, and the colour gain
@@ -95,6 +99,9 @@ export function parseOptions(argv: string[]) {
     rise: args.rise ? Number(args.rise) : 0,
     rect: args.rect ? String(args.rect).split(',').map(Number) : null,
     typematch: args.typematch ? (args.typematch === 'calibrate' || args.typematch === 'cover' ? args.typematch : 'measure') : null,
+    lodcheck: args.lodcheck ? (args.lodcheck === true ? [2, 4.73, 8] : String(args.lodcheck).split(',').map(Number)) : null,
+    lodtype: String(args.lodtype ?? 'lucy'),
+    lodk: Number(args.lodk ?? 5),
     timeout: args.timeout === undefined ? null : Number(args.timeout), // (null: expectedSeconds, see below)
     steps: args.steps ? Number(args.steps) : null,
     step: args.step !== undefined ? Number(args.step) : null,
@@ -116,9 +123,9 @@ export function parseOptions(argv: string[]) {
 export type Options = ReturnType<typeof parseOptions>;
 
 /** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
-function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; zoomtime: boolean; flytime: string[] | null; steps: number | null; typematch: string | null }): number {
+function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; zoomtime: boolean; flytime: string[] | null; steps: number | null; typematch: string | null; lodcheck: number[] | null }): number {
   const runs = o.views.length * (o.variants?.length ?? 1);
-  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0) + (o.zoomtime || o.flytime ? 25 : 0);
+  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0) + (o.zoomtime || o.flytime ? 25 : 0) + (o.lodcheck ? 40 * (o.lodcheck.length + 1) : 0);
   if (o.load) return 30 + o.load * (o.variants?.length ?? 1) * 120; // (throttled boots can take a minute or two)
   return Math.round(30 + runs * (8 + steps));
 }
