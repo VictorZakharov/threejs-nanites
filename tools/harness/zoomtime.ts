@@ -59,6 +59,24 @@ zoomtime: the page's loop, auto quality on; 5 s unzoomed, then the zoom (pixels 
   return result;
 }
 
+/** --copykey: while zoomed, a real key press of C (`--query=perf=1`): what reaches the clipboard, and that it stays zoomed. */
+export async function copyKey(page: Page) {
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.evaluate(() => window.__demo.live(true));
+  await page.evaluate(() => void (window.__demo.controls.zoomTarget = window.__demo.controls.zoomMax));
+  await sleep(2000);
+  await page.bringToFront();
+  await page.keyboard.press('KeyC');
+  await sleep(500);
+  const r = await page.evaluate(async () => {
+    const text = await navigator.clipboard.readText().catch((e: Error) => `(unreadable: ${e.message})`);
+    return { copied: (window.__demo.hud?.perf?.el as HTMLElement | undefined)?.dataset.copy ?? null, chars: text.length, zoomLog: text.includes('after the last zoom'), stillZoomed: window.__demo.controls.zoomTarget > 1, start: text.slice(0, 60) };
+  });
+  await page.evaluate(() => { window.__demo.live(false); window.__demo.controls.zoomTarget = window.__demo.controls.zoom = 1; });
+  console.log(`copykey: ${JSON.stringify(r)}`);
+  return r;
+}
+
 /** --flytime=keys: from each view, 2 s still, then those keys held for 6 s with the page's loop and auto quality. */
 export async function flyTime(page: Page, opts: Options, outDir: string, tag = '') {
   const keys = opts.flytime ?? [], result: Record<string, { extentSteps: number; track: string }> = {};
