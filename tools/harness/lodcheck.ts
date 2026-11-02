@@ -6,8 +6,8 @@
 //                 colour over PASSES single frames (no jitter), so a dithered impostor counts by its coverage, both
 //                 blurred 3x3 (one sample a pixel against a shrunk reference: otherwise every edge pixel counts)
 //   luma          mean sRGB luma difference (cut - reference) where both cover, from frames TAA has settled
-// The bins pick pixels by the reference's, so a tiny statue loses more than it gains there whatever is drawn (over 20% at
-// 8 px, drawn right): read them for one cut against another. Then per row of the window, nothing picked: the cut's total
+// The bins pick pixels by the reference's, so a tiny statue loses more than it gains there whatever is drawn (~15% at
+// 8 px with the rows at 0.95): read them for one cut against another. Then per row of the window, nothing picked: the cut's total
 // coverage over the reference's and the mean luma difference. A row is marked FAIL over the limits.
 // lodcheck-<view>-z<zoom>-t<tau>.png: reference | cut | red lost, blue added.
 // A reference or cut at the cluster lists' cap is missing clusters: the line says `CAP`, don't trust it (a higher
