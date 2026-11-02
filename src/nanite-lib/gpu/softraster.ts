@@ -60,9 +60,10 @@ export class SoftRaster {
   readonly dispatchAttr = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
   readonly depthAttr = new THREE.StorageBufferAttribute(new Uint32Array(MAX_PIXELS), 1);
   /**
-   * Off for now (set per frame by the application: the demo's SW_ALTITUDE): near the ground it doesn't pay. It costs ~0.36 ms a frame
-   * whatever it takes (clear, two walks, the resolve) and redoes each triangle's vertices twice; the far trees it's
-   * for are mostly hidden down there (on High at 1080p: 0.3-0.4 ms slower on the ground, 0.4-0.8 faster from 45 m up).
+   * Off for now (set per frame by the application: the demo's SW_ALTITUDE, with the splats from 2 km up): it costs
+   * ~0.36 ms a frame whatever it takes (clear, two walks, the resolve) and redoes each triangle's vertices twice, and
+   * since the max-error bark DAG and the coverage-matched leaf levels few triangles are tiny (issue #8: slower
+   * everywhere, zoomed too).
    */
   idle = false;
   resolveMesh: THREE.Mesh | null = null;

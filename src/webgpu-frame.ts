@@ -24,8 +24,11 @@ import type { GodRays } from './godrays.ts';
 import type { DemoState } from './harness-api.ts';
 
 const params = new URLSearchParams(location.search);
-const SW_ALTITUDE = Number(params.get('swalt') ?? 25); // m above the ground (?swalt=0: the software rasterizer everywhere)
 const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the ground: impostors splatted (src/nanite-lib/gpu/splats.ts)
+// the software rasterizer from this high up (m above the ground; ?swalt=0: everywhere): with the splats only, which
+// are drawn into its buffer. Its clusters no longer pay anywhere (issue #8: in-page, 1080p High, it cost 0.06-0.73 ms
+// from `canopy` to `overview`, 0.04-0.29 zoomed 5x; the splats saved 0.2-0.4 from 2 km up)
+const SW_ALTITUDE = Number(params.get('swalt') ?? SPLAT_ALTITUDE);
 // occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
 const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
 
