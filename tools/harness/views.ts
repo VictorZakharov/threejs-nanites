@@ -72,6 +72,7 @@ export const VIEWS: Record<string, HarnessView> = {
   high: { x: 120, z: 160, agl: 70, yaw: 200, pitch: -40 },
   treeline: { x: 0, z: 1500, agl: 30, yaw: 0, pitch: -4 }, // distant treeline against the sky (LOD popping)
   fogline: { x: 0, z: 2600, agl: 120, yaw: 0, pitch: -7 }, // geometry -> impostor switch near the fog
+  userstill: { x: 20, z: 40, agl: 239, yaw: 110, pitch: -6.5 }, // (the user's report: zoomed, held still, side-on to the sun, statues flicker: T stops it)
   zoomref: { x: 0, z: 2600, agl: 300, yaw: 0, pitch: -6 }, // grazing view over the canopy (use with --zoom=5)
   // altitude and clouds
   belowclouds: { x: 0, z: 3000, y: 1500, yaw: 10, pitch: 8 },
