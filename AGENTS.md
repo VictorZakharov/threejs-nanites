@@ -454,20 +454,23 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   or with upscaling off), and over the budget that extra goes first, before tau: a dense screen at 1.5 of its 3 was the
   scene's pixels upscaled 2x (issue #3). A step is x1.32 the pixels, so under 55% it lands under 1.1 and doesn't swing
   back. `--probe=auto --dpr=2 --query=autobudget=20`: scale 1.33 (3200x1800, native); at the phone's size on the dev
-  GPU 2 (1152x2496). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Zooming in starts
-  from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
-  is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
-  last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). While zoomed it stays at the setting it was zoomed in with, over the budget too: the LOD
-  follows the zoom, so the same tau is already finer. Only frames over 75 ms coarsen it (`ZOOM_FLOOR`; the resolution
-  past 125 ms). It used to coarsen to the budget about a second after the zoom, which is the redraw the user kept seeing:
-  "it changes statues noticeably", "far small statues losing their wings", "we should be making them finer, not coarser".
-  Lucy `oblique` zoomed, 1440p, `--lodcheck`: tau 4.73 -> 8 took a 17-32 px statue's shape lost from 10 to 21%, 33-64 px
-  from 6 to 13%, and at 64% resolution (LOD and impostor sizes go by the scene's pixels) 3.5k statues stayed geometry
-  instead of 7.5k. Refining while zoomed was a redraw too (2560x1440 `down800` re-cut 8 -> 2.1 in six steps), and a jump
-  walked back the user's "can we just stay at the original?". `--zoomtime` with `taa=0` (2560x1440, both scenes,
-  `oblique`, `lucyfield`, `lucyhorizon`, `down800`, `canopyzoom`): the setting doesn't move after the zoom, 2-25k pixels
-  differ between shots, as with it held. The cost: zoomed GPU 4.6-20 ms, over the 5.5 ms budget on most of them.
+  GPU 2 (1152x2496). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Across the zoom tau
+  moves with it as it eases, in and out, and nothing changes after (`zoomTau`): min(tau x zoom, the larger of tau and
+  `maxTau`). The LOD goes by tau / zoom, so up to tau x zoom a statue's cut is the unzoomed one (and a subset of what
+  was drawn unzoomed, so it can't overflow what that didn't), past it only finer; nothing is measured while the zoom
+  eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the last zoom's own setting was
+  tried: learned at a costly spot it made every later zoom blurry (the user: "washed", "optimize the algo before we
+  downgrade"). Coarsening to the budget about a second after the zoom was the redraw the user kept seeing: "it changes
+  statues noticeably", "far small statues losing their wings", "we should be making them finer, not coarser". Lucy
+  `oblique` zoomed, 1440p, `--lodcheck`: tau 4.73 -> 8 took a 17-32 px statue's shape lost from 10 to 21%, 33-64 px from
+  6 to 13%. Now it gets there during the ease, from coarser. Holding the unzoomed tau instead filled the 1M cluster list
+  from tau ~4 down (`--probe=caps`): threads list by runs of adjacent plants, so as the view panned, groups of
+  neighbours came and went (the user; `--dolly --step=0 --turn=0.02` at zoom 5: 64k / 50k / 12k flicker events at tau
+  1 / 2 / 3, ~240 at 4.73 and 8), at 25-30 ms. `--zoomtime` with `taa=0` (2560x1440, Lucy `oblique`, `lucyfield`,
+  `lucyhorizon`, `down800`): no tile moves after the zoom, 3-10k pixels differ between shots; zoomed GPU 8-12 ms, 15-20
+  held, still over the 5.5 ms budget: only frames over 75 ms coarsen it further (`ZOOM_FLOOR`; the resolution past 125
+  ms). The occlusion retest list has its own cap (`RETEST_CAP`; 1.06M at 4K `lucyhorizon`). A preset or manual tau isn't
+  moved: under ~4 zoomed it can still fill the list.
   With it, a zoom shows what the unzoomed setting allows: at 8 / 0.64 the far statues stay coarse. `--zoomtime` tiles
   miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
   `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.

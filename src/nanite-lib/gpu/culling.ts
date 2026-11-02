@@ -7,7 +7,7 @@ import {
 import { switchPx } from './shading.ts';
 import { CHUNK, CHUNK_SHIFT } from './chunks.ts';
 import {
-  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST, SHADOW_TAU_MUL,
+  FADE_HI, WG, MAX_ITEMS, minU, MAX_DIM, LIST_CAP, RETEST_CAP, IMP_BIT, IMP_ARGS, SPLAT, rotY, makeCounters, SET_STRIDE, ARGS, STATS, ITEM_COUNT, RETEST, SHADOW_TAU_MUL,
 } from './constants.ts';
 import type { NaniteRenderer } from './renderer.ts';
 import type { Float, Uint, Vec3, Vec4 } from '../types.ts';
@@ -161,11 +161,11 @@ export const cullingMethods = {
     const n = this.instanceCount;
     const ctrA = ctr.atomic;
     const treesAttr = sb(new Uint32Array(n), 1);
-    const clustersAttr = sb(new Uint32Array(LIST_CAP * 2), 2);
+    const clustersAttr = sb(new Uint32Array(RETEST_CAP * 2), 2);
     const treeDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
     const clusterDispatch = new THREE.IndirectStorageBufferAttribute(new Uint32Array([0, 1, 1, 0]), 4);
     const trees = storage(treesAttr, 'uint', n);
-    const clusters = storage(clustersAttr, 'uvec2', LIST_CAP);
+    const clusters = storage(clustersAttr, 'uvec2', RETEST_CAP);
     // indirect dispatch sizes of the two retest passes (64 threads per workgroup), and the counts they read
     const count = (i: number) => ctr.rw.element(RETEST + i);
     const dT = storage(treeDispatch, 'uint', 4), dC = storage(clusterDispatch, 'uint', 4);
@@ -177,14 +177,14 @@ export const cullingMethods = {
       },
       cluster: (inst, c) => {
         const slot = atomicAdd(ctrA.element(RETEST + 1), uint(1)).toVar();
-        If(slot.lessThan(LIST_CAP), () => clusters.element(slot).assign(uvec2(inst, c)));
+        If(slot.lessThan(RETEST_CAP), () => clusters.element(slot).assign(uvec2(inst, c)));
       },
       reset: Fn(() => {
         atomicStore(ctrA.element(RETEST), uint(0));
         atomicStore(ctrA.element(RETEST + 1), uint(0));
       })().compute(1, [1]),
       args: Fn(() => {
-        const nc = minU(count(1), LIST_CAP).toVar();
+        const nc = minU(count(1), RETEST_CAP).toVar();
         count(2).assign(minU(count(0), n));
         count(3).assign(nc);
         dT.element(0).assign(count(0).add(WG - 1).div(WG));
@@ -192,7 +192,7 @@ export const cullingMethods = {
       })().compute(1, [1]),
       count: (i) => atomicLoad(ctrA.element(RETEST + i)), // (the passes that read it also add to the counters)
       treesRO: storage(treesAttr, 'uint', n).toReadOnly(),
-      clustersRO: storage(clustersAttr, 'uvec2', LIST_CAP).toReadOnly(),
+      clustersRO: storage(clustersAttr, 'uvec2', RETEST_CAP).toReadOnly(),
     };
   },
 
@@ -361,7 +361,7 @@ export const cullingMethods = {
           const cw = this.look.curve(a.xyz.add(rotY(cs.xyz, b.x, b.y).mul(s))).toVar();
           If(this._hzbOccluded(cw, cs.w.mul(s).add(this._margin(ti.w, cs.y.add(cs.w), s, b.z))).not(), () => setB.append(inst, c, cw, cs.w.mul(s)));
         });
-      })().compute(LIST_CAP, [WG]).setName('retest clusters');
+      })().compute(RETEST_CAP, [WG]).setName('retest clusters');
     }
     return { ...v, sets, instances, impReset };
   },

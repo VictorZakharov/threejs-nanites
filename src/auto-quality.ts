@@ -4,15 +4,15 @@
 // that twitches every frame makes the whole forest shimmer. Past the coarsest tau it lowers the resolution instead
 // (down to half the pixel ratio, in slower steps: each one restarts the TAA history); much of the cost doesn't depend
 // on detail (fill, the culling of 2.5M instances), and phones hit that.
-// The 5x zoom is another scene for the GPU (the far forest at full detail), so zooming in starts from the unzoomed
-// setting (sharp: jumping to the last zoom's setting, learned at a costly spot, was the user's "washed" zoom) and
-// zooming out restores it at once: with one setting it stayed at the zoom's tau 8 for seconds after. While zoomed it
-// stays there, over the budget too: the LOD follows the zoom, so the same tau is already finer. Coarsening to the budget
-// a second after the zoom took the wings off the small statues (Lucy forest `oblique` at 1440p, tau 4.7 to 8: 10 -> 21%
-// of a 17-32 px statue's shape, `--lodcheck`; the user: "we should be making them finer, not coarser"), and lowering the
-// resolution, which the LOD and the impostors' sizes go by, was worse ("it changes statues noticeably"). Refining was a
-// redraw every 250 ms, and a jump walked back the user's "can we just stay at the original?". Only frames over
-// 1.5 x ZOOM_FLOOR coarsen it.
+// The 5x zoom is another scene for the GPU (the far forest at full detail). tau moves with the zoom as it eases, in and
+// out (`zoomTau`), and nothing changes after: the LOD goes by tau / zoom, so up to tau x zoom a statue's cut is the one it
+// had unzoomed, and past that it only gets finer, up to tau `auto.maxTau`. Stepping to the budget a second after the zoom
+// took the wings off the small statues (Lucy forest `oblique` at 1440p, tau 4.7 to 8: 10 -> 21% of a 17-32 px statue's
+// shape, `--lodcheck`; the user: "we should be making them finer, not coarser"), and lowering the resolution, which the
+// LOD and the impostors' sizes go by, was worse ("it changes statues noticeably"). Holding the unzoomed tau instead
+// overflowed the cluster list from tau ~4 down (`--probe=caps`), dropping runs of neighbours as the view panned (the
+// user: "groups of adjacent statues" flicker; `--dolly --step=0 --turn=0.02`: 64k events at tau 1, 240 at 4.7 or 8) at
+// 25-30 ms. Only frames over 1.5 x ZOOM_FLOOR coarsen it once zoomed.
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
@@ -38,7 +38,8 @@ export function createAutoQuality(
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
-  let zoomState = false, wasOn = auto.on;
+  let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1;
+  const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
   // A resolution step down is a trial: if it saved under a third of its share of the pixels, the cost isn't the
   // pixels (a phone 8 km up: 317k impostors and their shadows, half the pixels saved 9%), so it goes back and the
@@ -98,7 +99,7 @@ export function createAutoQuality(
     lastAdjust = performance.now();
   };
 
-  /** Zooming out restores the unzoomed setting; holds still while the zoom eases. */
+  /** tau follows the zoom as it eases; zooming out restores the unzoomed setting. */
   const followZoom = (): void => {
     if (auto.on && !wasOn) saved = null; // (a preset was on in between: start over)
     wasOn = auto.on;
@@ -107,15 +108,16 @@ export function createAutoQuality(
     // stepped the unzoomed tau up)
     if (Math.abs(zoom.zoom - zoom.zoomTarget) > 0.05 * zoom.zoomTarget) restart();
     const z = zoom.zoomTarget > 1;
-    if (z === zoomState) return;
-    zoomState = z;
-    trial = futile = null;
-    if (z) saved = [tau.value, auto.scale];
-    else if (saved && auto.on) {
-      tau.value = saved[0];
-      if (saved[1] !== auto.scale) setScale(saved[1]);
+    if (z !== zoomState) {
+      zoomState = z;
+      trial = futile = null;
+      if (z) saved ??= [tau.value, auto.scale]; // (kept if it's zoomed again on the way out)
+      else if (saved && auto.on && saved[1] !== auto.scale) setScale(saved[1]);
+      restart();
     }
-    restart();
+    if (saved && auto.on && zoom.zoom !== lastZoom) tau.value = zoomTau(saved[0], zoom.zoom);
+    lastZoom = zoom.zoom;
+    if (!z && zoom.zoom === 1) saved = null;
   };
 
   return (dt: number): void => {
