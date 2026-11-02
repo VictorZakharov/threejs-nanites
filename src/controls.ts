@@ -8,6 +8,8 @@ import * as THREE from 'three/webgpu';
 // menu's Resume went straight back in), and screenshots of the fullscreen window sometimes didn't work (the user).
 // Ctrl+W can't be blocked by a page: a "leave site?" prompt guards it.
 
+const ZOOM_SECONDS = Number(new URLSearchParams(location.search).get('zoomms') ?? 150) / 1000;
+
 export class FlyControls {
   readonly camera: THREE.PerspectiveCamera;
   readonly dom: HTMLElement;
@@ -41,6 +43,9 @@ export class FlyControls {
   zoom = 1;
   zoomTarget = 1;
   zoomMax = 5;
+  private zoomFrom = 1;
+  private zoomGoal = 1;
+  private zoomT = 1; // (how far the ease is, 0..1)
   touchMode = false; // (src/touch.ts: no pointer lock on a tap)
   guardUnload: boolean;
 
@@ -125,8 +130,12 @@ export class FlyControls {
     else this.fly(dt);
     this.camera.rotation.set(this.pitch, this.yaw, 0, 'YXZ');
     // zoom: narrow the field of view (the LOD reads camera.fov, so zoomed trees get their detail back)
-    this.zoom += (this.zoomTarget - this.zoom) * (1 - Math.exp(-dt * 12));
-    if (Math.abs(this.zoom - this.zoomTarget) < 1e-3) this.zoom = this.zoomTarget;
+    // Over a fixed time: an exponential ease looked done at 4.9x after 300 ms and crept on until 700, and while the view moves
+    // TAA can't settle: thin wings stayed blurred away until it stopped (the user: wings coming in "~1sec after" the zoom;
+    // at 300 ms "some still grow wings, but fewer", at 150 "better").
+    if (this.zoomTarget !== this.zoomGoal) [this.zoomFrom, this.zoomGoal, this.zoomT] = [this.zoom, this.zoomTarget, 0];
+    this.zoomT = Math.min(1, this.zoomT + dt / ZOOM_SECONDS);
+    this.zoom = this.zoomT < 1 ? this.zoomFrom + (this.zoomGoal - this.zoomFrom) * (1 - (1 - this.zoomT) ** 3) : this.zoomGoal;
     this.camera.userData.zoom = this.zoom;
     const fov = THREE.MathUtils.radToDeg(2 * Math.atan(Math.tan(THREE.MathUtils.degToRad(this.baseFov) / 2) / this.zoom));
     if (Math.abs(fov - this.camera.fov) > 1e-6) {

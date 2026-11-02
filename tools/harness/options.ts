@@ -31,6 +31,7 @@ measuring
   --turn=DEG         --dolly: also turn the camera this many degrees (yaw) per step (mouse look; --step=0 to only turn)
   --rise=M           --dolly: also climb this many metres per step (negative: descend)
   --rect=x,y,w,h     --dolly: count only the tiles inside this screen rectangle (e.g. the distant treeline)
+  --copykey          a real press of C while zoomed (--query=perf=1): what reaches the clipboard
   --zoomtime         the real loop with auto quality: 5 s unzoomed, then the 5x zoom; screenshots over the 6 s after
                      (zoomtime-<view>-<ms>.png), tau / resolution / shadow map / GPU ms by 250 ms, pixels changed between shots
   --flytime=ShiftLeft,KeyW   the same, but holding these keys for 6 s from the view (flying; Shift: fast) instead of the
@@ -94,6 +95,7 @@ export function parseOptions(argv: string[]) {
     sweep: args.sweep ? String(args.sweep).split(',') : null,
     dolly: Boolean(args.dolly),
     zoomtime: Boolean(args.zoomtime),
+    copykey: Boolean(args.copykey),
     flytime: args.flytime ? String(args.flytime).split(',') : null,
     turn: args.turn ? Number(args.turn) : 0,
     rise: args.rise ? Number(args.rise) : 0,

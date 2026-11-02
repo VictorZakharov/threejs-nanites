@@ -4,7 +4,7 @@ import * as THREE from 'three/webgpu';
 import {
   Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, clamp, smoothstep, dFdx, dFdy, log2, cross,
-  cameraViewMatrix, normalize, asin, cos, sin, screenCoordinate, bool, uvec2, exp2,
+  cameraViewMatrix, normalize, asin, atan, mod, cos, sin, screenCoordinate, bool, uvec2, exp2,
 } from 'three/tsl';
 import { IMPOSTOR_CUT, ELEVATIONS, TILE_W, TILE_H, atlasLayout } from '../impostors/atlas.ts';
 import { MIN_PX, FADE_HI, PHASE2_LAYER, IMP_ARGS } from './constants.ts';
@@ -96,6 +96,16 @@ export interface ImpostorGains {
   top: number[];
 }
 
+/**
+ * The atlas view of a tree of `type` (facing `b`: cos, sin) seen from `dir`: its first, plus the one nearest the
+ * direction in its own frame (rotY undone). A tile index, without the elevation's block.
+ */
+export const impostorView = (atlas: ImpostorAtlas, type: Uint, b: Vec4, dir: Vec3): Float => {
+  const count = atlas.viewCount.element(type);
+  const turn = atan(dir.x.mul(b.x).add(dir.z.mul(b.y)), dir.z.mul(b.x).sub(dir.x.mul(b.y))).div(2 * Math.PI);
+  return atlas.viewBase.element(type).add(mod(turn.mul(count).add(0.5).floor(), max(count, 1)));
+};
+
 export const billboardMethods = {
   // ------------------------------------------------------------------ impostors (far field)
   /**
@@ -127,13 +137,14 @@ export const billboardMethods = {
    */
   _impostorQuad(this: NaniteRenderer, atlas: ImpostorAtlas, list: StorageBufferNode<'uint'>, dirOf: (pivot: Vec3) => Vec3, screen: boolean): ImpostorQuad {
     const u = this.u;
-    const n = atlas.frames.length;
+    const n = atlas.views;
     const { frameW, frameH } = atlas; // (filled by the bake)
     const growArr = uniformArray<'float'>(screen ? GROW : GROW_SHADOW, 'float');
     const v = {
       vUv: varying(vec2(0), 'vImpUv'),
       vBlend: varying(vec2(0), 'vImpBlend'), // the lower of the two tiles it blends (ELEVATIONS index), the upper's weight
       vType: varying(float(0), 'vImpType'),
+      vView: varying(float(0), 'vImpView'), // (its tile within the elevation's block, see impostorView)
       vTint: varying(float(1), 'vImpTint'),
       vAutumn: varying(float(0), 'vImpAutumn'), // (the look's impostorValue: the forest's autumn level)
       vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
@@ -174,6 +185,7 @@ export const billboardMethods = {
       // (GROW_SHADOW: the geometry's shadow comes from fat coarse LODs)
       const ju = uint(j);
       const grow = mix(growArr.element(ju), growArr.element(ju.add(1)), blend).toVar();
+      if (screen) grow.assign(mix(grow, float(1), this.solidOf.element(type)));
       q.vCov.assign(impostorCov(this.impFrame.element(type), elev)); // (the shadow casters' too: by the sun's elevation)
       q.vSeed.assign(float(hash(inst.add(31)).mul(4096).floor()));
       if (screen) {
@@ -197,7 +209,8 @@ export const billboardMethods = {
       const w = frameW.element(type).mul(s).mul(grow), h = h0.mul(grow);
       const right = vec3(dir.z, 0, dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize();
       const up = cross(dir, right);
-      const flip = hash(inst).greaterThan(0.5); // mirror half of them for variety
+      q.vView.assign(impostorView(atlas, type, b, dir));
+      const flip = hash(inst).greaterThan(0.5).and(this.solidOf.element(type).lessThan(0.5)); // mirror half of them for variety
       const ux = select(flip, cx.oneMinus(), cx);
       q.vUv.assign(vec2(ux, cy.oneMinus())); // (within the tile; render targets are stored flipped)
       q.vBlend.assign(vec2(j, blend));
@@ -221,7 +234,7 @@ export const billboardMethods = {
     const j = q.vBlend.x.round(), ks = [j, j.add(1)], wts = [q.vBlend.y.oneMinus(), q.vBlend.y];
     const elev = ks.map((k) => k.mul(ELEV_STEP));
     const uv = ks.map((k) => {
-      const t = q.vType.round().add(k.mul(n)), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
+      const t = q.vView.round().add(k.mul(n)), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
       return q.vUv.add(vec2(col, row)).div(vec2(cols, rows));
     });
     const t = uv.map((c) => texture(atlas.texture, c).bias(mipBias));
@@ -233,7 +246,8 @@ export const billboardMethods = {
       return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
     };
     const tile = uint(q.vType.round());
-    const a = t.map((tk, i) => tk.a.mul(scaleOf(tile.add(uint(ks[i]).mul(n)))).mul(clamp(wts[i].mul(2), 0, 1)));
+    const view = uint(q.vView.round());
+    const a = t.map((tk, i) => tk.a.mul(scaleOf(view.add(uint(ks[i]).mul(n)))).mul(clamp(wts[i].mul(2), 0, 1)));
     const alpha = min(max(a[0], a[1]), 1);
     // the plain filtered alpha: the share of the pixel the tree covers (see IMP_DITHER)
     const coverage = min(max(t[0].a.mul(clamp(wts[0].mul(2), 0, 1)), t[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
@@ -290,7 +304,7 @@ export const billboardMethods = {
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
     // (and the coverage scale's holes: see holes)
     const kept = q.holes(q.vCov);
-    const cut = select(kept, impDither ? select(q.coverage.mul(IMP_COV).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
+    const cut = select(kept, impDither ? select(q.coverage.mul(mix(float(IMP_COV), float(1), this.solidOf.element(tile))).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
     const alpha = select(dither().lessThan(vFade), float(0), cut);
     mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
     setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));

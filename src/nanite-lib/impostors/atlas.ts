@@ -12,6 +12,10 @@
 // The tiles are baked from the cluster DAG cut the real tree has at the switch (see dagCut), not from the full
 // detail: coarse leaf LODs are fewer, bigger cards that round the crown off, and an impostor of the full-detail
 // tree (star-shaped pines, gappy crowns) was a different picture from the geometry it replaces.
+//
+// A type may have several views round its axis (createAtlas's `viewsOf`), a block of tiles per elevation: a mesh that
+// isn't round its axis (the Lucy scene's statues) looks different from each side, and with one view all of them showed
+// their front, the true shape coming in only at the switch or through the zoom (the user: "small statues grow wings").
 import * as THREE from 'three/webgpu';
 import { Fn, If, Discard, texture, vec4, attribute, normalLocal, uint, uniform, uniformArray, float } from 'three/tsl';
 import type { UniformArrayNode } from 'three/webgpu';
@@ -50,6 +54,10 @@ export interface ImpostorAtlas {
   renderTarget: THREE.RenderTarget;
   normalsTarget: THREE.RenderTarget;
   coverage: AtlasCoverage;
+  /** Tiles per elevation (each type's views in turn); per type its first and how many (see impostorView). */
+  views: number;
+  viewBase: UniformArrayNode<'float'>;
+  viewCount: UniformArrayNode<'float'>;
   frameW: UniformArrayNode<'float'>;
   frameH: UniformArrayNode<'float'>;
   scales: UniformArrayNode<'float'>; // (coverage.scales)
@@ -57,9 +65,13 @@ export interface ImpostorAtlas {
   bytes: boolean;
 }
 
-/** An empty atlas for `n` types (see ImpostorAtlas); `bytes`: 8-bit targets where float ones can't be drawn into. */
-export function createAtlas(n: number, bytes = false): ImpostorAtlas {
-  const { cols, rows } = atlasLayout(n);
+/**
+ * An empty atlas for `n` types (see ImpostorAtlas); `bytes`: 8-bit targets where float ones can't be drawn into;
+ * `viewsOf`: per type its views round its axis (1 each; 0: a type never drawn as an impostor here, no tiles).
+ */
+export function createAtlas(n: number, bytes = false, viewsOf: number[] = Array.from({ length: n }, () => 1)): ImpostorAtlas {
+  const views = viewsOf.reduce((a, b) => a + b, 0);
+  const { cols, rows } = atlasLayout(views);
   const makeRT = () =>
     new THREE.RenderTarget(TILE_W * cols, TILE_H * rows, {
       type: bytes ? THREE.UnsignedByteType : THREE.HalfFloatType,
@@ -71,9 +83,14 @@ export function createAtlas(n: number, bytes = false): ImpostorAtlas {
     });
   const rt = makeRT(), rtN = makeRT();
   const frames = Array.from({ length: n }, () => ({ w: 1, h: 2 }));
-  const levels = Math.log2(TILE_W) + 1, scales = new Float32Array(ELEVATIONS.length * n * levels).fill(1);
+  const levels = Math.log2(TILE_W) + 1, scales = new Float32Array(ELEVATIONS.length * views * levels).fill(1);
+  let base = 0;
+  const bases = viewsOf.map((c) => ((base += c), base - c));
   return {
     texture: rt.texture, normals: rtN.texture, frames, renderTarget: rt, normalsTarget: rtN, coverage: { scales, levels },
+    views,
+    viewBase: uniformArray<'float'>(bases, 'float'),
+    viewCount: uniformArray<'float'>(viewsOf, 'float'),
     frameW: uniformArray<'float'>(frames.map((f) => f.w), 'float'),
     frameH: uniformArray<'float'>(frames.map((f) => f.h), 'float'),
     scales: uniformArray<'float'>(Array.from(scales), 'float'),
@@ -125,7 +142,7 @@ function fullDetail({ bark, leaves }: NaniteType['src']): { bark: MeshPart; leav
  * @returns { texture, normals, frames: [{ w, h }], renderTarget } frame size (m) of each tile's quad (aspect 1:2)
  */
 export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, trees: NaniteType[], tex: BakeTextures, look: Pick<NaniteLook, 'solidColour' | 'bakeCardColour'>, cutPx = 0): void {
-  const n = trees.length;
+  const n = atlas.views;
   const { cols, rows } = atlasLayout(n);
   const rt = atlas.renderTarget, rtN = atlas.normalsTarget;
   const prevTarget = renderer.getRenderTarget();
@@ -144,7 +161,8 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
   trees.forEach((t, i) => {
     // models are never impostors (switchPx): their tiles stay empty (the demo's Lucy took ~0.45 s of a phone's main
     // thread for her 1M triangles' cut, and she may not have arrived yet: NaniteType.later)
-    if (t.noImpostor) return void setFrame(atlas, i, 1, 2);
+    const count = (atlas.viewCount.array as number[])[i], first = (atlas.viewBase.array as number[])[i];
+    if (t.noImpostor || !count) return void setFrame(atlas, i, 1, 2);
     // (frame size from the full-detail tree: the same tile whichever cut is baked)
     const src = t.src;
     const { bark, leaves } = cutPx > 0 ? dagCut(t, t.height / cutPx) : fullDetail(src);
@@ -152,8 +170,10 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
     const normalOut = (a: number): Vec4 => vec4(atlas.bytes ? normalLocal.normalize().mul(0.5).add(0.5) : normalLocal.normalize(), a);
 
     const barkGeo = new THREE.BufferGeometry();
-    barkGeo.setAttribute('position', new THREE.BufferAttribute(bark.pos, 3));
-    barkGeo.setAttribute('normal', new THREE.BufferAttribute(bark.nrm, 3));
+    // (copies where they're turned for each view)
+    const own = (a: Float32Array): Float32Array => (count > 1 ? a.slice() : a);
+    barkGeo.setAttribute('position', new THREE.BufferAttribute(own(bark.pos), 3));
+    barkGeo.setAttribute('normal', new THREE.BufferAttribute(own(bark.nrm), 3));
     barkGeo.setAttribute('uv', new THREE.BufferAttribute(bark.uv, 2));
     barkGeo.setIndex(new THREE.BufferAttribute(bark.idx, 1));
     const barkMat = new THREE.MeshBasicNodeMaterial();
@@ -167,8 +187,8 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
 
     if (leaves.idx.length) {
       const leafGeo = new THREE.BufferGeometry();
-      leafGeo.setAttribute('position', new THREE.BufferAttribute(leaves.pos, 3));
-      leafGeo.setAttribute('normal', new THREE.BufferAttribute(leaves.nrm, 3));
+      leafGeo.setAttribute('position', new THREE.BufferAttribute(own(leaves.pos), 3));
+      leafGeo.setAttribute('normal', new THREE.BufferAttribute(own(leaves.nrm), 3));
       leafGeo.setAttribute('uv', new THREE.BufferAttribute(leaves.uv, 2));
       leafGeo.setIndex(new THREE.BufferAttribute(leaves.idx, 1));
       const layer = tex.leafLayers[i];
@@ -202,23 +222,27 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
     setFrame(atlas, i, fw, fh);
     // every view is centred on the trunk axis at half the frame height (the runtime quad's pivot), looking from +z
     // tilted up by the elevation: screen right = +x, screen up = (0, cos e, -sin e) (from above: -z)
-    ELEVATIONS.forEach((deg, k) => {
-      const e = THREE.MathUtils.degToRad(deg);
-      const cam = new THREE.OrthographicCamera(-fw / 2, fw / 2, fh / 2, -fh / 2, 0, 400);
-      cam.position.set(0, fh / 2 + 200 * Math.sin(e), 200 * Math.cos(e));
-      cam.up.set(0, Math.cos(e), -Math.sin(e));
-      cam.lookAt(0, fh / 2, 0);
-      const t = k * n + i, col = t % cols, row = Math.floor(t / cols);
-      cam.updateMatrixWorld();
-      [rt, rtN].forEach((target, j) => {
-        renderer.setRenderTarget(target);
-        target.viewport.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
-        target.scissor.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
-        target.scissorTest = true;
-        renderer.clearDepth();
-        renderer.render(scenes[j], cam);
+    // view v: the camera v / count of a turn round the type from +z (towards +x), so the mesh turned back by that
+    for (let v = 0; v < count; v++) {
+      if (v) scenes[0].children.forEach((m) => (m as THREE.Mesh).geometry.rotateY((-2 * Math.PI) / count));
+      ELEVATIONS.forEach((deg, k) => {
+        const e = THREE.MathUtils.degToRad(deg);
+        const cam = new THREE.OrthographicCamera(-fw / 2, fw / 2, fh / 2, -fh / 2, 0, 400);
+        cam.position.set(0, fh / 2 + 200 * Math.sin(e), 200 * Math.cos(e));
+        cam.up.set(0, Math.cos(e), -Math.sin(e));
+        cam.lookAt(0, fh / 2, 0);
+        const t = k * n + first + v, col = t % cols, row = Math.floor(t / cols);
+        cam.updateMatrixWorld();
+        [rt, rtN].forEach((target, j) => {
+          renderer.setRenderTarget(target);
+          target.viewport.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
+          target.scissor.set(col * TILE_W, row * TILE_H, TILE_W, TILE_H);
+          target.scissorTest = true;
+          renderer.clearDepth();
+          renderer.render(scenes[j], cam);
+        });
       });
-    });
+    }
 
     scenes.forEach((sc) => sc.traverse((o) => (o as THREE.Mesh).isMesh && (o as THREE.Mesh).geometry.dispose()));
   });
@@ -242,7 +266,7 @@ export function bakeImpostors(renderer: THREE.WebGPURenderer, atlas: ImpostorAtl
  */
 export async function impostorCoverage(renderer: THREE.WebGPURenderer, atlas: ImpostorAtlas, cut: number): Promise<void> {
   const rt = atlas.renderTarget;
-  const W = rt.width, H = rt.height, tiles = ELEVATIONS.length * atlas.frames.length;
+  const W = rt.width, H = rt.height, tiles = ELEVATIONS.length * atlas.views;
   const t = performance.now();
   const raw = await renderer.readRenderTargetPixelsAsync(rt, 0, 0, W, H);
   const readback = performance.now() - t;

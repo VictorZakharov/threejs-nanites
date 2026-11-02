@@ -483,6 +483,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   `webgpu-start.ts`'s setup order: a phone-only startup crash shipped once.
 - Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
+  C copies it too, with the mouse still captured (a click releases it, which ends a zoom). The report ends with what changed
+  in the 4 s after the last zoom in (`src/zoom-log.ts`): tau, resolution, the shadow map, frames over 50 ms, model fills, and the
+  cluster and impostor counts every 200 ms. `--probe=zoomfilm` is the zoom frame by frame.
   Off under the harness unless `?perf=1` (`--probe=perf` prints the report). Bigger type on desktop; its lines never
   wrap, and the HUD on the right only ever widens (`minWidth`): numbers changing width shifted the layout (the user).
   The settings menu's Profile GPU (`src/profile.ts`, `--probe=profile`) holds the view and quality, switches one feature off at a
@@ -665,6 +668,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   32 degrees up, so only the second counts). It was 1.45-1.5 from above, fitted while half the trees were missing:
   with all drawn, crowns overlapped many deep and covered ~2x their geometry's pixels. Alpha is
   coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
+- The Lucy scene's statues aren't round their axis, so their impostors have views round it (`createAtlas`'s `viewsOf`,
+  `impostorView`, `?statueviews=`, 8; trees have one, and no tiles in that scene: the atlas is 8192x512). With one, every
+  statue showed its front, the true shape coming in at the switch or through the zoom (the user: "small statues grow
+  wings"); reference coverage changes ~20% with the facing. They snap every 45 degrees: `--dolly --step=0 --turn=0.2`
+  ~+20% flicker events (`oblique` 1311 -> 1591, `slope` 4542 -> 5338). A solid mesh also keeps its baked size and alpha,
+  unmirrored (`NaniteType.impostorSolid`, `?statuesolid=0`): `GROW` (0.9 from 15-45 degrees up) and `IMP_COV` are fitted to
+  crowns, and on a statue the bright ground showed through. `--lodcheck`'s rows (1440p, `--lodk=15`, tau 4.73, cut / model
+  drawn at high detail): `oblique` 0.80-0.85 -> 0.94-0.98, `slope` 0.85-0.92 -> 1.00-1.04, `down800` 0.83-0.94 ->
+  1.00-1.07, `lucyhorizon` 0.90-0.98 -> 0.94-0.98; same frame cost. Its brightness is off by the god rays changing with
+  the zoom, not the statues (compare with `rays=0`).
 - Impostor coverage per type (`impCov` in `VARIANTS`: side, top, mixed by elevation; `impostorCov`, `holes` in
   `billboards.ts`): where a type still covers more than its real trees after `GROW` (Oak Large: 0.8 side, 0.6
   top; the bushes from above) its impostors get holes: the atlas cells of the mip a pixel samples (about a pixel
@@ -725,6 +738,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   on a phone's 512 map) and the shadow pass and its culling stop (`shadowFarOnly`; a phone 8 km up spent ~30% of its
   GPU time on ~800k impostor shadow quads in 23 m texels). The coarse map lets light through: the average is up to
   6-8/255 darker there, blended over ~700 m of climb rather than a jump.
+- The zoom eases over a fixed 150 ms (`?zoomms=`, `controls.ts`; at 300 the user still saw some wings grow, at 150 fewer): an exponential ease looked done at 4.9x after 300 ms and
+  crept on until 700, and while the view moves TAA can't settle, so thin wings stayed blurred until it stopped (the user: wings
+  coming in "~1sec after", views `userzoom`, `userzoom2`; with `taa=0` the image is final as the zoom stops). Dropping TAA's
+  history as it stops was a one-frame jump of ~22k px in a 480x270 crop (~500 without). Switching
+  the LOD to the target zoom at the start was tried: wide view at full detail, the 1M cluster list overflowed.
 - Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
   shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
   to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.

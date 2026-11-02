@@ -75,6 +75,7 @@ export const bufferMethods = {
     this.typeValues = typeInfo;
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
     this.impPxOf = uniformArray<'float'>(trees.map((t) => t.impostorPx ?? 1), 'float');
+    this.solidOf = uniformArray<'float'>(trees.map((t) => (t.impostorSolid ? 1 : 0)), 'float');
     this.shadowPxOf = uniformArray<'float'>(trees.map((t) => t.shadowPx ?? 1), 'float');
     this.shadowTauOf = uniformArray<'float'>(trees.map((t) => t.shadowTau ?? 0), 'float');
     this.unfoldOf = uniformArray<'float'>(trees.map((t) => (t.unfold ? 1 : 0)), 'float');
@@ -97,6 +98,7 @@ export const bufferMethods = {
 
   /** Fills in a late type (NaniteType.later) once it's arrived: its share of the buffers, then its clusters. */
   fillType(this: NaniteRenderer, t: NaniteType): void {
+    this.fills++;
     const a = this.arrays, at = a.at[t.id], ti = this.typeValues[t.id];
     const n = t.meta.length / 4, nv = t.vtx.length / 8, ni = t.idx.length;
     const next = a.at[t.id + 1] ?? { co: a.cData.length / (CD_STRIDE * 4), vo: a.vtx.length / 8, io: a.idx.length };

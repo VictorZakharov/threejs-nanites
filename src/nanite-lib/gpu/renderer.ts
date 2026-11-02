@@ -73,6 +73,8 @@ export class NaniteRenderer {
   typeValues!: THREE.Vector4[]; // (its values)
   impPxOf!: UniformArrayNode<'float'>; // per type: its impostor switch size x impostorPx (NaniteType.impostorPx)
   shadowTauOf!: UniformArrayNode<'float'>; // per type: its shadow casters' own tau, 0: the view's (NaniteType.shadowTau)
+  fills = 0; // (fillType's calls: a model arriving redraws its statues)
+  solidOf!: UniformArrayNode<'float'>; // per type: 1 if its quad keeps its baked size (NaniteType.impostorSolid)
   shadowPxOf!: UniformArrayNode<'float'>; // per type: its shadow's switch x its impostor switch (NaniteType.shadowPx)
   unfoldOf!: UniformArrayNode<'float'>; // per type: 1 for a scan whose folds are lit by their face (NaniteType.unfold)
   chunks!: InstanceChunks; // (the instances in compact runs: the instance passes cull them on the CPU first)

@@ -52,7 +52,7 @@ const DEBUG = ['off', 'cluster', 'level', 'tree', 'type', 'raster'];
 
 const CONTROLS: [string, string][] = [
   ['WASD', 'walk / fly'], ['Space', 'jump, twice: fly'], ['Space / Ctrl', 'up / down (land: walk)'], ['Shift', 'fast'], ['Mouse', 'look'], ['Right mouse', 'zoom 5×'],
-  ['F', 'freeze culling'], ['[ ]', 'error threshold'], ['Q', 'auto quality'], ['L', 'debug colours'],
+  ['F', 'freeze culling'], ['[ ]', 'error threshold'], ['Q', 'auto quality'], ['C', 'copy report'], ['L', 'debug colours'],
   ['H', 'help'], ['F11', 'fullscreen'], ['Esc', 'this menu'],
 ];
 const TOUCH_CONTROLS: [string, string][] = [
@@ -251,6 +251,7 @@ export function createMenu(ctx: MenuContext) {
     if (code === 'BracketLeft' || code === 'Minus') (auto.on = false), (u.tau.value = Math.max(0.25, u.tau.value / 1.5));
     if (code === 'BracketRight' || code === 'Equal') (auto.on = false), (u.tau.value = Math.min(64, u.tau.value * 1.5));
     if (code === 'KeyQ') auto.on = !auto.on;
+    if (code === 'KeyC') void perf?.copy(); // (no click: the mouse stays captured, a zoom stays zoomed)
     if (open) refresh();
   };
 

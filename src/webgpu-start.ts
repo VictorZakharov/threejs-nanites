@@ -16,6 +16,7 @@ import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
 import { runProfile, type ProfileProgress } from './profile.ts';
 import { createMenu } from './menu.ts';
+import { createZoomLog } from './zoom-log.ts';
 import { installHarnessApi, type DemoState } from './harness-api.ts';
 import { gpuBackend, asReceivedShadow } from './three-gaps.ts';
 import { TAA } from './taa.ts';
@@ -219,6 +220,11 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   });
   const updateHud = hud.update;
   demo.perfReport = () => hud.perf?.report();
+  const zoomLog = createZoomLog({
+    tau: forest.u.tau, scale: () => auto.scale, zoom: controls, forest,
+    shadow: () => ({ size: sun.shadow.mapSize.x, half: (sun.shadow.camera as THREE.OrthographicCamera).right }),
+  });
+  if (hud.perf) hud.perf.extra = zoomLog.report;
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
   const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
@@ -240,6 +246,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
     autoQuality(dt);
+    zoomLog.frame(now, dt);
     hud.frame(now, dt);
   }
 

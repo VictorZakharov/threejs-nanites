@@ -22,7 +22,7 @@ import {
 import type { ComputeNode } from 'three/webgpu';
 import { ELEVATIONS, IMPOSTOR_CUT, TILE_W, TILE_H, atlasLayout } from '../impostors/atlas.ts';
 import type { ImpostorAtlas } from '../impostors/atlas.ts';
-import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impostorCov, impostorShare } from './billboards.ts';
+import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impostorCov, impostorShare, impostorView } from './billboards.ts';
 import { MIN_PX, PHASE2_LAYER, SPLAT, SPLAT_BIT, WG, minU, minI, maxI } from './constants.ts';
 import { MAX_PIXELS } from './softraster.ts';
 import { ditherAlt, typeId, mipBias } from './shading.ts';
@@ -109,7 +109,7 @@ export class Splats {
     const j = clamp(elev.sub(mid).div(ELEV_STEP).round(), 0, ELEVATIONS.length - 2).toVar();
     const blend = smoothstep(mid - 7.5, mid + 7.5, elev.sub(j.mul(ELEV_STEP))).toVar();
     const ju = uint(j);
-    const grow = mix(this.growArr.element(ju), this.growArr.element(ju.add(1)), blend).toVar();
+    const grow = mix(mix(this.growArr.element(ju), this.growArr.element(ju.add(1)), blend), float(1), f.solidOf.element(type)).toVar();
     const wPx = w0.mul(grow).mul(u.projScale).div(max(length(toCam), 0.1)).toVar();
     const share = impostorShare(inst, impostorCov(fr, elev), wPx);
     return { inst, type, pivot, dir, j, blend, grow, cov: share.cov.toVar(), shared: share.k.greaterThan(0), wPx, w0, h0 };
@@ -128,7 +128,7 @@ export class Splats {
     const w = sh.w0.mul(g).toVar(), h = sh.h0.mul(g).toVar();
     const right = vec3(sh.dir.z, 0, sh.dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize().toVar();
     const up = cross(sh.dir, right).toVar();
-    const flip = hash(sh.inst).greaterThan(0.5); // (mirrored as in the impostor draw)
+    const flip = hash(sh.inst).greaterThan(0.5).and(this.nanite.solidOf.element(sh.type).lessThan(0.5)); // (mirrored as in the impostor draw)
     const clip = (cx: number, cy: number) => sw.viewProj.mul(vec4(this.nanite.look.curve(sh.pivot.add(right.mul(w.mul(cx - 0.5))).add(up.mul(h.mul(cy - 0.5)))), 1));
     const screen = (c: ReturnType<typeof clip>): Vec2 => vec2(c.x.div(c.w).mul(0.5).add(0.5).mul(sw.size.x), c.y.div(c.w).mul(-0.5).add(0.5).mul(sw.size.y));
     const o = screen(clip(0, 0)).toVar();
@@ -210,14 +210,15 @@ export class Splats {
    * alpha test at pixel point p (by coverage against the moving dither under TAA, else the cut-out).
    */
   _atlasSampler(atlas: ImpostorAtlas) {
-    const nTypes = atlas.frames.length;
-    const { cols, rows } = atlasLayout(nTypes);
+    const nViews = atlas.views;
+    const { cols, rows } = atlasLayout(nViews);
     const { levels } = atlas.coverage, scaleArr = atlas.scales; // (filled by impostorCoverage)
     return (sh: Shape, q: Quad, t: Vec2, lod: Float) => {
       const vUv = vec2(select(q.flip, t.x.oneMinus(), t.x), t.y.oneMinus()); // (within the tile; stored flipped)
+      const view = impostorView(atlas, sh.type, this.nanite._b(sh.inst), sh.dir).toVar();
       const ks = [sh.j, sh.j.add(1)], wts = [sh.blend.oneMinus(), sh.blend];
       const uv = ks.map((k) => {
-        const tile = float(sh.type).add(k.mul(nTypes)), row = tile.div(cols).floor(), col = tile.sub(row.mul(cols));
+        const tile = view.add(k.mul(nViews)), row = tile.div(cols).floor(), col = tile.sub(row.mul(cols));
         return vUv.add(vec2(col, row)).div(vec2(cols, rows));
       });
       const s = uv.map((c) => texture(atlas.texture, c).level(lod));
@@ -226,9 +227,9 @@ export class Splats {
         const i0 = tile.mul(levels).add(uint(lc.floor()));
         return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lc.fract());
       };
-      const a = s.map((sk, i) => sk.a.mul(scaleOf(sh.type.add(uint(ks[i]).mul(nTypes)))).mul(clamp(wts[i].mul(2), 0, 1)));
+      const a = s.map((sk, i) => sk.a.mul(scaleOf(uint(view).add(uint(ks[i]).mul(nViews)))).mul(clamp(wts[i].mul(2), 0, 1)));
       const coverage = min(max(s[0].a.mul(clamp(wts[0].mul(2), 0, 1)), s[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
-      const pass = (p: Vec2): Bool => ((this.nanite.textures.impostorDither ?? IMP_DITHER) ? coverage.mul(IMP_COV).mul(sh.cov).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT).and(sh.cov.greaterThan(ditherAlt(p))));
+      const pass = (p: Vec2): Bool => ((this.nanite.textures.impostorDither ?? IMP_DITHER) ? coverage.mul(mix(float(IMP_COV), float(1), this.nanite.solidOf.element(sh.type))).mul(sh.cov).greaterThan(ditherAlt(p)) : min(max(a[0], a[1]), 1).greaterThanEqual(IMPOSTOR_CUT).and(sh.cov.greaterThan(ditherAlt(p))));
       return { uv, s, a, elev: ks.map((k) => k.mul(ELEV_STEP)), pass };
     };
   }
