@@ -738,6 +738,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   on a phone's 512 map) and the shadow pass and its culling stop (`shadowFarOnly`; a phone 8 km up spent ~30% of its
   GPU time on ~800k impostor shadow quads in 23 m texels). The coarse map lets light through: the average is up to
   6-8/255 darker there, blended over ~700 m of climb rather than a jump.
+- The zoom eases over a fixed 300 ms (`?zoomms=`, `controls.ts`): an exponential ease looked done at 4.9x after 300 ms and
+  crept on until 700, and while the view moves TAA can't settle, so thin wings stayed blurred until it stopped (the user: wings
+  coming in "~1sec after", view `userzoom`; `--probe=zoomfilm`: within 1000 px of the last frame after 350 ms, was 710). Switching
+  the LOD to the target zoom at the start was tried: wide view at full detail, the 1M cluster list overflowed.
 - Right-mouse zoom (5x) narrows `camera.fov`; LOD follows via projScale (full detail, as if 5x closer), while the
   shadow view's tau is multiplied by the zoom (shadow-map resolution doesn't change; without it shadow casters went
   to 63M tris). Zoomed into deep forest it's still ~55k trees x ~1000 tris: no occlusion culling yet.

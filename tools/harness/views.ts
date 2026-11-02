@@ -63,6 +63,7 @@ export const VIEWS: Record<string, HarnessView> = {
   ...Object.fromEntries([50, 100, 200, 400, 800, 1600].map((agl) => [`small${agl}`, { x: 99.5, z: -154.8, agl, yaw: 0, pitch: -89.9, zoom: 5 }])),
   // over the statues towards the horizon, 120 m up (the user: "a circle where statues gain their brightness")
   lucyhorizon: { x: 400, z: 250, agl: 120, yaw: 20, pitch: -10 },
+  userzoom: { x: 20, z: 40, agl: 372, yaw: 25.8, pitch: -13.6 }, // (the user's report: wings change ~1 s after the zoom)
   lucyfield: { x: 400, z: 250, agl: 34, yaw: 20, pitch: -4 }, // across the statues, as the user zoomed (34 m up)
   statue: { x: -23.7, z: -35.8, agl: 2, yaw: 210, pitch: 14 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
