@@ -13,6 +13,8 @@ export const WG = 64;
 export const MAX_ITEMS = 1 << 20; // max 64-cluster work items per view (dispatched 2D: 65535 workgroups per dimension)
 export const MAX_DIM = 65535;
 export const LIST_CAP = 1 << 20; // max visible clusters per list
+// max clusters to retest in phase 2 (Lucy forest `lucyhorizon` at 4K, zoomed at tau 8: 1.06M; what's past it is never drawn)
+export const RETEST_CAP = 1 << 21;
 // max clusters in the software rasterizer's list (its ids pack slot << 7: up to 2^25). Zoomed 5x at tau 1 over the Lucy forest
 // 1.17M clusters were listed, 128M triangles: past 2^20 the rest were dropped, statues in pieces until auto quality
 // raised tau (the user: "a visible redraw cycle from near to far"). 32 MB.

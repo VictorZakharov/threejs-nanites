@@ -18,6 +18,7 @@ import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
 import { zoomTime, flyTime } from './harness/zoomtime.ts';
 import { typeMatch } from './harness/typematch.ts';
+import { lodCheck } from './harness/lodcheck.ts';
 import { runExample } from './harness/example.ts';
 import { status, at } from './harness/status.ts';
 
@@ -109,6 +110,7 @@ try {
     if (opts.zoomtime) report.zoomtime = await zoomTime(page, opts, outDir, tag);
     if (opts.flytime) report.flytime = await flyTime(page, opts, outDir, tag);
     if (opts.typematch) report.typematch = await typeMatch(page, opts, outDir);
+    if (opts.lodcheck) report.lodcheck = await lodCheck(page, opts, outDir, opts.lodcheck);
     reports.push(report);
   }
   writeFileSync(join(outDir, 'report.json'), JSON.stringify(reports.length === 1 ? reports[0] : reports, null, 2));

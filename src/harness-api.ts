@@ -224,7 +224,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   live(on: boolean): number[][] {
     renderer.setAnimationLoop(null);
     if (!on) return liveLog.splice(0);
-    auto.on = true;
+    auto.on = new URLSearchParams(location.search).get('auto') !== '0'; // (?auto=0: --zoomtime with the setting held)
     liveLog.length = 0;
     const t0 = performance.now();
     let sun: THREE.DirectionalLight | undefined;

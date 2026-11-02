@@ -454,20 +454,28 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   or with upscaling off), and over the budget that extra goes first, before tau: a dense screen at 1.5 of its 3 was the
   scene's pixels upscaled 2x (issue #3). A step is x1.32 the pixels, so under 55% it lands under 1.1 and doesn't swing
   back. `--probe=auto --dpr=2 --query=autobudget=20`: scale 1.33 (3200x1800, native); at the phone's size on the dev
-  GPU 2 (1152x2496). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Zooming in starts
-  from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
-  is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
-  last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). While zoomed it stays at the setting it was zoomed in with: it never
-  refines, and it coarsens only far over the budget (over 1.5x): the first median cost (from 120 ms after the zoom is
-  within 5%: the jumps land while it still eases in) sets tau by cost ~ 1 / tau towards 0.9 of the budget, at most twice
-  (`leap`, `?autojump=0` for steps), and past tau 8 the resolution by its pixels in the same jump, with no trials.
-  Refining was the redraw: looking down from high up the zoom is often the cheaper view (2.2 ms against 5.4), and at
-  2560x1440 `down800` re-cut 8 -> 2.1 in six steps, one every 250 ms; and the second jump's slope from two points hit
-  its bound and overshot, walked back after (Lucy forest `oblique`, 1 -> 2.5 -> 7.6 -> 6.1; the user: "a visible redraw,
-  but then it redraws back to the original... can we just stay at the original?"). `--zoomtime` on `down300`..`down6000`,
-  `oblique`, `slope`, `overview`, `lone`, `topdown700`, both scenes: nothing reverses, and only views far over the budget
-  move (`oblique` 1 -> 2.6 -> 4.35). The cost: a zoom cheaper than its unzoomed view doesn't spend the room on detail. A resolution step down is a trial: if it saved under a third of its share of the pixels
+  GPU 2 (1152x2496). Far from the budget (over 1.5x or under 0.5x) it steps bigger and every 250 ms. Across the zoom tau
+  moves with it as it eases, in and out, and nothing changes after (`zoomTau`): min(tau x zoom, the larger of tau and
+  `maxTau`). The LOD goes by tau / zoom, so up to tau x zoom a statue's cut is the unzoomed one (and a subset of what
+  was drawn unzoomed, so it can't overflow what that didn't), past it only finer; nothing is measured while the zoom
+  eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the last zoom's own setting was
+  tried: learned at a costly spot it made every later zoom blurry (the user: "washed", "optimize the algo before we
+  downgrade"). Coarsening to the budget about a second after the zoom was the redraw the user kept seeing: "it changes
+  statues noticeably", "far small statues losing their wings", "we should be making them finer, not coarser". Lucy
+  `oblique` zoomed, 1440p, `--lodcheck`: tau 4.73 -> 8 took a 17-32 px statue's shape lost from 10 to 21%, 33-64 px from
+  6 to 13%. Now it gets there during the ease, from coarser. Holding the unzoomed tau instead filled the 1M cluster list
+  from tau ~4 down (`--probe=caps`): threads list by runs of adjacent plants, so as the view panned, groups of
+  neighbours came and went (the user; `--dolly --step=0 --turn=0.02` at zoom 5: 64k / 50k / 12k flicker events at tau
+  1 / 2 / 3, ~240 at 4.73 and 8), at 25-30 ms. `--zoomtime` with `taa=0` (2560x1440, Lucy `oblique`, `lucyfield`,
+  `lucyhorizon`, `down800`): no tile moves after the zoom, 3-10k pixels differ between shots; zoomed GPU 8-12 ms, 15-20
+  held, still over the 5.5 ms budget: only frames over 75 ms coarsen it further (`ZOOM_FLOOR`; the resolution past 125
+  ms). The occlusion retest list has its own cap (`RETEST_CAP`; 1.06M at 4K `lucyhorizon`). A preset or manual tau isn't
+  moved: under ~4 zoomed it can still fill the list.
+  A zoom is at most tau 8 at the unzoomed resolution: at 8 / 0.64 the far statues stay coarse. `--zoomtime` tiles
+  miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
+  `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
+  Small statues are off whatever the tau (unzoomed, under 16 px: ~25% of the shape lost, +8..12/255 luma against a
+  control's -2): not explained yet. A resolution step down is a trial: if it saved under a third of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off

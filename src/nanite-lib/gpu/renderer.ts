@@ -21,7 +21,7 @@ import type { StorageBufferNode, UniformArrayNode } from 'three/webgpu';
 import { SoftRaster } from './softraster.ts';
 import { Splats } from './splats.ts';
 import { LeafPrepass } from './prepass.ts';
-import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT, LIST_CAP } from './constants.ts';
+import { SHADOW_TAU_MUL, PHASE2_LAYER, CD_STRIDE, makeCounters, ARGS, STATS, ITEM_COUNT, RETEST, SW, IMP_ARGS, SPLAT, LIST_CAP, MAX_ITEMS, SW_CAP, RETEST_CAP } from './constants.ts';
 import { cullingMethods } from './culling.ts';
 import { hzbMethods } from './hzb.ts';
 import { drawMethods } from './draw.ts';
@@ -88,7 +88,7 @@ export class NaniteRenderer {
   /** The impostors' colour gains per tree type (live uniforms: harness --typematch=calibrate adjusts them). */
   impGains: { side: UniformArrayNode<'vec3'>; top: UniformArrayNode<'vec3'> } | null = null;
   readonly mainCtr: Counters;
-  readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number; LIST_CAP: number; PLANET_RADIUS: number };
+  readonly ctrLayout: { ARGS: typeof ARGS; STATS: number; ITEM_COUNT: number; RETEST: number; SW: number; LIST_CAP: number; MAX_ITEMS: number; SW_CAP: number; RETEST_CAP: number; PLANET_RADIUS: number };
   readonly sw: SoftRaster;
   readonly splats: Splats;
   /** The leaves' depth prepass where they're dense on screen (prepass.ts). */
@@ -120,7 +120,7 @@ export class NaniteRenderer {
     this._buildHzb();
     // (the main view's counters: its draw args, stats, retest and software-raster counts in one buffer, see CTR_SIZE)
     this.mainCtr = makeCounters();
-    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, PLANET_RADIUS: look.curveRadius }; // (for the harness probes)
+    this.ctrLayout = { ARGS, STATS, ITEM_COUNT, RETEST, SW, LIST_CAP, MAX_ITEMS, SW_CAP, RETEST_CAP, PLANET_RADIUS: look.curveRadius }; // (for the harness probes)
     this.sw = new SoftRaster(this); // tiny clusters: rasterized in compute (softraster.ts)
     this.splats = new Splats(this); // tiny impostors: splatted into its visibility buffer (splats.ts)
     this.main = this._buildView('main', 1);
