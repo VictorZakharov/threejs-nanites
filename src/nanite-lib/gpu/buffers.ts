@@ -75,6 +75,7 @@ export const bufferMethods = {
     this.typeValues = typeInfo;
     this.typeInfo = uniformArray<'vec4'>(typeInfo, 'vec4');
     this.impPxOf = uniformArray<'float'>(trees.map((t) => t.impostorPx ?? 1), 'float');
+    this.solidOf = uniformArray<'float'>(trees.map((t) => (t.impostorSolid ? 1 : 0)), 'float');
     this.shadowPxOf = uniformArray<'float'>(trees.map((t) => t.shadowPx ?? 1), 'float');
     this.shadowTauOf = uniformArray<'float'>(trees.map((t) => t.shadowTau ?? 0), 'float');
     this.unfoldOf = uniformArray<'float'>(trees.map((t) => (t.unfold ? 1 : 0)), 'float');

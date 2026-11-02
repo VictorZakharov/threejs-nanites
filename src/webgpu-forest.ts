@@ -52,9 +52,11 @@ export interface ForestSetup {
  * 0.7 x a tree's size (~14 px tall; `?statuepx=`: 0.4 drew 75M software triangles from 450 m, 9 ms), and their shadows
  * are their geometry's down to a quarter of that (a quad turned to the sun cast every one the same blob, shorter, and
  * switched with the impostor: the user's "shadow in another direction"; `?statueshadowpx=`: at 0, every statue in the
- * shadow map listed its clusters, `slope` 8.6 ms, 4.4 at 0.25, the same image).
+ * shadow map listed its clusters, `slope` 8.6 ms, 4.4 at 0.25, the same image). At their baked size (`?statuesolid=0`:
+ * GROW's, a crown's, so 0.81 of the area from 15-45 degrees up: far statues covered 0.8 of what they should and the
+ * ground showed through them, up to +3.5/255 on `oblique`).
  */
-const LUCY_IMPOSTORS = { impostorPx: Number(new URLSearchParams(location.search).get('statuepx') ?? 0.7), shadowPx: Number(new URLSearchParams(location.search).get('statueshadowpx') ?? 0.25), shadowTau: Number(new URLSearchParams(location.search).get('statueshadowtau') ?? 2) };
+const LUCY_IMPOSTORS = { impostorSolid: new URLSearchParams(location.search).get('statuesolid') !== '0', impostorPx: Number(new URLSearchParams(location.search).get('statuepx') ?? 0.7), shadowPx: Number(new URLSearchParams(location.search).get('statueshadowpx') ?? 0.25), shadowTau: Number(new URLSearchParams(location.search).get('statueshadowtau') ?? 2) };
 
 export async function buildForest(o: ForestSetup) {
   const { renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing, sceneName, samples, terrain, shadowsOn, pre } = o;

@@ -109,7 +109,7 @@ export class Splats {
     const j = clamp(elev.sub(mid).div(ELEV_STEP).round(), 0, ELEVATIONS.length - 2).toVar();
     const blend = smoothstep(mid - 7.5, mid + 7.5, elev.sub(j.mul(ELEV_STEP))).toVar();
     const ju = uint(j);
-    const grow = mix(this.growArr.element(ju), this.growArr.element(ju.add(1)), blend).toVar();
+    const grow = mix(mix(this.growArr.element(ju), this.growArr.element(ju.add(1)), blend), float(1), f.solidOf.element(type)).toVar();
     const wPx = w0.mul(grow).mul(u.projScale).div(max(length(toCam), 0.1)).toVar();
     const share = impostorShare(inst, impostorCov(fr, elev), wPx);
     return { inst, type, pivot, dir, j, blend, grow, cov: share.cov.toVar(), shared: share.k.greaterThan(0), wPx, w0, h0 };

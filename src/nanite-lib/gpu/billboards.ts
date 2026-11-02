@@ -174,6 +174,7 @@ export const billboardMethods = {
       // (GROW_SHADOW: the geometry's shadow comes from fat coarse LODs)
       const ju = uint(j);
       const grow = mix(growArr.element(ju), growArr.element(ju.add(1)), blend).toVar();
+      if (screen) grow.assign(mix(grow, float(1), this.solidOf.element(type)));
       q.vCov.assign(impostorCov(this.impFrame.element(type), elev)); // (the shadow casters' too: by the sun's elevation)
       q.vSeed.assign(float(hash(inst.add(31)).mul(4096).floor()));
       if (screen) {

@@ -139,6 +139,11 @@ export interface NaniteType extends DagResult {
   /** Its impostor switch size, x the renderer's impostorPx (1; a mesh whose one view per elevation shows less, smaller). */
   impostorPx?: number;
   /**
+   * Its quad at the size it was baked, not the table's (GROW: fitted to crowns, whose geometry covers less than their
+   * baked tile; a solid mesh covers just what it was baked with).
+   */
+  impostorSolid?: boolean;
+  /**
    * Where its shadow switches from its geometry to its impostor's quad turned to the sun, x its impostor switch (1:
    * where the camera's does). Smaller for a mesh that isn't round its axis: it casts a shadow by its facing (the demo's
    * statues: a quad cast every one the same blob, and switched with the camera's).

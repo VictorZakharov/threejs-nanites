@@ -6,7 +6,10 @@
 //                 colour over PASSES single frames (no jitter), so a dithered impostor counts by its coverage, both
 //                 blurred 3x3 (one sample a pixel against a shrunk reference: otherwise every edge pixel counts)
 //   luma          mean sRGB luma difference (cut - reference) where both cover, from frames TAA has settled
-// A line is marked FAIL over the limits. lodcheck-<view>-z<zoom>-t<tau>.png: reference | cut | red lost, blue added.
+// The bins pick pixels by the reference's, so a tiny statue loses more than it gains there whatever is drawn (over 20% at
+// 8 px, drawn right): read them for one cut against another. Then per row of the window, nothing picked: the cut's total
+// coverage over the reference's and the mean luma difference. A row is marked FAIL over the limits.
+// lodcheck-<view>-z<zoom>-t<tau>.png: reference | cut | red lost, blue added.
 // A reference or cut at the cluster lists' cap is missing clusters: the line says `CAP`, don't trust it (a higher
 // --lodk: the reference sees less).
 import { writeFileSync } from 'node:fs';
@@ -25,7 +28,7 @@ const PASSES = 8; // single frames per mask
 const SETTLE = 32; // frames for TAA to settle before a colour shot
 const CLUSTER_CAP = 1048576;
 const BINS = [8, 16, 32, 64, 128, Infinity]; // model height on screen, px: bins' upper ends
-const LIMIT = { shape: 15, luma: 4 }; // % of a model's area; sRGB levels
+const LIMIT = { cover: 0.15, luma: 4 }; // a row's coverage off 1; sRGB levels
 const PAD = 2; // px round a model that count as its own (where it gained coverage)
 
 interface Shot { w: number; h: number; cover: Float32Array; rgb: Float32Array; clusters: number; fov: number }
@@ -193,6 +196,29 @@ function compare(ref: Part, cut: Part, hidden: { x: number; y: number }) {
   }).filter((x) => x !== null);
 }
 
+/**
+ * Rows of the window, far to near: the models' height there, the cut's total coverage over the reference's and the mean
+ * sRGB luma difference over every pixel, statue or not. Unlike `compare`, nothing is picked by the reference's pixels:
+ * a tiny statue's pixels over 0.5 in the reference are mostly the ones its sample happened to hit, so one sampled
+ * differently loses more than it gains there whatever it draws.
+ */
+function bands(ref: Part, cut: Part, hidden: { x: number; y: number }, n = 6) {
+  const { of, heights } = models(ref.cover, ref.w, ref.h);
+  return Array.from({ length: n }, (_, b) => {
+    const y0 = Math.floor((b * ref.h) / n), y1 = Math.floor(((b + 1) * ref.h) / n), seen = new Set<number>();
+    let r = 0, c = 0, dl = 0, k = 0;
+    for (let y = y0; y < y1; y++)
+      for (let x = 0; x < ref.w; x++) {
+        if (x >= hidden.x && y < hidden.y) continue;
+        const i = y * ref.w + x;
+        if (of[i] >= 0) seen.add(of[i]);
+        (r += ref.cover[i]), (c += cut.cover[i]), (dl += toSrgb(lumaOf(cut.rgb, i)) - toSrgb(lumaOf(ref.rgb, i))), k++;
+      }
+    const hs = [...seen].map((id) => heights[id]).sort((p, q) => p - q);
+    return { row: b, height: hs[hs.length >> 1] ?? 0, models: hs.length, cover: +(c / Math.max(r, 1)).toFixed(3), share: +(r / Math.max(k, 1)).toFixed(3), luma: +(dl / Math.max(k, 1)).toFixed(2) };
+  });
+}
+
 /** reference | cut | where they differ (red lost, blue added), each `scale` x. */
 function sheet(ref: Part, cut: Part, scale = 3): Buffer {
   const { w, h } = ref, gap = 4, out = new PNG({ width: (w * 3 + gap * 2) * scale, height: h * scale });
@@ -223,7 +249,7 @@ export async function lodCheck(page: Page, opts: Options, outDir: string, taus: 
   const [tau0, imppx, spread] = await page.evaluate(() => [window.__demo.forest.u.tau.value, window.__demo.forest.u.impostorPx.value, window.__demo.taa.spread]);
   const result: Record<string, unknown> = {};
   const pad = (v: unknown, n: number): string => String(v).padStart(n);
-  console.log(`\nlodcheck: ${names[type]}, the cut vs itself drawn at ${opts.lodk}x the zoom (tau ${TRUTH_TAU}, no impostors), shrunk; limits ${LIMIT.shape}% of its area, ${LIMIT.luma}/255`);
+  console.log(`\nlodcheck: ${names[type]}, the cut vs itself drawn at ${opts.lodk}x the zoom (tau ${TRUTH_TAU}, no impostors), shrunk; a row's limits: coverage within ${LIMIT.cover}, ${LIMIT.luma}/255`);
   for (const view of opts.views) {
     const zoom = opts.zoom ?? VIEWS[view].zoom ?? 1;
     at(`lodcheck ${view}: reference`);
@@ -239,11 +265,11 @@ export async function lodCheck(page: Page, opts: Options, outDir: string, taus: 
       const bins = compare(ref, cut, hidden), capped = Math.max(truth.clusters, shot.clusters) >= CLUSTER_CAP;
       console.log(`  ${view} zoom ${zoom} tau ${tau}: ${shot.clusters} clusters${capped ? ' CAP' : ''}`);
       console.log(`    ${'px tall'.padEnd(8)}${pad('models', 7)}${pad('lost%', 7)}${pad('added%', 7)}${pad('worst', 7)}${pad('luma', 7)}`);
-      for (const b of bins) {
-        const fail = b.lost > LIMIT.shape || b.added > LIMIT.shape || Math.abs(b.luma) > LIMIT.luma;
-        console.log(`    ${b.px.padEnd(8)}${pad(b.models, 7)}${pad(b.lost, 7)}${pad(b.added, 7)}${pad(b.worstLost, 7)}${pad(b.luma, 7)}${fail ? '  FAIL' : ''}`);
-      }
-      result[`${view}/z${zoom}/t${tau}`] = { capped, clusters: shot.clusters, truthClusters: truth.clusters, bins };
+      for (const b of bins) console.log(`    ${b.px.padEnd(8)}${pad(b.models, 7)}${pad(b.lost, 7)}${pad(b.added, 7)}${pad(b.worstLost, 7)}${pad(b.luma, 7)}`);
+      const rows = bands(ref, cut, hidden);
+      console.log(`    rows, far to near (height: median px; cover: cut / reference; share: of the row the reference covers; luma: mean over the row)`);
+      for (const b of rows) console.log(`    ${pad(b.row, 3)} height${pad(b.height, 5)} models${pad(b.models, 6)} cover${pad(b.cover, 7)} share${pad(b.share, 7)} luma${pad(b.luma, 7)}${Math.abs(b.cover - 1) > LIMIT.cover || Math.abs(b.luma) > LIMIT.luma ? '  FAIL' : ''}`);
+      result[`${view}/z${zoom}/t${tau}`] = { capped, clusters: shot.clusters, truthClusters: truth.clusters, bins, rows };
     }
   }
   await page.evaluate(([t, px, sp]) => {

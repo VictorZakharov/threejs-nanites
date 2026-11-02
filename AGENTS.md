@@ -665,6 +665,12 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   32 degrees up, so only the second counts). It was 1.45-1.5 from above, fitted while half the trees were missing:
   with all drawn, crowns overlapped many deep and covered ~2x their geometry's pixels. Alpha is
   coverage-preserving per mip (`impostorCoverage` reads the atlas back once).
+- A solid mesh's impostor keeps its baked size (`NaniteType.impostorSolid`, the Lucy scene's statues; `?statuesolid=0`):
+  `GROW` was fitted to crowns, and at 0.9 from 15-45 degrees up far statues covered 0.8 of what they should, reading
+  up to +3.5/255 on `oblique` (the ground shows through). `--lodcheck`'s rows (1440p, `--lodk=15`, tau 4.73, cut / model
+  drawn at high detail): `oblique` 0.80-0.85 -> 0.94-0.97, `slope` 0.85-0.92 -> 1.00-1.05, `down800` 0.83-0.94 ->
+  1.04-1.11; same cost. Still off: `lucyhorizon`'s far rows, 0.90 and +9.7/255 with or without this and at any
+  `statuepx`, and zoomed geometry at tau 8, 0.84-0.88 (0.96 at 4.73): coarse levels lose thin parts.
 - Impostor coverage per type (`impCov` in `VARIANTS`: side, top, mixed by elevation; `impostorCov`, `holes` in
   `billboards.ts`): where a type still covers more than its real trees after `GROW` (Oak Large: 0.8 side, 0.6
   top; the bushes from above) its impostors get holes: the atlas cells of the mip a pixel samples (about a pixel
