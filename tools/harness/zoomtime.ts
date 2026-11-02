@@ -11,7 +11,7 @@ import { at } from './status.ts';
 import type { Page } from 'playwright-core';
 import type { Options } from './options.ts';
 
-const MARKS = [0, 700, 900, 1100, 1300, 1500, 1750, 2000, 2500, 3000, 4000, 6000]; // ms after the zoom starts (0: just before)
+const MARKS = [0, 300, 500, 700, 900, 1100, 1300, 1500, 1750, 2000, 2500, 3000, 4000, 6000]; // ms after the zoom starts (0: just before)
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
 export async function zoomTime(page: Page, opts: Options, outDir: string, tag = '') {
@@ -23,11 +23,13 @@ zoomtime: the page's loop, auto quality on; 5 s unzoomed, then the zoom (pixels 
     await page.evaluate((v) => window.__demo.setView(v), { ...VIEWS[name], zoom: 1 });
     await page.evaluate(() => window.__demo.live(true));
     await sleep(5000);
-    const t0 = Date.now(), changed: Record<number, string> = {};
+    const t0 = Date.now(), changed: Record<number, string> = {}, shots: [number, Buffer, string][] = [];
     let last: Buffer | null = null;
     for (const m of MARKS) {
       await sleep(Math.max(0, m - (Date.now() - t0)));
       const shot = await page.screenshot();
+      const st = await page.evaluate(async () => { const s = await window.__demo.stats(); return `${s.barkClusters + s.leafClusters}c ${s.impostors}i ${s.occluded}o`; });
+      shots.push([Date.now() - t0, shot, st]);
       writeFileSync(join(outDir, `zoomtime-${name}${tag}-${m}.png`), shot);
       if (last && m > 700) {
         // (and the 16 px tiles whose mean moved over 2/255: TAA's jitter averages out in them, a redraw doesn't)
@@ -40,6 +42,8 @@ zoomtime: the page's loop, auto quality on; 5 s unzoomed, then the zoom (pixels 
       if (m === 0) await page.evaluate(() => void (window.__demo.controls.zoomTarget = window.__demo.controls.zoomMax));
     }
     const log = await page.evaluate(() => window.__demo.live(false));
+    // (each shot against the last: a change spread over several shots, TAA settling for one, doesn't show between neighbours)
+    console.log(`${name.padEnd(12)} px over 24/255 vs the last shot: ${shots.map(([m, s, st]) => `${m}ms ${diffPixels(s, shots[shots.length - 1][1], 24)} (${st})`).join(', ')}`);
     await page.evaluate(() => void (window.__demo.controls.zoomTarget = window.__demo.controls.zoom = 1));
     // (tau / scale / shadow map / zoom every 250 ms from 1 s before the zoom: the loop started 5 s before it)
     const track: string[] = [];

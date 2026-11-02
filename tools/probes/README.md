@@ -17,6 +17,7 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `occlusion` | occlusion culling counters: trees and clusters failing phase 1, trees hidden after phase 2, draws per phase |
 | `hzb` | the depth pyramid: levels, and a sparse sample of level 0 and 5 (to see that it holds the scene) |
 | `caps` | the culling's fixed-size lists over frames with the camera still (work items, bark, leaves, software clusters, retest): which hit their cap, and how far the counts swing (over a cap, what's dropped differs per frame) |
+| `zoomfilm` | the zoom frame by frame in the page's loop (`?filmms=`, `?filmstep=`): zoom, tau, scale and pixels changed against the film's last frame every 100 ms, and a sheet of frames (`--zoomtime`'s screenshots take over a second each) |
 | `atlas` | the impostor atlas (albedo) as a PNG, cut-out alpha shown blue |
 | `perf` | the performance panel (`--query=perf=1`): its report text and whether it's on screen |
 | `auto` | auto quality in the real loop for 8 s against `?autobudget=` (default 3 ms): settled tau, resolution scale, GPU ms (use `--timeout=120`) |
