@@ -467,7 +467,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   instead of 7.5k. Refining while zoomed was a redraw too (2560x1440 `down800` re-cut 8 -> 2.1 in six steps), and a jump
   walked back the user's "can we just stay at the original?". `--zoomtime` with `taa=0` (2560x1440, both scenes,
   `oblique`, `lucyfield`, `lucyhorizon`, `down800`, `canopyzoom`): the setting doesn't move after the zoom, 2-25k pixels
-  differ between shots, as with it held. The cost: zoomed GPU 4.6-15.5 ms, over the 5.5 ms budget on most of them.
+  differ between shots, as with it held. The cost: zoomed GPU 4.6-20 ms, over the 5.5 ms budget on most of them.
   With it, a zoom shows what the unzoomed setting allows: at 8 / 0.64 the far statues stay coarse. `--zoomtime` tiles
   miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
   `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
