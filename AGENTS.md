@@ -862,7 +862,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   history up to half a pixel off with the camera standing still, every frame, and 3 km away through the 5x zoom the
   blur plus the clipping turned crowns into ghosts (the user: "distant trees are washed"; `?taadebug=2` shows the
   offsets, all zero when still; `?taafeedback=1` turns the accumulation off). History: Catmull-Rom lookup (bilinear blurred the swaying leaves), clipped to the 3x3 neighbourhood's
-  colour spread (YCoCg), blended 10% per frame in a perceptual space (square root of linear light, `?taaspace=linear`
+  colour spread (YCoCg), wider for a pixel that hasn't moved (`BOX_STILL` 3 sigma, `?taastill=`, narrowing to 1.25 over a quarter of a pixel of motion: on the still camera, statue folds finer than the pixels changed the box with every jitter step, and the history never settled; the user, zoomed, side-on to the sun; `--probe=stillfilm` 13.4k -> 3.8k pixels, moving unchanged), blended 10% per frame in a perceptual space (square root of linear light, `?taaspace=linear`
   for the old blend): averaged in linear light, the far pines' tips (sub-pixel specks against the bright sky) came
   out as pale ghosts (the user: "ghosted peaks"; `peaks` view, ridge colour vs `taa=0&pr=2` at 800x450); the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band

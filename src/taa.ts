@@ -17,7 +17,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, select, clamp, dot, sqrt, exp,
-  screenUV, screenSize, abs,
+  screenUV, screenSize, abs, length,
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
 import { ditherShift } from './nanite-lib/index.ts';
@@ -58,6 +58,11 @@ const toRGB = (y: Vec3): Vec3 => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.s
 // linear light: half a dark needle against the bright sky averaged in linear light reads much brighter than half on
 // screen, and the far crowns' tips, sub-pixel speckles that the jitter moves, turned into pale ghosts against the
 // sky (the user: "ghosted peaks"). `?taaspace=linear` for the old blend.
+// The clipping box is mean +- BOX_MOVING sigma of this frame's 3x3 samples. Wider where a pixel hasn't moved (BOX_STILL,
+// narrowing over the first quarter of a pixel of motion): the box is there to stop ghosts, and with the camera still, on
+// high-contrast detail finer than the pixels (the statues' folds), it changed with every jitter step and dragged the
+// history around: it never settled (the user: statues flicker zoomed, side-on to the sun; T stops it; --probe=stillfilm).
+const BOX_MOVING = 1.25, BOX_STILL = Number(params.get('taastill') ?? 3);
 const PERCEPTUAL = params.get('taaspace') !== 'linear';
 const enc = (c: Vec3): Vec3 => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
 const dec = (c: Vec3): Vec3 => (PERCEPTUAL ? c.mul(c) : c);
@@ -176,7 +181,6 @@ export class TAA {
       for (let k = 1; k < samples; k++) zMin.assign(min(zMin, textureLoad(depth, p, int(k)).x));
       const mean = m1.div(9);
       const sigma = sqrt(max(m2.div(9).sub(mean.mul(mean)), vec3(0)));
-      const boxMax = mean.add(sigma.mul(1.25)); // (the clipping box: mean +- 1.25 sigma)
       // where this pixel was last frame: one matrix from this frame's clip space to last frame's, multiplied on
       // the CPU in double precision (rebuilding the world position in float32 from a depth near 1 was off by up to
       // half a pixel with the camera standing still: 3 km away through the 5x zoom, every frame blurred the
@@ -202,7 +206,8 @@ export class TAA {
       // history, clipped towards the mean into the box (clipping, not clamping: no colour shift at the box corners)
       const hist = toYCoCg(enc(this._catmullRom(prevUv)));
       const d = hist.sub(mean);
-      const ext = max(boxMax.sub(mean), vec3(1e-4));
+      const moved = clamp(length(prevUv.sub(screenUV).mul(screenSize)).mul(4), 0, 1);
+      const ext = max(sigma.mul(moved.mul(BOX_MOVING - BOX_STILL).add(BOX_STILL)), vec3(1e-4));
       const outside = max(max(abs(d.x).div(ext.x), abs(d.y).div(ext.y)), abs(d.z).div(ext.z)); // (> 1: outside the box)
       const clipped = toRGB(select(outside.greaterThan(1), mean.add(d.div(outside)), hist));
       // the history's weight: none off screen or after a reset, less the further outside the box it was
