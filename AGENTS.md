@@ -458,14 +458,16 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   from the unzoomed setting and zooming out restores it at once (it stayed at the zoom's tau 8 for seconds); nothing
   is measured while the zoom eases (`?autozoom=0`; `--probe=autozoom --views=canopyzoom --zoom=1`). Jumping to the
   last zoom's own setting was tried: learned at a costly spot it made every later zoom blurry (the user: "washed",
-  "optimize the algo before we downgrade"). From the unzoomed tau it jumps twice (`leap`): the zoomed view's first
-  median cost (from 120 ms after the zoom is within 5%: the jumps land while it still eases in) sets tau by cost ~
-  tau^-k towards 0.9 of the budget (k 1, then the secant of the two points, 0.5..2), and past tau 8 the resolution
-  by its pixels in the same jump; while zoomed, tau goes down (more detail) only under half the budget, and the
-  resolution moves only far from it (over 1.5x, under 0.5x) with no trials: on `lucyfield` a x0.75 step and a trial
-  undone were redraws at 2 and 3.3 s (the user: zooming "parallel to ground, the redraw after 1-2sec"). x0.91 every half second, then every second or so, was a re-cut of the
-  statues each time, a redraw after the zoom (the user; `--zoomtime` on Lucy's `small200` / `giant1200` at
-  2560x1440: 6.8 -> 1 within 0.5 s, then held; `?autojump=0` for the steps). A resolution step down is a trial: if it saved under a third of its share of the pixels
+  "optimize the algo before we downgrade"). While zoomed it stays at the setting it was zoomed in with: it never
+  refines, and it coarsens only far over the budget (over 1.5x): the first median cost (from 120 ms after the zoom is
+  within 5%: the jumps land while it still eases in) sets tau by cost ~ 1 / tau towards 0.9 of the budget, at most twice
+  (`leap`, `?autojump=0` for steps), and past tau 8 the resolution by its pixels in the same jump, with no trials.
+  Refining was the redraw: looking down from high up the zoom is often the cheaper view (2.2 ms against 5.4), and at
+  2560x1440 `down800` re-cut 8 -> 2.1 in six steps, one every 250 ms; and the second jump's slope from two points hit
+  its bound and overshot, walked back after (Lucy forest `oblique`, 1 -> 2.5 -> 7.6 -> 6.1; the user: "a visible redraw,
+  but then it redraws back to the original... can we just stay at the original?"). `--zoomtime` on `down300`..`down6000`,
+  `oblique`, `slope`, `overview`, `lone`, `topdown700`, both scenes: nothing reverses, and only views far over the budget
+  move (`oblique` 1 -> 2.6 -> 4.35). The cost: a zoom cheaper than its unzoomed view doesn't spend the room on detail. A resolution step down is a trial: if it saved under a third of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off

@@ -91,6 +91,12 @@ export const VIEWS: Record<string, HarnessView> = {
   phonetop: { x: 20, z: 40, agl: 9004, yaw: -0.7, pitch: -85.7 },
   phone9k: { x: 20, z: 40, agl: 9004, yaw: 26.7, pitch: -82 }, // (the phone's report at 9 km, 576x1248: --size=384x832 --query="touch=1&pr=1.5&tau=8")
   oblique: { x: 0, z: 2600, agl: 1200, yaw: 0, pitch: -35 },
+  // looking 45 degrees down from high up (the user's zoom that redrew and went back: --zoomtime)
+  down300: { x: 0, z: 1200, agl: 300, yaw: 0, pitch: -45 },
+  down800: { x: 0, z: 1600, agl: 800, yaw: 0, pitch: -45 },
+  down1500: { x: 0, z: 2200, agl: 1500, yaw: 0, pitch: -45 },
+  down3000: { x: 0, z: 3500, agl: 3000, yaw: 0, pitch: -45 },
+  down6000: { x: 0, z: 6500, agl: 6000, yaw: 0, pitch: -45 },
   // looking down (impostor top views, coverage)
   // the forest from ~2.5 km at an angle (user: "from up top pattern of trees looks repetitive")
   aerial: { x: 0, z: 2500, agl: 2500, yaw: 0, pitch: -50 },
