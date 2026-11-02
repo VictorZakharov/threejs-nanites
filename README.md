@@ -37,7 +37,17 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   - It only draws the casters whose shadow can land in view.
   - Its size follows the resolution and its extent the altitude.
   - Past its edge, an average canopy shadow takes over.
-- **Any mesh, not just trees:** twelve copies of Stanford's [Lucy](http://graphics.stanford.edu/data/3Dscanrep/) scan (1M triangles each) go through the same pipeline.
+- **Tiny impostors in compute:** from 2 km up, trees a few pixels wide are splatted into the software rasterizer's
+  visibility buffer, the same image as drawing their quads, for less GPU time.
+- **Leaf depth prepass:** where leaves are many layers deep (the zoom over the canopy) they're drawn first with only
+  their alpha test, so only the front card of each pixel is lit. It switches itself on by the leaves' density.
+- **Any mesh, not just trees:** Stanford's [Lucy](http://graphics.stanford.edu/data/3Dscanrep/) scan goes through the
+  same pipeline: twelve copies at 1M triangles in the forest, 250,000 at 4M in the [Lucy forest](#scenes). PLY, glTF /
+  GLB and OBJ are read by `npm run model`.
+- **Asset streaming:** a model's DAG is built offline into a compact `.nm` file (quantized and meshopt-compressed;
+  Lucy's 4M triangles and all their LOD levels are 16.1 MB gzipped). The file starts with a coarse copy of the model
+  (128k triangles in its first 0.44 MB), which is drawn while the rest downloads, with no holes, and the whole model
+  replaces it when it arrives. The Lucy forest's first frame doesn't wait for the rest.
 - **Temporal anti-aliasing:**
   - Jittered camera, reprojection from depth, and wind motion vectors for the leaves.
   - History clipped in YCoCg and blended in a perceptual space.
@@ -47,14 +57,17 @@ Needs WebGPU: Chrome / Edge on desktop and Android, Safari 26 on macOS and iOS.
   A phone shows its own pixel density (up to 3 per CSS pixel) instead of a stretched 1.5.
 - **Auto quality:** steers τ and the render resolution to keep GPU time within a budget: 5.5 ms on desktop
   (144 Hz), 14 ms on phones.
+- **WebGL 2 fallback:** where there's no WebGPU, a reduced mode after a warning: the forest as instanced meshes at
+  fixed DAG cuts and the same impostors, with no occlusion culling or software rasterizer.
 
 **World**
+- **Two scenes,** picked on the loading screen: the [forest and the Lucy forest](#scenes).
 - **Plants:** 1M trees (six ez-tree variants: oak, ash, aspen, pine) and 1.5M bushes (three variants), with wind.
   They're planted in web workers, with clearings and denser forest edges.
 - **Autumn:** stands of green, yellow and red trees. The fallen leaves on the ground match the tree above them in
   shape and colour.
 - **Forest floor:** soil, twigs, pebbles, leaves and needles, with parallax-occlusion relief.
-- **Grass:** blades in three rings around the viewer, with wind.
+- **Grass:** blades in four rings around the viewer, with wind, kept or dropped in a compute pass.
 - **The planet:** curved, radius 150 km, with terrain out to ~65 km, sky-coloured fog, a cloud deck at ~2.2 km and
   god rays.
 - **The plaza:** a cobblestone road from the start to a ring of statues, with a waypoint and a compass.
