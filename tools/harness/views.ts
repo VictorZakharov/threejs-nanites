@@ -64,6 +64,7 @@ export const VIEWS: Record<string, HarnessView> = {
   // over the statues towards the horizon, 120 m up (the user: "a circle where statues gain their brightness")
   lucyhorizon: { x: 400, z: 250, agl: 120, yaw: 20, pitch: -10 },
   userzoom: { x: 20, z: 40, agl: 372, yaw: 25.8, pitch: -13.6 }, // (the user's report: wings change ~1 s after the zoom)
+  userzoom2: { x: 28, z: 27, agl: 397, yaw: -123.5, pitch: -15.8 }, // (and after the zoom's fixed ease: "some statues still grow wings")
   lucyfield: { x: 400, z: 250, agl: 34, yaw: 20, pitch: -4 }, // across the statues, as the user zoomed (34 m up)
   statue: { x: -23.7, z: -35.8, agl: 2, yaw: 210, pitch: 14 },
   overview: { x: 0, z: 700, agl: 260, yaw: 0, pitch: -22 },
