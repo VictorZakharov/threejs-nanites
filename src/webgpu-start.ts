@@ -181,6 +181,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls);
+  controls.onZoom = autoQuality.followZoom;
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
@@ -245,7 +246,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
-    autoQuality(dt);
+    autoQuality.step(dt);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
   }

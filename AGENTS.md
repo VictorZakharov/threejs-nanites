@@ -277,7 +277,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   skips it (forest) unless `--choose=` (`?choose=1`; `--scene=lucy` for the Lucy forest). Only the planting waits for
   the choice (`beginLoading` in `main.ts`): textures, trees and terrain run during the countdown (Lucy's download after: the scene picks her file). The
   Lucy forest is the same pipeline, with a denser Lucy (`denseModel`: `lucy4m.nm`, `npm run model -- lucy.ply
-  --name=lucy4m --tris=4000000 --height=4 --attr=2,1`, 21.4 MB, 16.1 gzipped; downloaded once the scene is chosen, built
+  --name=lucy4m --tris=4000000 --height=4 --attr=0.25,1 --errscale=4`, 21.5 MB; at `--attr=2,1` the simplifier's normal term, returned as metres, swamped the error (up to 1.35 m with thousands of triangles left, flat from level 10 up): 43M triangles on a 2M pixel screen zoomed at tau 8, 15k for a 30 px statue and nothing between that and the 70-triangle root; now 5.1M, the same image, and auto quality settles at tau ~1.7 with fewer pops up close (`--sweep=lod`, `--probe=lodcut`); downloaded once the scene is chosen, built
   from its coarse copy, the first 0.44 MB, see Models below): at 1M a
   3x statue's face from 3 m was the decimation's facets at level 0 (the user: "people would laugh at it"; `lucyface`,
   `tau=0.05` the same image). Its buffers: indices 95 MB, vertices 70, under WebGPU's guaranteed 128 MB a binding (an
