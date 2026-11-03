@@ -45,8 +45,8 @@ export function createAutoQuality(
   const minTau = (): number => auto.minTau ?? 1;
   const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
   // Past the limit (coarsest tau, lowest resolution, or a resolution that doesn't pay): the low-end tiers, what's least seen first.
-  // 1: tiny impostors as fewer, bigger quads (narrowest 4 px: 45% fewer on `laptop`, the same image and flicker). 2: narrowest 6 px, and
-  // the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
+  // 1: tiny impostors as fewer, bigger quads (narrowest 4 px: 45% fewer on `laptop`, the same image and flicker) and a third of the
+  // grass, wider. 2: narrowest 6 px, less grass again, and the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
   // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
   // if that goes over again soon, it stays for a minute (each change is seen).
   let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;
@@ -164,7 +164,8 @@ export function createAutoQuality(
   };
 
   const perFrame = (dt: number): void => {
-    if (!auto.on && tier > 0) setTierTo(0); // (a preset or a manual tau: they're auto quality's to give up)
+    // (a preset or a manual tau: they're auto quality's to give up; Profile GPU only holds it still, and measures what's on)
+    if (!auto.on && !auto.holding && tier > 0) setTierTo(0);
     if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)
     // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)

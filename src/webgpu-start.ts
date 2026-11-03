@@ -189,6 +189,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
+    grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
     res.capOutput(tier >= 2 ? 1 : Infinity);
     lighting.forceFarShadow(tier >= 3);
   });

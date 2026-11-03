@@ -7,7 +7,8 @@
 // (`terrain@terrain-high`: the forest floor's shader over the plain ground's; the terrain's visibility is set every
 // frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
 // (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass) or a uniform's 0 / 1 (`forest.u.sw.value`); `a;b` switches objects together. `impmin=2/4`: the
-// impostors' narrowest width at 2 ("off") and 4 ("on"), with the impostors listed in each.
+// impostors' narrowest width at 2 ("off") and 4 ("on"), with the impostors listed in each. `grassshare=1/0.33`: the grass's share of
+// its blades, likewise.
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -25,6 +26,9 @@ async (demo: Demo) => {
     if (name.startsWith('impmin=')) {
       const [lo, hi] = name.slice(7).split('/').map(Number), mp = demo.impMinPx;
       toggle = { get visible() { return mp.value === hi; }, set visible(v: boolean) { mp.value = v ? hi : lo; } };
+    } else if (name.startsWith('grassshare=')) {
+      const [lo, hi] = name.slice(11).split('/').map(Number);
+      toggle = { get visible() { return demo.grassShare.value === hi; }, set visible(v: boolean) { demo.grassShare.value = demo.grassThin.target = v ? hi : lo; } };
     } else if (name.includes(';')) {
       // (objects switched together: `nanite-leaves-main-pre;nanite-leaves-main-after`, a draw and its prepass)
       const objs = name.split(';').map((n) => demo.scene.getObjectByName(n));

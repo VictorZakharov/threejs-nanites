@@ -24,6 +24,17 @@ const GROW = Number(params.get('grassgrow') ?? 0.6);
 const CLUMP = 0.8; // m: the tufts' grid (one jittered centre per cell)
 /** How much the blades gather into tufts where grass is sparse / dense (`?grassclump=sparse,dense`, 0,0 = evenly). */
 const [CLUMP_SPARSE, CLUMP_DENSE] = (params.get('grassclump') ?? '0.85,0').split(',').map(Number);
+/**
+ * The share of the blades drawn past THIN_NEAR, live (auto quality's low-end tiers, through `thin` in src/grass.ts, eased): each
+ * blade has its own chance, so the same ones stay in every ring, and the kept ones widen so the ground stays covered (`THIN_WIDEN`,
+ * by the root of the share the ground read paler). Near the viewer it stays full: evenly, at a sixth, the blades at your feet were
+ * chunky; and most blades are further out, a few pixels each. Over a wide band: it moves with the viewer, and over 3-10 m walking
+ * showed it (`--sweep=detail` on `meadow` 38 -> 347 jumps; over this, 38). The laptop's Intel Xe2 spent 5.1 of its 17.4 ms on the grass.
+ */
+export const grassShare = uniform(Number(params.get('grassshare') ?? 1));
+export const grassThin = { target: grassShare.value };
+const THIN_NEAR = [2, 40]; // m: full density to the first, the share from the second
+const THIN_WIDEN = 0.6;
 export const ARGS = 5; // uints of indexed indirect draw args per ring (index count, instances, first index, base vertex, first instance)
 export const BLADE = 2; // uvec4s per kept blade
 
@@ -164,21 +175,29 @@ export function ringInputs(r: KeepRing) {
 }
 export type RingInputs = ReturnType<typeof ringInputs>;
 
-/**
- * The blade of a ring's cell (`index`: in the listed tiles, S x S cells each): whether it's drawn (kept, and not
- * behind the camera) and its shape. The compute pass lists the drawn ones (WebGPU); the WebGL mode, which has no
- * compute, runs it in the vertex shader and collapses the rest (src/grass.ts). Call inside a Fn.
- */
-export function bladeOf(ctx: KeepContext, r: KeepRing, inp: RingInputs, index: Uint) {
-  const { k, cell, radius, inner, S } = r;
-  const ground = groundOf(ctx);
-  const coverAt = (p: Vec2) => texture(ctx.cover.texture, p.div(ctx.cover.extent * 2).add(0.5));
+/** The cell `index` of a ring's listed tiles (S x S cells each): its grid cell, the blade's own cell and random numbers. */
+export function bladeSeed(r: KeepRing, inp: RingInputs, index: Uint) {
+  const { k, S } = r;
   const local = index.mod(uint(S * S));
   const ci = vec2(float(local.mod(uint(S))), float(local.div(uint(S)))).add(inp.tiles.element(index.div(uint(S * S))).xy).add(inp.origin);
   const leaf = leafOf(ci, k).toVar(); // (the blade's own cell, in the first ring: see childOf)
   const seed = uint(int(leaf.x).add(1 << 22)).mul(73856093).bitXor(uint(int(leaf.y).add(1 << 22)).mul(19349663));
   const rnd = (j: number): Float => hash(seed.add(j * 101));
-  const at = leaf.add(vec2(rnd(0), rnd(1))).mul(cell / 2 ** k);
+  const at = leaf.add(vec2(rnd(0), rnd(1))).mul(r.cell / 2 ** k).toVar(); // (the blade's place on the ground)
+  const share = mix(float(1), grassShare, smoothstep(THIN_NEAR[0], THIN_NEAR[1], at.sub(detailPos.xz).length())).toVar();
+  return { ci, leaf, rnd, at, share };
+}
+type BladeSeed = ReturnType<typeof bladeSeed>;
+
+/**
+ * The blade of a ring's cell (`index`: in the listed tiles, S x S cells each): whether it's drawn (kept, and not
+ * behind the camera) and its shape. The compute pass lists the drawn ones (WebGPU); the WebGL mode, which has no
+ * compute, runs it in the vertex shader and collapses the rest (src/grass.ts). `seed`: its `bladeSeed`. Call inside a Fn.
+ */
+export function bladeOf(ctx: KeepContext, r: KeepRing, inp: RingInputs, { ci, rnd, at, share }: BladeSeed) {
+  const { k, cell, radius, inner } = r;
+  const ground = groundOf(ctx);
+  const coverAt = (p: Vec2) => texture(ctx.cover.texture, p.div(ctx.cover.extent * 2).add(0.5));
   const patch = patchAt(at);
   // (thinner under the canopy, and where the fallen leaves lie thick: under the red trees most)
   const cv = coverAt(at);
@@ -211,7 +230,7 @@ export function bladeOf(ctx: KeepContext, r: KeepRing, inp: RingInputs, index: U
   // hand over (the last 20%) both have the same blades
   const m = r.nextCell ? mix(1, 2, smoothstep(k === 0 ? 3 : inner, radius * 0.8, d)) : float(1);
   const thin = r.nextCell ? select(isRep(ci, k), float(1), float(4).div(m.mul(m)).sub(1).div(3).clamp(0, 1)) : fadeOut;
-  const keep = mix(density, tufted, clumpy).mul(thin).toVar();
+  const keep = mix(density, tufted, clumpy).mul(thin).mul(share).toVar();
   let drawn: Bool = rnd(2).lessThan(keep);
   if (k > 0) drawn = drawn.and(swap.greaterThanEqual(float(1).sub(fadeIn)));
   if (r.nextCell) drawn = drawn.and(swap.lessThan(fadeOut));
@@ -225,7 +244,7 @@ export function bladeOf(ctx: KeepContext, r: KeepRing, inp: RingInputs, index: U
   // the blade: height (the tuft's and its own), width (wider in the outer rings: same covered fraction)
   const lush = smoothstep(0.3, 0.8, patch);
   const height = mix(0.22, 0.65, rnd(3)).mul(mix(0.6, 1.25, lush)).mul(mix(0.75, 1.25, cellHash(tuft.cell, 41))).mul(grown);
-  const width = float(cell * 0.5).mul(m).mul(sqrt(grown));
+  const width = float(cell * 0.5).mul(m).mul(sqrt(grown)).div(share.pow(THIN_WIDEN));
   // leaning away from the tuft's centre (a fan), its own way where there's no tuft
   const yaw = rnd(4).mul(6.2832);
   const out = at.sub(tuft.centre);
@@ -267,13 +286,17 @@ export function buildKeepPass(ctx: KeepContext, r: KeepRing, cap: number) {
 
   const pass = Fn(() => {
     If(instanceIndex.lessThan(inp.count), () => {
-      const b = bladeOf(ctx, r, inp, instanceIndex);
-      If(b.drawn, () => {
-        const slot = atomicAdd(ctr, uint(1)).toVar();
-        If(slot.lessThan(uint(cap)), () => {
-          const bits = floatAsUint;
-          list.element(slot.mul(BLADE)).assign(uvec4(bits(b.base.x), bits(b.base.y), bits(b.base.z), packHalf(vec2(b.height, b.width))));
-          list.element(slot.mul(BLADE).add(1)).assign(uvec4(packHalf(b.lean), packHalf(vec2(b.tilt, b.bendK)), packHalf(vec2(b.flutter, b.through)), packUnorm4(vec4(b.tip, b.rootDark))));
+      const seed = bladeSeed(r, inp, instanceIndex);
+      // (thinned out: settled before the noise and the terrain's lookups, so the pass costs less too)
+      If(seed.rnd(2).lessThan(seed.share), () => {
+        const b = bladeOf(ctx, r, inp, seed);
+        If(b.drawn, () => {
+          const slot = atomicAdd(ctr, uint(1)).toVar();
+          If(slot.lessThan(uint(cap)), () => {
+            const bits = floatAsUint;
+            list.element(slot.mul(BLADE)).assign(uvec4(bits(b.base.x), bits(b.base.y), bits(b.base.z), packHalf(vec2(b.height, b.width))));
+            list.element(slot.mul(BLADE).add(1)).assign(uvec4(packHalf(b.lean), packHalf(vec2(b.tilt, b.bendK)), packHalf(vec2(b.flutter, b.through)), packUnorm4(vec4(b.tip, b.rootDark))));
+          });
         });
       });
     });

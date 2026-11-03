@@ -19,7 +19,7 @@ import {
 import { curve, viewerPos, detailShift } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import {
-  BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, ringInputs, bladeOf, type KeepRing, type RingInputs,
+  BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, ringInputs, bladeOf, bladeSeed, grassShare, grassThin, type KeepRing, type RingInputs,
 } from './grass-keep.ts';
 import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
 import type { Bool, Float, Vec2, Vec3 } from './types.ts';
@@ -104,7 +104,7 @@ export function createGrass(ctx: GrassContext) {
   const scale = SCALE;
   const group = new THREE.Group();
   group.name = 'grass';
-  if (!(scale > 0)) return { group, update() {}, async stats() { return []; } };
+  if (!(scale > 0)) return { group, update() {}, thin() {}, async stats() { return []; } };
   const webgl = Boolean(ctx.webgl);
   const dense = denseOf(webgl);
   const motion = ctx.motion ?? !webgl;
@@ -147,7 +147,7 @@ export function createGrass(ctx: GrassContext) {
     const list = keep ? storage(keep.listAttr, 'uvec4', cap * BLADE).toReadOnly() : null;
     const fields = (): BladeFields => {
       if (!list) {
-        const b = bladeOf(keepCtx, spec, inp, instanceIndex);
+        const b = bladeOf(keepCtx, spec, inp, bladeSeed(spec, inp, instanceIndex));
         const on = (v: Float): Float => select(b.drawn, v, float(0));
         return { ...b, height: on(b.height), width: on(b.width), lean2: b.lean };
       }
@@ -247,10 +247,16 @@ export function createGrass(ctx: GrassContext) {
 
   return {
     group,
+    /** Thins the blades down to `density` (as `?grassdense=`; a screen's own density or less stays as it is). */
+    thin(density: number): void {
+      grassThin.target = Math.min(1, density / dense);
+    },
     /** Moves each ring's grid to the viewer (whole cells) and picks the tiles to draw. */
     update(camera: THREE.Camera): void {
       shown.value = group.visible ? 1 : 0;
       if (!group.visible) return;
+      const toThin = grassThin.target - grassShare.value; // (over ~1.5 s at 60 fps: blades grow and sink by their chance, no pop)
+      if (toThin) grassShare.value += Math.sign(toThin) * Math.min(Math.abs(toThin), 1 / 90);
       camera.updateMatrixWorld();
       frustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
       const c = camera.position.clone().add(detailShift); // (detailPos: the grid and the keep test's distances)

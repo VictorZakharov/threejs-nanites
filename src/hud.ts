@@ -13,6 +13,7 @@ export interface AutoQuality {
   on: boolean;
   budget: number; // GPU ms
   maxTau: number;
+  holding?: boolean; // (Profile GPU: off, but the low-end tiers stay)
   tuning?: boolean; // (a probe set its own budget: it stays)
   tier?: number; // past its limit: what has been given up (src/auto-quality.ts)
   minTau?: number; // the finest tau it goes to (1): past that, room in the budget stays unspent (src/webgpu-start.ts)

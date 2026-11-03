@@ -113,6 +113,7 @@ function sample(auto: AutoQuality): Promise<[number, number]> {
 export async function runProfile(ctx: ProfileContext, progress: ProfileProgress): Promise<string> {
   const auto = ctx.auto, wasAuto = auto.on;
   auto.on = false; // (hold the quality: the controller would answer every switch)
+  auto.holding = true;
   const all = steps(ctx);
   const f = (v: number): string => v.toFixed(2).padStart(6);
   const t0 = performance.now();
@@ -143,5 +144,6 @@ export async function runProfile(ctx: ProfileContext, progress: ProfileProgress)
   } finally {
     auto.onSample = undefined;
     auto.on = wasAuto;
+    auto.holding = false;
   }
 }
