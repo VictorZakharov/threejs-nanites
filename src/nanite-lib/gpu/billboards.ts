@@ -2,7 +2,7 @@
 // (impostors/atlas.ts).
 import * as THREE from 'three/webgpu';
 import {
-  Fn, If, storage, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
+  Fn, If, storage, uniform, uniformArray, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, select, max, min,
   varying, normalLocal, texture, mix, hash, length, clamp, smoothstep, dFdx, dFdy, log2, cross,
   cameraViewMatrix, normalize, asin, atan, mod, cos, sin, screenCoordinate, bool, uvec2, exp2,
 } from 'three/tsl';
@@ -76,7 +76,13 @@ export const impostorShare = (inst: Uint, cov: Float, wPx: Float): { k: Float; c
 // the share of sub-MIN_PX trees kept: drawn MIN_PX / w times wider and taller, a tree keeps its coverage when (w /
 // MIN_PX)^2 of them are drawn (?impkeep=width: w / MIN_PX, MIN_PX / w times the coverage)
 const KEEP_AREA = new URLSearchParams(location.search).get('impkeep') !== 'width';
-export const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(MIN_PX).pow(2) : wPx.div(MIN_PX));
+/**
+ * The narrowest an impostor is drawn (pixels; MIN_PX, `?impmin=`), live: a weak GPU's low-end tier raises it (src/auto-quality.ts).
+ * At half resolution most of an impostor's cost is per quad, not per pixel (`--probe=cost` at the $700 laptop's settings: 0.56 ms
+ * at a quarter resolution, 0.79 at half), so fewer, bigger quads pay where lower resolution stopped paying.
+ */
+export const impMinPx = uniform(Number(new URLSearchParams(location.search).get('impmin') ?? MIN_PX));
+export const keepShare = (wPx: Float): Float => (KEEP_AREA ? wPx.div(impMinPx).pow(2) : wPx.div(impMinPx));
 export const deg = Math.PI / 180;
 // the elevation tiles are evenly spaced from 0 (each blends with the next round the midpoint between them, +-7.5
 // degrees: the bands don't overlap, so at most two tiles have weight)
@@ -122,7 +128,7 @@ export const billboardMethods = {
     const wPx = fr.x.mul(s).mul(GROW_MAX).mul(u.projScale).div(max(length(toCam), 0.1));
     const elev = asin(clamp(toCam.normalize().y, -1, 1)).div(deg);
     const shared = impostorShare(i, impostorCov(fr, elev), wPx).k.greaterThan(0); // (the widest: the most kept)
-    return shared.and(wPx.greaterThanEqual(MIN_PX).or(hash(i.add(7)).lessThan(keepShare(wPx))));
+    return shared.and(wPx.greaterThanEqual(impMinPx).or(hash(i.add(7)).lessThan(keepShare(wPx))));
   },
 
   /**
@@ -196,9 +202,9 @@ export const billboardMethods = {
         const share = impostorShare(inst, q.vCov, wPx);
         q.vCov.assign(share.cov);
         on.assign(share.k.greaterThan(0));
-        If(wPx.lessThan(MIN_PX), () => {
+        If(wPx.lessThan(impMinPx), () => {
           on.assign(on.and(hash(inst.add(7)).lessThan(keepShare(wPx))));
-          grow.mulAssign(float(MIN_PX).div(max(wPx, 1e-3)));
+          grow.mulAssign(impMinPx.div(max(wPx, 1e-3)));
         });
         // same projected height as the instance pass (geometry share of the cross-fade)
         const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0)).sub(this.main.lodPos));

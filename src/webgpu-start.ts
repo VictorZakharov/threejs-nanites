@@ -12,6 +12,7 @@ import { createClouds } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
 import { budgetFor, refreshRate } from './refresh.ts';
+import { impMinPx, MIN_PX } from './nanite-lib/index.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
@@ -187,8 +188,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
-    res.capOutput(tier >= 1 ? 1 : Infinity);
-    lighting.forceFarShadow(tier >= 2);
+    impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
+    res.capOutput(tier >= 2 ? 1 : Infinity);
+    lighting.forceFarShadow(tier >= 3);
   });
   controls.onZoom = autoQuality.followZoom;
 

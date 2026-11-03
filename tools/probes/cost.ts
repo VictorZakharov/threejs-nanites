@@ -6,7 +6,8 @@
 // instead: the mesh `name` with its own material ("on") against `other`'s ("off"), the same geometry and depth
 // (`terrain@terrain-high`: the forest floor's shader over the plain ground's; the terrain's visibility is set every
 // frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
-// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass); `a;b` switches objects together.
+// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass); `a;b` switches objects together. `impmin=2/4`: the
+// impostors' narrowest width at 2 ("off") and 4 ("on"), with the impostors listed in each.
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -21,7 +22,10 @@ async (demo: Demo) => {
   for (const name of names) {
     let toggle: { get visible(): boolean; set visible(v: boolean) } | undefined;
     const [own, other] = name.split('@');
-    if (name.includes(';')) {
+    if (name.startsWith('impmin=')) {
+      const [lo, hi] = name.slice(7).split('/').map(Number), mp = demo.impMinPx;
+      toggle = { get visible() { return mp.value === hi; }, set visible(v: boolean) { mp.value = v ? hi : lo; } };
+    } else if (name.includes(';')) {
       // (objects switched together: `nanite-leaves-main-pre;nanite-leaves-main-after`, a draw and its prepass)
       const objs = name.split(';').map((n) => demo.scene.getObjectByName(n));
       if (objs.every(Boolean)) toggle = { get visible() { return objs[0]!.visible; }, set visible(v: boolean) { objs.forEach((o) => (o!.visible = v)); } };

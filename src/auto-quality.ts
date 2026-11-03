@@ -21,7 +21,7 @@ import { gpuBackend } from './three-gaps.ts';
 const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
-const MAX_TIER = 2, TIER_MS = 2500, TIER_BACK = 0.6;
+const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
 
 /**
  * The per-frame step of the controller. `tau`: the forest's error threshold; `setScale`: the resolution scale (of the
@@ -44,8 +44,9 @@ export function createAutoQuality(
   let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
   const minTau = (): number => auto.minTau ?? 1;
   const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
-  // Past the limit (coarsest tau, lowest resolution, or a resolution that doesn't pay): the low-end tiers. 1: the output at one
-  // pixel per CSS pixel (the TAA and the output pass). 2: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
+  // Past the limit (coarsest tau, lowest resolution, or a resolution that doesn't pay): the low-end tiers, what's least seen first.
+  // 1: tiny impostors as fewer, bigger quads (narrowest 4 px: 45% fewer on `laptop`, the same image and flicker). 2: narrowest 6 px, and
+  // the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
   // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
   // if that goes over again soon, it stays for a minute (each change is seen).
   let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;

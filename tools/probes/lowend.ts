@@ -1,6 +1,6 @@
 // Auto quality's low-end tiers (src/auto-quality.ts) on a GPU that's too fast to need them, in the page's loop (`--query=auto=1`):
 // the budget is set out of reach (?lowbudget=, default 0.5 ms) until the last tier, then well above (40 ms) until it's back at
-// tier 0. `rows`: every second the time, tier, tau, scale, canvas size and GPU ms. `png`: the canvas at tier 0, 1 and 2,
+// tier 0. `rows`: every second the time, tier, tau, scale, canvas size and GPU ms. `png`: the canvas at tier 0, 1, 2 and 3,
 // side by side in `shots` order.
 import type { Demo } from '../../src/harness-api.ts';
 
@@ -9,7 +9,7 @@ async (demo: Demo) => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const canvas = demo.renderer.domElement as HTMLCanvasElement;
   const sheet = document.createElement('canvas');
-  sheet.width = W * 3; sheet.height = H;
+  sheet.width = W * 4; sheet.height = H;
   const sc = sheet.getContext('2d')!;
   const shots: string[] = [], rows: string[] = [];
   const t0 = performance.now();
@@ -42,6 +42,9 @@ async (demo: Demo) => {
   await sleep(1500);
   await shot();
   const up2 = await wait(() => (auto.tier ?? 0) >= 2, 15000);
+  await sleep(1500);
+  await shot();
+  const up3 = await wait(() => (auto.tier ?? 0) >= 3, 15000);
   await sleep(2500);
   await shot();
   row();
@@ -49,5 +52,5 @@ async (demo: Demo) => {
   const back = await wait(() => (auto.tier ?? 0) === 0, 30000);
   row();
   await demo.live(false);
-  return { up1, up2, back, rows, shots, png: sheet.toDataURL('image/png') };
+  return { up1, up2, up3, back, rows, shots, png: sheet.toDataURL('image/png') };
 }

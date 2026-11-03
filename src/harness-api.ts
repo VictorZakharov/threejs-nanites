@@ -8,6 +8,7 @@ import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
+import { impMinPx } from './nanite-lib/index.ts';
 import type { CoverMap } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
 import type { createGrass } from './grass.ts';
@@ -155,6 +156,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
   return {
     auto, // (--probe=zoompan: its raw GPU samples)
+    impMinPx, // (--probe=cost)
   renderer, scene, camera, forest, controls, instances, sceneRT, taa,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
