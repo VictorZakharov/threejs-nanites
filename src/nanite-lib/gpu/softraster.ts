@@ -321,7 +321,8 @@ export class SoftRaster {
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(normal, 0)).xyz);
     // (leaves: light passing through, as on the hardware-drawn leaves)
     setEmissive(mat, select(lost, vec3(1, 0, 1), select(u.debug.equal(5), SW_DEBUG, select(u.debug.equal(4), dbg, select(u.debug.greaterThan(0).or(leaf.not()), vec3(0), albedo.mul(0.12))))));
-    mat.receivedShadowPositionNode = world;
+    // (a fullscreen pass: off the map, the pixels it discards skip the shadow's 5 taps; a discard doesn't stop the shader)
+    mat.receivedShadowPositionNode = select(id.equal(0).or(id.greaterThanEqual(uint(SPLAT_BIT))), vec3(1e7), world);
     mat.receivedShadowNode = asReceivedShadow(shading.fadeShadow(world));
     const clip = this.viewProj.mul(vec4(world, 1));
     mat.depthNode = clip.z.div(clip.w);

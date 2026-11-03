@@ -272,7 +272,8 @@ export class Splats {
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(sh.dir.mul(1e-3)), 0)).xyz);
     setEmissive(mat, select(u.debug.equal(5), SPLAT_DEBUG, select(u.debug.equal(4), typeId(sh.type), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)))));
     // (the shadow map on its sun side, past its own caster quad: see vShadowPos)
-    mat.receivedShadowPositionNode = this.nanite.look.curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5))));
+    // (off the map for the pixels it discards, see SoftRaster's)
+    mat.receivedShadowPositionNode = select(id.lessThan(uint(SPLAT_BIT)), vec3(1e7), this.nanite.look.curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5)))));
     mat.receivedShadowNode = asReceivedShadow(shading.shadow(world));
     const clip = sw.viewProj.mul(vec4(world, 1));
     mat.depthNode = clip.z.div(clip.w);

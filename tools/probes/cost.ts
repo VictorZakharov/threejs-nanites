@@ -6,7 +6,7 @@
 // instead: the mesh `name` with its own material ("on") against `other`'s ("off"), the same geometry and depth
 // (`terrain@terrain-high`: the forest floor's shader over the plain ground's; the terrain's visibility is set every
 // frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
-// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass); `a;b` switches objects together. `impmin=2/4`: the
+// (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass) or a uniform's 0 / 1 (`forest.u.sw.value`); `a;b` switches objects together. `impmin=2/4`: the
 // impostors' narrowest width at 2 ("off") and 4 ("on"), with the impostors listed in each.
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
@@ -40,7 +40,7 @@ async (demo: Demo) => {
       const path = name.split('.'), key = path.pop()!;
       const owner = path.length ? path.reduce<Record<string, unknown> | undefined>((o, k) => o?.[k] as Record<string, unknown> | undefined, demo as unknown as Record<string, unknown>) : undefined;
       const sw = demo[name] as { enabled?: boolean } | undefined; // (taa, rays)
-      toggle = owner && typeof owner[key] === 'boolean' ? { get visible() { return owner[key] as boolean; }, set visible(v: boolean) { owner[key] = v; } } : sw && typeof sw.enabled === 'boolean' ? { get visible() { return sw.enabled!; }, set visible(v: boolean) { sw.enabled = v; } } : demo.scene.getObjectByName(name);
+      toggle = owner && typeof owner[key] === 'number' ? { get visible() { return owner[key] === 1; }, set visible(v: boolean) { owner[key] = v ? 1 : 0; } } : owner && typeof owner[key] === 'boolean' ? { get visible() { return owner[key] as boolean; }, set visible(v: boolean) { owner[key] = v; } } : sw && typeof sw.enabled === 'boolean' ? { get visible() { return sw.enabled!; }, set visible(v: boolean) { sw.enabled = v; } } : demo.scene.getObjectByName(name);
     }
     if (!toggle) { out[name] = 'not in the scene'; continue; }
     const was = toggle.visible, on: number[] = [], off: number[] = [];

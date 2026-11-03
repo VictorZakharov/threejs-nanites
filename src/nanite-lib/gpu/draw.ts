@@ -1,7 +1,7 @@
 // NaniteRenderer methods: the cluster meshes (vertex pulling from the draw lists) and their materials.
 import * as THREE from 'three/webgpu';
 import {
-  Fn, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
+  Fn, If, positionWorld, storage, instanceIndex, vertexIndex, uint, float, vec2, vec3, vec4, uvec2, select, max, min, varying,
   normalLocal, texture, sin, mix, hash, length, dot, clamp, smoothstep, normalViewGeometry, mrt, cameraProjectionMatrix,
   cameraViewMatrix, positionView, normalView, normalFlat,
 } from 'three/tsl';
@@ -177,15 +177,27 @@ export const drawMethods = {
       // Lambert: no specular sheen on leaves, and cheaper for the heavy foliage overdraw
       mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: 0.5 });
       mat.alphaToCoverage = textures.alphaToCoverage; // with MSAA: smooth cut-outs instead of sparkling leaves
-      const tex = texture(textures.leaf, vUv).depth(layerI).bias(mipBias);
-      // (without MSAA, under TAA: alpha to coverage against a moving dither, see a2cDither)
-      const alpha = textures.leafDither ? a2cDither(leafAlpha(tex.a, layerI)) : leafAlpha(tex.a, layerI);
-      const col = this.look.cardColour(tex.rgb, layerI, vTint, vAutumn);
-      mat.colorNode = vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, col)), select(dither().lessThan(vFade), alpha, float(0)));
+      // The colour's Fn is built first: it samples the texture once and works out the alpha, then the colour only for pixels it
+      // keeps; the emissive reads its var, and the shadow's 5 taps are skipped for the rest (a position off the map): a
+      // discard doesn't stop the shader. Written plainly, as a select of these, a pixel sampled the leaf 3 times (--probe=wgsl).
+      const alphaV = float(0).toVar(), colV = vec3(0).toVar();
+      mat.colorNode = Fn(() => {
+        const layer = layerI.toVar();
+        const tex = texture(textures.leaf, vUv).depth(layer).bias(mipBias).toVar();
+        // (without MSAA, under TAA: alpha to coverage against a moving dither, see a2cDither)
+        const alpha = textures.leafDither ? a2cDither(leafAlpha(tex.a, layer)) : leafAlpha(tex.a, layer);
+        alphaV.assign(select(dither().lessThan(vFade), alpha, float(0)));
+        colV.assign(vec3(0));
+        If(alphaV.greaterThan(0), () => {
+          colV.assign(this.look.cardColour(tex.rgb, layer, vTint, vAutumn));
+        });
+        return vec4(select(u.debug.equal(4), vec3(0), select(u.debug.greaterThan(0), vDebug, colV)), alphaV);
+      })();
+      mat.receivedShadowPositionNode = select(alphaV.greaterThan(0), positionWorld, vec3(1e7));
       // keep the outward crown normal on both faces (default flips it on back faces => black leaves)
       mat.normalNode = normalViewGeometry;
       // light passing through leaves
-      setEmissive(mat, select(u.debug.equal(4), vDebug, select(u.debug.greaterThan(0), vec3(0), col.mul(0.12))));
+      setEmissive(mat, select(u.debug.equal(4), vDebug, select(u.debug.greaterThan(0), vec3(0), colV.mul(0.12))));
     }
     mat.positionNode = position;
     if (afterPrepass) mat.depthWrite = false;
