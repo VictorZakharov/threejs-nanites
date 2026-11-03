@@ -11,6 +11,7 @@ import { LEAF_DITHER } from './nanite-lib/index.ts';
 import { createClouds } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
+import { budgetFor, refreshRate } from './refresh.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
@@ -171,7 +172,8 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
-  const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 5.5));
+  const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
+  const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
   // screen at tau 2.3 (the user), and far statues look the same at 2.3 and 4; `userstill` 8.7M -> 5.1M, `statue`'s pops
   // +12% (--sweep=lod, 715 -> 799), its feathers softer from 4 on. A preset or a manual tau can still go finer.
@@ -184,7 +186,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls);
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
+    res.capOutput(tier >= 1 ? 1 : Infinity);
+    lighting.forceFarShadow(tier >= 2);
+  });
   controls.onZoom = autoQuality.followZoom;
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
@@ -250,6 +255,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
+    if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);

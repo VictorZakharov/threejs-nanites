@@ -19,6 +19,7 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `stillfilm` | the camera still in the page's loop: which pixels change over consecutive frames, pixel by pixel (`?filmyaws=` per direction); the worst tile's frames and the whole screen's range in `png` |
 | `stillcounts` | clusters and triangles of both views frame by frame with the camera still (`?countyaws=`): they should stand still |
 | `zoomsweep` | what's drawn at each zoom level through the zoom (`?zoomms=3000` eases it slowly): triangles, clusters, geometry and impostors |
+| `lowend` | auto quality's low-end tiers on a GPU too fast to need them: the budget out of reach until the last tier, then well above until tier 0; the steps, and the image at each tier in `png` |
 | `caps` | the culling's fixed-size lists over frames with the camera still (work items, bark, leaves, software clusters, retest): which hit their cap, and how far the counts swing (over a cap, what's dropped differs per frame) |
 | `zoomfilm` | the zoom frame by frame in the page's loop (`?filmms=`, `?filmstep=`): zoom, tau, scale and pixels changed against the film's last frame every 100 ms, and a sheet of frames (`--zoomtime`'s screenshots take over a second each) |
 | `zoompan` | frame times and GPU ms zoomed, the camera still and then panning at ?panrate= rad/s (default 0.2), in the page's loop; ?panzoom= (default the maximum) |

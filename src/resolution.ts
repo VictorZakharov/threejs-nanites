@@ -19,6 +19,8 @@ export interface Resolution {
   /** Pixel ratios: the scene's at scale 1, the canvas's. */
   readonly basePR: number;
   readonly outPR: number;
+  /** Caps the canvas's pixel ratio (auto quality's low-end tier; Infinity: none). Applied at the next `fit()`, at a frame's start: resizing clears the canvas. */
+  capOutput(pr: number): void;
   /** Upscaling on (the canvas at `outPR`) or off (at the scene's ratio, stretched by the browser: Profile GPU). */
   readonly upscale: boolean;
   setUpscale(on: boolean): void;
@@ -37,21 +39,29 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
   let upscale = params.get('taau') !== '0' && params.get('taa') !== '0';
   const outPR = Number(params.get('outpr') ?? Math.max(basePR, Math.min(window.devicePixelRatio, OUT_MAX)));
   const render = new THREE.Vector2(), output = new THREE.Vector2(), view = new THREE.Vector2();
-  let scale = 1;
+  let scale = 1, cap = Infinity;
+  const outNow = (): number => Math.min(outPR, cap);
   renderer.setPixelRatio(upscale ? outPR : basePR);
   const res: Resolution = {
-    render, output, basePR, outPR,
+    render, output, basePR,
+    get outPR() {
+      return outNow();
+    },
+    capOutput(pr) {
+      cap = pr;
+    },
     get upscale() {
       return upscale;
     },
     setUpscale(on) {
       upscale = on;
-      renderer.setPixelRatio(on ? outPR : basePR * scale);
+      renderer.setPixelRatio(on ? outNow() : basePR * scale);
       res.fit();
     },
     ratio: () => output.x / render.x,
-    maxScale: () => (upscale ? Math.max(1, outPR / basePR) : 1),
+    maxScale: () => (upscale ? Math.max(1, outNow() / basePR) : 1),
     fit() {
+      if (upscale && renderer.getPixelRatio() !== outNow()) renderer.setPixelRatio(outNow());
       renderer.getSize(view);
       const w = window.innerWidth, h = window.innerHeight;
       if (view.x !== w || view.y !== h) {

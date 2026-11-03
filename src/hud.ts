@@ -13,6 +13,8 @@ export interface AutoQuality {
   on: boolean;
   budget: number; // GPU ms
   maxTau: number;
+  tuning?: boolean; // (a probe set its own budget: it stays)
+  tier?: number; // past its limit: what has been given up (src/auto-quality.ts)
   minTau?: number; // the finest tau it goes to (1): past that, room in the budget stays unspent (src/webgpu-start.ts)
   scale: number; // resolution scale (of the base pixel ratio)
   gpuMs: number;
@@ -54,7 +56,7 @@ export function createHud(ctx: HudContext) {
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
     gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
-    quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale },
+    quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
     resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: samples, taa: taa.enabled },
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,

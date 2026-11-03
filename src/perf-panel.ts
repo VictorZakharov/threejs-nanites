@@ -17,7 +17,7 @@ export const short = (v: number): string =>
 /** What the panel shows besides the frame times (src/hud.ts fills it in). */
 export interface PerfDetails {
   gpu: { render: number; compute: number; total: number; budget: number };
-  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number };
+  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number };
   resolution: { width: number; height: number; outWidth: number; outHeight: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
     trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
@@ -172,7 +172,7 @@ export class PerfPanel {
       : 'GPU TIME UNAVAILABLE';
     const r = det.resolution;
     this.k.res.innerHTML = `<b>${r.width}×${r.height}</b>${r.outWidth !== r.width ? ` → <b>${r.outWidth}×${r.outHeight}</b>` : ''} · ${r.msaa}× MSAA · TAA ${r.taa ? 'ON' : 'OFF'}`;
-    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale !== 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}${det.quality.guard > 1 ? ` · LISTS x<b>${det.quality.guard.toFixed(1)}</b>` : ''}`;
+    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale !== 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}${det.quality.tier ? ` · TIER <b>${det.quality.tier}</b>` : ''}${det.quality.guard > 1 ? ` · LISTS x<b>${det.quality.guard.toFixed(1)}</b>` : ''}`;
     const sc = det.scene;
     this.k.scene.innerHTML = sc
       ? `<b>${count(sc.trees)}</b> PLANTS · <b>${short(sc.tris + sc.swTris + sc.impostorTris)}</b> TRIS · SHADOW <b>${short(sc.shadowTris)}</b>`
@@ -207,7 +207,7 @@ export class PerfPanel {
       `fps          ${fmt(s.avgFps)} avg, ${fmt(s.lowFps)} 1% low`,
       `frame ms     ${fmt(s.avgMs)} avg, ${fmt(s.medianMs)} median, ${fmt(s.p95Ms)} p95, ${fmt(s.p99Ms)} p99, ${fmt(s.longest)} longest, ${s.long} over 50 ms`,
       `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}`,
-      `quality      error ${det.quality.tau.toFixed(2)} px${det.quality.guard > 1 ? ` x ${det.quality.guard.toFixed(2)} (the cluster lists are full)` : ''}, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
+      `quality      error ${det.quality.tau.toFixed(2)} px${det.quality.guard > 1 ? ` x ${det.quality.guard.toFixed(2)} (the cluster lists are full)` : ''}, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}${det.quality.tier ? `, low-end tier ${det.quality.tier}` : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
       '',
       `plants       ${count(sc.trees)} visible (${count(sc.impostors)} impostors) of ${count(sc.total)} trees + ${count(sc.bushes)} bushes + ${count(sc.statues)} statues`,
       `clusters     ${count(sc.clusters)} hardware, ${count(sc.swClusters)} software`,

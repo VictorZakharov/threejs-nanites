@@ -445,8 +445,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   already binds 8 storage buffers; ~1.1k chunks). It was a thread per instance, 2.5M, twice: the shadow map covers a
   few hundred metres (-0.4 ms compute on the ground, -0.2..0.4 from above; `?chunks=0` tests every chunk: same image). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
-  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
+- Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (80% of the display's frame, `src/refresh.ts`, at least 5.5 ms: 144 Hz on the
+  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices; `?budget=`); past its limit, the low-end tiers: 1 the output at one pixel per CSS pixel, 2 the average shadow for the map's (eased; `--probe=lowend`; the user's $700 laptop's Intel Xe2 at the limit: 27 ms in the forest, 14 in the Lucy forest); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
   after the orbit). At full detail (tau 1) under 55% of the budget it raises the resolution past the base pixel ratio

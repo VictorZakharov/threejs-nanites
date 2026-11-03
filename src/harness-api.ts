@@ -245,6 +245,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   async autoZoomTest(ms = 4000, budget = auto.budget) {
     auto.on = true;
     auto.budget = budget;
+    auto.tuning = true;
     auto.gpuMs = 0;
     auto.trials = [];
     const out = [];
@@ -275,6 +276,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
     auto.on = true;
     auto.budget = budget;
+    auto.tuning = true;
     auto.gpuMs = 0;
     auto.trials = [];
     auto.forget?.(); // (a new view: what the last one learned about the resolution doesn't hold)

@@ -75,6 +75,8 @@ export const VIEWS: Record<string, HarnessView> = {
   fogline: { x: 0, z: 2600, agl: 120, yaw: 0, pitch: -7 }, // geometry -> impostor switch near the fog
   userstill: { x: 20, z: 40, agl: 239, yaw: 110, pitch: -6.5 }, // (the user's report: zoomed, held still, side-on to the sun, statues flicker: T stops it)
   userzoomin: { x: 0, z: 8, agl: 368, yaw: 34.2, pitch: -13.6 }, // (the user's report: triangles spike mid-zoom)
+  laptop: { x: 20, z: 40, agl: 193, yaw: 14.2, pitch: -38.6 }, // (the user's $700 laptop, Intel Xe2-LPG: 39 fps in the forest, 27 ms GPU at half resolution)
+  laptoplucy: { x: 20, z: 40, agl: 227, yaw: -8.6, pitch: -34.8 }, // (and 51 fps in the Lucy forest, 14 ms)
   zoomref: { x: 0, z: 2600, agl: 300, yaw: 0, pitch: -6 }, // grazing view over the canopy (use with --zoom=5)
   // altitude and clouds
   belowclouds: { x: 0, z: 3000, y: 1500, yaw: 10, pitch: 8 },

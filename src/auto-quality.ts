@@ -20,6 +20,8 @@ import { gpuBackend } from './three-gaps.ts';
 /** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
 const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
+/** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
+const MAX_TIER = 2, TIER_MS = 2500, TIER_BACK = 0.6;
 
 /**
  * The per-frame step of the controller. `tau`: the forest's error threshold; `setScale`: the resolution scale (of the
@@ -34,6 +36,7 @@ export function createAutoQuality(
   setScale: (s: number) => void,
   maxScale: () => number,
   zoom: { zoom: number; zoomTarget: number } | null,
+  setTier: (tier: number) => void = () => {},
 ): { step: (dt: number) => void; followZoom: () => void } {
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
@@ -41,6 +44,17 @@ export function createAutoQuality(
   let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
   const minTau = (): number => auto.minTau ?? 1;
   const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
+  // Past the limit (coarsest tau, lowest resolution, or a resolution that doesn't pay): the low-end tiers. 1: the output at one
+  // pixel per CSS pixel (the TAA and the output pass). 2: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
+  // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
+  // if that goes over again soon, it stays for a minute (each change is seen).
+  let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;
+  const setTierTo = (t: number): void => {
+    tier = t;
+    tierAt = performance.now();
+    auto.tier = t;
+    setTier(t);
+  };
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
   // A resolution step down is a trial: if it saved under a third of its share of the pixels, the cost isn't the
   // pixels (a phone 8 km up: 317k impostors and their shadows, half the pixels saved 9%), so it goes back and the
@@ -71,6 +85,13 @@ export function createAutoQuality(
     // over the budget, the resolution above the base goes first (it's the extra: full detail came before it)
     if (over > limit && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
     else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
+    else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= auto.maxTau && (auto.scale <= 0.5 || futile)) {
+      if (now - tierAt < TIER_MS) return;
+      if (now - lastDown < 3000) tierHold = now + 60000;
+      setTierTo(tier + 1);
+      if (timed) restart();
+      return;
+    }
     else if (over > (zoomState ? ZOOM_RES : limit) && auto.scale > 0.5 && !futile) {
       const before = median(lastAdjust + 200, now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
@@ -82,6 +103,15 @@ export function createAutoQuality(
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
     else if (zoomState) return;
+    else if (tier > 0) {
+      // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
+      if (over < TIER_BACK && now - tierAt > TIER_MS * 2 && now > tierHold) {
+        lastDown = now;
+        setTierTo(tier - 1);
+        if (timed) restart();
+      }
+      return;
+    }
     else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
     // (not before the resolution is back: it ate the room)
     else if (over < 0.75 && tau.value > minTau() && auto.scale >= 1) tau.value = Math.max(minTau(), tau.value / (far ? 1.25 : 1.1));
@@ -133,6 +163,7 @@ export function createAutoQuality(
   };
 
   const perFrame = (dt: number): void => {
+    if (!auto.on && tier > 0) setTierTo(0); // (a preset or a manual tau: they're auto quality's to give up)
     if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)
     // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
