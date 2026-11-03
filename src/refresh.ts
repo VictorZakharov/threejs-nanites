@@ -27,4 +27,4 @@ export const refreshRate = (): number => hz;
  * Auto quality's GPU budget (ms): 80% of the display's frame, the rest for the CPU and the compositor, and never under
  * 144 Hz's 5.5 (what the desktops were tuned to: a 240 Hz screen shouldn't blur the image for frames it can't get anyway).
  */
-export const budgetFor = (rate: number): number => Math.max(5.5, (1000 / rate) * 0.8);
+export const budgetFor = (rate: number): number => Math.max(5.5, Math.round((1000 / rate) * 8) / 10);
