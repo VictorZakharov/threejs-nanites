@@ -18,27 +18,28 @@ import { setEmissive } from '../three-gaps.ts';
 
 /** A billboard's shader pieces (see _impostorQuad). */
 interface ImpostorQuad {
-  vUv: Vec2;
-  vBlend: Vec2;
-  vType: Float;
+  vCov: Float;
   vTint: Float;
   vAutumn: Float;
   vFade: Float;
-  vCov: Float;
-  vSeed: Float;
-  vRight: Vec3;
-  vUp: Vec3;
+  vMirror: Float;
   vDir: Vec3;
   vShadowPos: Vec3;
   position: Vec3;
-  uv: Vec2[];
-  t: TextureNode[];
+  /** Its two tiles' uv in the atlas and elevation (degrees). New nodes each time, not a shared one: first built in a branch, a
+   * shared one is set there only (as with the mirroring below). */
+  uvOf: (i: number) => Vec2;
+  elevOf: (i: number) => Float;
+  /** The two tiles' weights by elevation. */
+  wts: Float[];
+  lod: Float;
+  /** The tiles' colour, as vars: call it first thing in the fragment's Fn (see buildImpostorMesh). */
+  sample: (lod: Float) => Vec4[];
   tile: Uint;
-  a: Float[];
-  elev: Float[];
-  alpha: Float;
-  coverage: Float;
-  holes: (cov: Float) => Bool;
+  /** A sampled tile's alpha, coverage-preserving by the mip; the plain filtered one (the share of the pixel the tree covers). */
+  cutAlpha: (t: Vec4[], lod: Float) => Float[];
+  plainAlpha: (t: Vec4[]) => Float[];
+  holes: (cov: Float, lod: Float) => Bool;
 }
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 export const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
@@ -107,6 +108,7 @@ export interface ImpostorGains {
  * direction in its own frame (rotY undone). A tile index, without the elevation's block.
  */
 export const impostorView = (atlas: ImpostorAtlas, type: Uint, b: Vec4, dir: Vec3): Float => {
+  if (!atlas.manyViews) return atlas.viewBase.element(type); // (the forest: one each, no atan for every vertex)
   const count = atlas.viewCount.element(type);
   const turn = atan(dir.x.mul(b.x).add(dir.z.mul(b.y)), dir.z.mul(b.x).sub(dir.x.mul(b.y))).div(2 * Math.PI);
   return atlas.viewBase.element(type).add(mod(turn.mul(count).add(0.5).floor(), max(count, 1)));
@@ -146,24 +148,21 @@ export const billboardMethods = {
     const n = atlas.views;
     const { frameW, frameH } = atlas; // (filled by the bake)
     const growArr = uniformArray<'float'>(screen ? GROW : GROW_SHADOW, 'float');
-    const v = {
-      vUv: varying(vec2(0), 'vImpUv'),
-      vBlend: varying(vec2(0), 'vImpBlend'), // the lower of the two tiles it blends (ELEVATIONS index), the upper's weight
-      vType: varying(float(0), 'vImpType'),
-      vView: varying(float(0), 'vImpView'), // (its tile within the elevation's block, see impostorView)
-      vTint: varying(float(1), 'vImpTint'),
-      vAutumn: varying(float(0), 'vImpAutumn'), // (the look's impostorValue: the forest's autumn level)
-      vFade: varying(float(0), 'vImpFade'), // share drawn as geometry (cross-fade band)
-      vCov: varying(float(1), 'vImpCov'), // the coverage scale (impostorCov; on screen impostorShare's)
-      vSeed: varying(float(0), 'vImpSeed'), // (the tree's own pattern of holes, see holes)
-      vRight: varying(vec3(1, 0, 0), 'vImpRight'), // billboard basis (right incl. mirroring), for the normals
-      vUp: varying(vec3(0, 1, 0), 'vImpUp'),
-      vDir: varying(vec3(0, 0, 1), 'vImpDir'),
-      // where the quad's pixels look up the shadow map: moved towards the sun past the tree's own sun-facing caster
-      // quad (its self-shadow is the average treeshade instead, see lighting.js and main.js); the neighbours' shadows remain
-      vShadowPos: varying(vec3(0), 'vImpShadowPos'),
-    };
-    const q = v;
+    // Varyings: a location is 4 floats, and at a few pixels a quad the vertex outputs cost (13 locations on screen, now 5). All
+    // but the corner's uv and shadow position are the same on the quad's 4 corners, so flat, not interpolated.
+    const vUv = varying(vec2(0), 'vImpUv');
+    // the lower of the two tiles it blends (ELEVATIONS index) and the upper's weight; its tile within the elevation's block
+    // (impostorView); its type
+    const vTile = varying(vec4(0), 'vImpTile').setInterpolation('flat');
+    // on screen: the coverage scale (impostorCov, impostorShare); the look's impostorValue (the forest's autumn level); the
+    // tint; the share drawn as geometry (cross-fade band)
+    const vTree = varying(vec4(0), 'vImpTree').setInterpolation('flat');
+    // on screen: towards the viewer, and 1 + the tree's own pattern of holes (see holes), negative if mirrored (the billboard's
+    // basis follows from them, see buildImpostorMesh)
+    const vFacing = varying(vec4(0, 0, 1, 1), 'vImpFacing').setInterpolation('flat');
+    // where the quad's pixels look up the shadow map: moved towards the sun past the tree's own sun-facing caster
+    // quad (its self-shadow is the average treeshade instead, see lighting.js and main.js); the neighbours' shadows remain
+    const vShadowPos = varying(vec3(0), 'vImpShadowPos');
     const position = Fn(() => {
       const inst = list.element(instanceIndex).toVar(); // (one instance per listed impostor, see View.impListAttr)
       const on = bool(true).toVar();
@@ -192,15 +191,13 @@ export const billboardMethods = {
       const ju = uint(j);
       const grow = mix(growArr.element(ju), growArr.element(ju.add(1)), blend).toVar();
       if (screen) grow.assign(mix(grow, float(1), this.solidOf.element(type)));
-      q.vCov.assign(impostorCov(this.impFrame.element(type), elev)); // (the shadow casters' too: by the sun's elevation)
-      q.vSeed.assign(float(hash(inst.add(31)).mul(4096).floor()));
       if (screen) {
+        const cov = impostorCov(this.impFrame.element(type), elev);
         // sub-pixel trees shimmer (they hit or miss pixel centres as the camera moves): never draw a quad narrower
         // than MIN_PX; keep the forest's coverage by dropping a matching share of the trees instead (per tree, so
         // there's no flicker, only a rare tree fading out as you climb)
         const wPx = frameW.element(type).mul(s).mul(grow).mul(u.projScale).div(max(length(u.camPos.sub(pivot)), 0.1));
-        const share = impostorShare(inst, q.vCov, wPx);
-        q.vCov.assign(share.cov);
+        const share = impostorShare(inst, cov, wPx);
         on.assign(share.k.greaterThan(0));
         If(wPx.lessThan(impMinPx), () => {
           on.assign(on.and(hash(inst.add(7)).lessThan(keepShare(wPx))));
@@ -210,25 +207,20 @@ export const billboardMethods = {
         const dCam = length(a.xyz.add(vec3(0, ti.w.mul(0.5).mul(s), 0)).sub(this.main.lodPos));
         const px = ti.w.mul(s).mul(u.projScale).div(max(dCam, 0.1));
         const sw = switchPx(u, inst, this.impPxOf.element(type));
-        q.vFade.assign(smoothstep(sw, sw.mul(FADE_HI), px));
+        vTree.assign(vec4(share.cov, this.look.impostorValue(inst, b, type), this.look.tint(inst), smoothstep(sw, sw.mul(FADE_HI), px)));
       }
       const w = frameW.element(type).mul(s).mul(grow), h = h0.mul(grow);
       const right = vec3(dir.z, 0, dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize();
       const up = cross(dir, right);
-      q.vView.assign(impostorView(atlas, type, b, dir));
       const flip = hash(inst).greaterThan(0.5).and(this.solidOf.element(type).lessThan(0.5)); // mirror half of them for variety
       const ux = select(flip, cx.oneMinus(), cx);
-      q.vUv.assign(vec2(ux, cy.oneMinus())); // (within the tile; render targets are stored flipped)
-      q.vBlend.assign(vec2(j, blend));
-      q.vType.assign(float(type));
+      vUv.assign(vec2(ux, cy.oneMinus())); // (within the tile; render targets are stored flipped)
+      vTile.assign(vec4(j, blend, impostorView(atlas, type, b, dir), float(type)));
       const p = pivot.add(right.mul(cx.sub(0.5).mul(w))).add(up.mul(cy.sub(0.5).mul(h)));
       if (screen) {
-        q.vTint.assign(this.look.tint(inst));
-        q.vAutumn.assign(this.look.impostorValue(inst, b, type));
-        q.vRight.assign(select(flip, right.negate(), right));
-        q.vUp.assign(up);
-        q.vDir.assign(dir);
-        q.vShadowPos.assign(this.look.curve(p.add(u.sunDir.mul(w.add(h).mul(0.5)))));
+        const seed = hash(inst.add(31)).mul(4096).floor().add(1);
+        vFacing.assign(vec4(dir, select(flip, seed.negate(), seed)));
+        vShadowPos.assign(this.look.curve(p.add(u.sunDir.mul(w.add(h).mul(0.5)))));
         normalLocal.assign(dir);
       }
       return select(on, this.look.curve(p), vec3(0));
@@ -237,32 +229,45 @@ export const billboardMethods = {
     // the overlap and thin the forest out); coverage-preserving by the sampled mip (impostorCoverage)
     // tile k * n + type of the atlas (atlasLayout: columns, then rows), for the two tiles k = j, j + 1 it blends
     const { cols, rows } = atlasLayout(n);
-    const j = q.vBlend.x.round(), ks = [j, j.add(1)], wts = [q.vBlend.y.oneMinus(), q.vBlend.y];
-    const elev = ks.map((k) => k.mul(ELEV_STEP));
-    const uv = ks.map((k) => {
-      const t = q.vView.round().add(k.mul(n)), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
-      return q.vUv.add(vec2(col, row)).div(vec2(cols, rows));
-    });
-    const t = uv.map((c) => texture(atlas.texture, c).bias(mipBias));
-    const { levels } = atlas.coverage, scaleArr = atlas.scales; // (filled by impostorCoverage)
-    const texel = q.vUv.mul(vec2(TILE_W, TILE_H));
-    const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))).add(mipBias), 0, levels - 1.001);
-    const scaleOf = (tile: Uint): Float => {
-      const i0 = tile.mul(levels).add(uint(lod.floor()));
-      return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), lod.fract());
+    const vView = vTile.z;
+    const ks = (i: number): Float => vTile.x.add(i); // (flat: exact)
+    const wts = [vTile.y.oneMinus(), vTile.y];
+    const elevOf = (i: number): Float => ks(i).mul(ELEV_STEP);
+    const uvOf = (i: number): Vec2 => {
+      const t = vView.round().add(ks(i).mul(n)), row = t.div(cols).floor(), col = t.sub(row.mul(cols));
+      return vUv.add(vec2(col, row)).div(vec2(cols, rows));
     };
-    const tile = uint(q.vType.round());
-    const view = uint(q.vView.round());
-    const a = t.map((tk, i) => tk.a.mul(scaleOf(view.add(uint(ks[i]).mul(n)))).mul(clamp(wts[i].mul(2), 0, 1)));
-    const alpha = min(max(a[0], a[1]), 1);
+    const { levels } = atlas.coverage, scaleArr = atlas.scales; // (filled by impostorCoverage)
+    const texel = vUv.mul(vec2(TILE_W, TILE_H));
+    const lod = clamp(log2(max(length(dFdx(texel)), length(dFdy(texel)))).add(mipBias), 0, levels - 1.001);
+    // only the tiles it blends: outside the elevation bands (half of them) one has no weight, and its samples are skipped
+    const sample = (l: Float): Vec4[] => wts.map((w, i) => {
+      const s = vec4(0).toVar();
+      If(w.greaterThan(0), () => {
+        s.assign(texture(atlas.texture, uvOf(i)).level(l));
+      });
+      return s;
+    });
+    const scaleOf = (tile: Uint, l: Float): Float => {
+      const i0 = tile.mul(levels).add(uint(l.floor()));
+      return mix(scaleArr.element(i0), scaleArr.element(i0.add(1)), l.fract());
+    };
+    const tile = uint(vTile.w.round());
+    const view = uint(vView.round());
+    const cutAlpha = (t: Vec4[], l: Float): Float[] => t.map((tk, i) => tk.a.mul(scaleOf(view.add(uint(ks(i)).mul(n)), l)).mul(clamp(wts[i].mul(2), 0, 1)));
     // the plain filtered alpha: the share of the pixel the tree covers (see IMP_DITHER)
-    const coverage = min(max(t[0].a.mul(clamp(wts[0].mul(2), 0, 1)), t[1].a.mul(clamp(wts[1].mul(2), 0, 1))), 1);
+    const plainAlpha = (t: Vec4[]): Float[] => t.map((tk, i) => tk.a.mul(clamp(wts[i].mul(2), 0, 1)));
     // the coverage scale as holes fixed to the tree: the atlas cells of the mip it samples (about a pixel each), kept
     // with the chance `cov`, the tree's own pattern. By the moving dither instead, TAA averaged it into a translucent
     // smudge: the forest from ~1.5 km went blurry (the user)
-    const cell = uvec2(texel.div(exp2(lod.round())).floor());
-    const holes = (cov: Float): Bool => hash(cell.x.add(cell.y.mul(4099)).add(uint(q.vSeed).mul(1048573))).lessThan(cov);
-    return { ...v, position, uv, t, tile, a, elev, alpha, coverage, holes };
+    const holes = (cov: Float, l: Float): Bool => {
+      const cell = uvec2(texel.div(exp2(l.round())).floor());
+      return hash(cell.x.add(cell.y.mul(4099)).add(uint(vFacing.w.abs().sub(1)).mul(1048573))).lessThan(cov);
+    };
+    return {
+      vCov: vTree.x, vAutumn: vTree.y, vTint: vTree.z, vFade: vTree.w, vMirror: vFacing.w.sign(), vDir: vFacing.xyz, vShadowPos,
+      position, uvOf, elevOf, wts, lod, sample, tile, cutAlpha, plainAlpha, holes,
+    };
   },
 
   /**
@@ -279,23 +284,14 @@ export const billboardMethods = {
     const u = this.u;
     const list = storage(this.main.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, (pivot) => u.camPos.sub(pivot).normalize(), true);
-    const { vRight, vUp, vDir, vTint, vFade, tile } = q;
+    const { vDir, vTint, vFade, tile } = q;
     // lit like the real leaves (Lambert, same lights, shadow fade and fog), from baked albedo + normals
     const impDither = this.textures.impostorDither ?? IMP_DITHER;
     const mat = new THREE.MeshLambertNodeMaterial({ side: THREE.DoubleSide, alphaTest: impDither ? 0.5 : IMPOSTOR_CUT });
     mat.alphaToCoverage = !impDither && this.textures.alphaToCoverage;
-    const wSum = max(q.a.reduce((m, a) => m.add(a)), 1e-4);
-    // (MSAA-resolved edges are premultiplied by coverage: divide it out)
-    const albedo = q.t.reduce<Vec3>((acc, t, k) => acc.add(t.rgb.div(max(t.a, 1e-3)).mul(q.a[k])), vec3(0)).div(wSum);
-    // tree-local normals to world: tile k looks from +z tilted up by e (screen right +x, up (0, cos e, -sin e))
-    const nWorld = q.uv.reduce<Vec3>((acc, uv, i) => {
-      const n = texture(atlas.normals, uv).bias(mipBias).xyz;
-      const c = cos(q.elev[i].mul(deg)), sn = sin(q.elev[i].mul(deg));
-      const up = n.y.mul(c).sub(n.z.mul(sn)), toward = n.y.mul(sn).add(n.z.mul(c));
-      return acc.add(vRight.mul(n.x).add(vUp.mul(up)).add(vDir.mul(toward)).mul(q.a[i]));
-    }, vec3(0));
-    mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(vDir.mul(1e-3)), 0)).xyz);
-    mat.receivedShadowPositionNode = q.vShadowPos;
+    const lodV = float(0).toVar(), alphaV = float(0).toVar(), colV = vec3(0).toVar(); // (see the colour below)
+    let weight: Float[] = []; // (the two tiles' share of the pixel: set by the colour's Fn, which is built first)
+    mat.receivedShadowPositionNode = select(alphaV.greaterThan(0), q.vShadowPos, vec3(1e7));
     // (the gains: measured against the real trees; partly the sub-pixel leaves of the real trees, which blend with
     // what's behind them and read paler than the solid baked crowns)
     const gainSide = uniformArray<'vec3'>(gains.map((g) => v3(g.side).multiply(v3(IMP_GAIN))), 'vec3');
@@ -303,17 +299,51 @@ export const billboardMethods = {
     this.impGains = { side: gainSide, top: gainTop }; // (live: harness --typematch=calibrate adjusts them)
     // (the tiles between: side and top gains mixed by elevation)
     const gS = gainSide.element(tile), gT = gainTop.element(tile);
-    const gain = q.elev.reduce<Vec3>((acc, e, i) => acc.add(mix(gS, gT, e.div(90)).mul(q.a[i])), vec3(0)).div(wSum);
-    const col = this.look.impostorColour(albedo, gain, vTint, q.vAutumn);
     // the other half of the geometry's dithered cross-fade
     // (IMP_DITHER: each pixel drawn with the probability of its coverage, a dither that moves every frame, which
     // TAA averages; the sharpened cut-out made each few-pixel tree a hard blob that shimmered as it moved)
     // (and the coverage scale's holes: see holes)
-    const kept = q.holes(q.vCov);
-    const cut = select(kept, impDither ? select(q.coverage.mul(mix(float(IMP_COV), float(1), this.solidOf.element(tile))).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : q.alpha, float(0));
-    const alpha = select(dither().lessThan(vFade), float(0), cut);
-    mat.colorNode = vec4(select(u.debug.greaterThan(0), vec3(0), col), alpha);
-    setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12))));
+    // What three.js generated from this written plainly was the colour tile sampled up to 4 times a pixel (--probe=wgsl: the alpha,
+    // the colour, the emissive and the normals' weights each built their own, a select's branches don't share) and the colour
+    // worked out for pixels about to be discarded. So the colour's Fn, built first, does it all once, the alpha first, and the
+    // rest reads its vars. A discard doesn't stop the shader, so what's left is kept from them by hand: the normals, and the
+    // shadow's 5 taps (a position off the map skips them).
+    mat.colorNode = Fn(() => {
+      lodV.assign(q.lod);
+      const t = q.sample(lodV);
+      const plain = q.plainAlpha(t);
+      const a = q.cutAlpha(t, lodV).map((ak) => ak.toVar());
+      weight = a;
+      const shown = impDither ? select(min(max(plain[0], plain[1]), 1).mul(mix(float(IMP_COV), float(1), this.solidOf.element(tile))).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : min(max(a[0], a[1]), 1);
+      alphaV.assign(select(q.holes(q.vCov, lodV).and(dither().greaterThanEqual(vFade)), shown, float(0)));
+      colV.assign(vec3(0)); // (here: first built in a branch, three.js sets it to its first value again in the next branch that reads it)
+      If(alphaV.greaterThan(0), () => {
+        const wSum = max(a[0].add(a[1]), 1e-4);
+        // (MSAA-resolved edges are premultiplied by coverage: divide it out)
+        const albedo = t.reduce<Vec3>((acc, tk, k) => acc.add(tk.rgb.div(max(tk.a, 1e-3)).mul(a[k])), vec3(0)).div(wSum).toVar();
+        const gain = a.reduce<Vec3>((acc, ak, i) => acc.add(mix(gS, gT, q.elevOf(i).div(90)).mul(ak)), vec3(0)).div(wSum).toVar();
+        colV.assign(this.look.impostorColour(albedo, gain, vTint, q.vAutumn));
+      });
+      return vec4(select(u.debug.greaterThan(0), vec3(0), colV), alphaV);
+    })();
+    setEmissive(mat, select(u.debug.equal(4), typeId(tile), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), colV.mul(0.12))));
+    // tree-local normals to world: tile k looks from +z tilted up by e (screen right +x, up (0, cos e, -sin e)); the billboard's
+    // right (incl. mirroring) and up, as the quad's
+    mat.normalNode = Fn(() => {
+      const nWorld = vDir.mul(1e-3).toVar();
+      If(alphaV.greaterThan(0), () => {
+        const right = vec3(vDir.z, 0, vDir.x.negate()).add(vec3(1e-4, 0, 0)).normalize().toVar();
+        q.wts.forEach((w, i) => {
+          If(w.greaterThan(0), () => {
+            const n = texture(atlas.normals, q.uvOf(i)).level(lodV).xyz.toVar();
+            const e = q.elevOf(i).mul(deg).toVar(), c = cos(e), sn = sin(e);
+            const up = n.y.mul(c).sub(n.z.mul(sn)), toward = n.y.mul(sn).add(n.z.mul(c));
+            nWorld.addAssign(right.mul(q.vMirror).mul(n.x).add(cross(vDir, right).mul(up)).add(vDir.mul(toward)).mul(weight[i]));
+          });
+        });
+      });
+      return normalize(cameraViewMatrix.mul(vec4(nWorld, 0)).xyz);
+    })();
     mat.positionNode = q.position;
     const mesh = new THREE.Mesh(this._impostorGeometry(this.main), mat);
     mesh.frustumCulled = false;
@@ -332,7 +362,11 @@ export const billboardMethods = {
     const list = storage(this.shadow.impListAttr, 'uint', this.instanceCount).toReadOnly();
     const q = this._impostorQuad(atlas, list, () => this.u.sunDir, false);
     const mat = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: IMPOSTOR_CUT });
-    mat.colorNode = vec4(1, 1, 1, q.alpha);
+    mat.colorNode = Fn(() => {
+      const l = q.lod.toVar();
+      const a = q.cutAlpha(q.sample(l), l);
+      return vec4(1, 1, 1, min(max(a[0], a[1]), 1));
+    })();
     mat.positionNode = q.position;
     const mesh = new THREE.Mesh(this._impostorGeometry(this.shadow), mat);
     mesh.frustumCulled = false;

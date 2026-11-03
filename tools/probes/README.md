@@ -14,6 +14,7 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 
 | probe | what it returns |
 | --- | --- |
+| `wgsl` | the WGSL three.js generated: every fragment module by size with its texture samples; `?wgsl=` a word its code holds (a varying, `vImpTile`): that module's vertex and fragment code too |
 | `occlusion` | occlusion culling counters: trees and clusters failing phase 1, trees hidden after phase 2, draws per phase |
 | `hzb` | the depth pyramid: levels, and a sparse sample of level 0 and 5 (to see that it holds the scene) |
 | `stillfilm` | the camera still in the page's loop: which pixels change over consecutive frames, pixel by pixel (`?filmyaws=` per direction); the worst tile's frames and the whole screen's range in `png` |
