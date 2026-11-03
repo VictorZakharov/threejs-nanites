@@ -13,6 +13,7 @@ export interface AutoQuality {
   on: boolean;
   budget: number; // GPU ms
   maxTau: number;
+  minTau?: number; // the finest tau it goes to (1): past that, room in the budget stays unspent (src/webgpu-start.ts)
   scale: number; // resolution scale (of the base pixel ratio)
   gpuMs: number;
   renderMs?: number;

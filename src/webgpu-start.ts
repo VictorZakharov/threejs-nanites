@@ -172,7 +172,11 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
   const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 5.5));
+  // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
+  // screen at tau 2.3 (the user), and far statues look the same at 2.3 and 4; `userstill` 8.7M -> 5.1M, `statue`'s pops
+  // +12% (--sweep=lod, 715 -> 799), its feathers softer from 4 on. A preset or a manual tau can still go finer.
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
   const setScale = (s: number): void => {

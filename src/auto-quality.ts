@@ -39,6 +39,7 @@ export function createAutoQuality(
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
   let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
+  const minTau = (): number => auto.minTau ?? 1;
   const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
   // A resolution step down is a trial: if it saved under a third of its share of the pixels, the cost isn't the
@@ -83,11 +84,11 @@ export function createAutoQuality(
     else if (zoomState) return;
     else if (auto.scale < 1 && over < 0.85) setScale(Math.min(1, auto.scale / 0.85));
     // (not before the resolution is back: it ate the room)
-    else if (over < 0.75 && tau.value > 1 && auto.scale >= 1) tau.value = Math.max(1, tau.value / (far ? 1.25 : 1.1));
+    else if (over < 0.75 && tau.value > minTau() && auto.scale >= 1) tau.value = Math.max(minTau(), tau.value / (far ? 1.25 : 1.1));
     // at full detail with room to spare, past the base towards the screen's own pixels (a dense screen at 1.5 of
     // its 3 read blurry, the scene's pixels upscaled 2x): a step is x1.32 the pixels (and finer LOD), so under 55%
     // it lands under the budget's 1.1 and doesn't swing back
-    else if (over < 0.55 && tau.value <= 1 && auto.scale >= 1 && auto.scale < maxScale()) setScale(Math.min(maxScale(), auto.scale * 1.15));
+    else if (over < 0.55 && tau.value <= minTau() && auto.scale >= 1 && auto.scale < maxScale()) setScale(Math.min(maxScale(), auto.scale * 1.15));
     else return;
     lastAdjust = now;
   };
@@ -132,6 +133,7 @@ export function createAutoQuality(
   };
 
   const perFrame = (dt: number): void => {
+    if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)
     // frame time, always: under 20 fps it lowers the quality whatever the GPU timings say (a Mac's readback stalled
     // after two steps and left it at 6 fps with tau 1.69); without timestamp queries it's the only signal (vs 60 fps)
     auto.frameMs = auto.frameMs ? auto.frameMs * 0.95 + dt * 50 : dt * 1000;
