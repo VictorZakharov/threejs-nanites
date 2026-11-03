@@ -280,7 +280,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
     auto.forget?.(); // (a new view: what the last one learned about the resolution doesn't hold)
     // (?autostart=low: from the lowest quality, as after the orbit: does it come back up?)
     const low = new URLSearchParams(location.search).get('autostart') === 'low';
-    forest.u.tau.value = low ? auto.maxTau : 1;
+    forest.u.tau.value = low ? auto.maxTau : (auto.minTau ?? 1);
     ctx.setScale(low ? 0.5 : 1);
     const fwd = () => controls.keys.add('KeyW');
     controls.speed = speed;
