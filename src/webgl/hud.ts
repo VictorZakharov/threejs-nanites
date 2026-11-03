@@ -36,7 +36,7 @@ export function createWebGLHud(ctx: WebGLHudContext) {
     tris = ctx.tris();
     return {
       gpu: { render: auto.gpuMs, compute: 0, total: auto.gpuMs, budget: auto.budget }, // (0 without timers: shown as --)
-      quality: { tau: tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && auto.scale <= 0.5, shadows: ctx.shadowsOn() },
+      quality: { tau: tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: 1 },
       resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: ctx.taa() ? 1 : 4, taa: ctx.taa() },
       scene: {
         trees: s.instances + s.impostors, total: forest.treeCount, bushes: forest.bushCount, statues: ctx.statues(), impostors: s.impostors,

@@ -3,7 +3,7 @@
 // frame (the user: "groups of statues flicker, like appear and disappear"). Per set (phase) `items` of MAX_ITEMS, `bark`
 // and `leaf` of LIST_CAP, `trees`; `sw` the software rasterizer's clusters listed of SW_CAP; `retest` the clusters to
 // retest of RETEST_CAP. `full` names the lists at their cap in any frame. `swing`: how far the triangles moved over the
-// frames, % (nothing moves: it should be ~0).
+// frames, % (nothing moves: it should be ~0). `--query=listguard=0`: with the guard (gpu/list-guard.ts) the lists never stay full.
 import type { Demo } from '../../src/harness-api.ts';
 
 async (demo: Demo) => {

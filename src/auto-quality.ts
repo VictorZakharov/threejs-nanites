@@ -38,7 +38,7 @@ export function createAutoQuality(
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
-  let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1;
+  let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
   const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
   let gen = 0; // (bumped while the view changes under it: a timestamp readback still in flight was the old view's)
   // A resolution step down is a trial: if it saved under a third of its share of the pixels, the cost isn't the
@@ -116,11 +116,17 @@ export function createAutoQuality(
     if (z !== zoomState) {
       zoomState = z;
       trial = futile = null;
-      if (z) saved ??= [tau.value, auto.scale]; // (kept if it's zoomed again on the way out)
+      if (z && !saved) {
+        saved = [tau.value, auto.scale]; // (kept if it's zoomed again on the way out)
+        written = tau.value;
+      }
       else if (saved && auto.on && saved[1] !== auto.scale) setScale(saved[1]);
       restart();
     }
-    if (saved && auto.on && zoom.zoom !== lastZoom) tau.value = zoomTau(saved[0], zoom.zoom);
+    // (a preset's or a manual tau too: at tau 1-3 the zoom filled the cluster list. One set by hand while zoomed stays:
+    // nothing follows the zoom any more, nothing is restored)
+    if (saved && !auto.on && tau.value !== written) saved = null;
+    if (saved && zoom.zoom !== lastZoom) written = tau.value = zoomTau(saved[0], zoom.zoom);
     lastZoom = zoom.zoom;
     if (!z && zoom.zoom === 1) saved = null;
   };

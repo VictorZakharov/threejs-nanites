@@ -469,8 +469,11 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   1 / 2 / 3, ~240 at 4.73 and 8), at 25-30 ms. `--zoomtime` with `taa=0` (2560x1440, Lucy `oblique`, `lucyfield`,
   `lucyhorizon`, `down800`): no tile moves after the zoom, 3-10k pixels differ between shots; zoomed GPU 8-12 ms, 15-20
   held, still over the 5.5 ms budget: only frames over 75 ms coarsen it further (`ZOOM_FLOOR`; the resolution past 125
-  ms). The occlusion retest list has its own cap (`RETEST_CAP`; 1.06M at 4K `lucyhorizon`). A preset or manual tau isn't
-  moved: under ~4 zoomed it can still fill the list.
+  ms). The occlusion retest list has its own cap (`RETEST_CAP`; 1.06M at 4K `lucyhorizon`). A preset's or manual tau
+  follows the zoom too; one set while zoomed stays (`--probe=zoommanual --query="auto=0&tau=2"`). Whatever tau is set, a view's lists
+  can't overflow: `ListGuard` (`gpu/list-guard.ts`, `?listguard=0`) reads the counters every 150 ms and raises the view's `tauMul` near a cap, easing back
+  well under it; the report's quality line shows the factor (`--probe=listguard`; `[` down to tau 0.25 zoomed, 1440p: settled at 548k clusters in ~600 ms;
+  `--dolly --step=0 --turn=0.02` at tau 1, 5x: 39k -> 192 flicker events). Measure a cap with `listguard=0`, or the guard hides it.
   A zoom is at most tau 8 at the unzoomed resolution: at 8 / 0.64 the far statues stay coarse. `--zoomtime` tiles
   miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
   `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
