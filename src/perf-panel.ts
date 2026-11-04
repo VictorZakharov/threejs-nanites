@@ -17,7 +17,7 @@ export const short = (v: number): string =>
 /** What the panel shows besides the frame times (src/hud.ts fills it in). */
 export interface PerfDetails {
   gpu: { render: number; compute: number; total: number; budget: number };
-  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number };
+  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number; steps?: string[] };
   resolution: { width: number; height: number; outWidth: number; outHeight: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
     trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
@@ -214,6 +214,7 @@ export class PerfPanel {
       `triangles    ${count(sc.tris)} hardware, ${count(sc.swTris)} software, ${count(sc.impostorTris)} impostors (2 each), ${count(sc.shadowTris)} shadow casters (impostors' too)`,
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,
     ];
+    if (det.quality.steps?.length) lines.push('', 'auto steps', ...det.quality.steps.map((t) => `  ${t}`));
     if (this.profileText) lines.push('', this.profileText);
     const more = this.extra?.();
     if (more) lines.push('', more);

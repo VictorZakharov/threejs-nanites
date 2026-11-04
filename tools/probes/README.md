@@ -29,6 +29,7 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `atlas` | the impostor atlas (albedo) as a PNG, cut-out alpha shown blue |
 | `perf` | the performance panel (`--query=perf=1`): its report text and whether it's on screen |
 | `auto` | auto quality in the real loop for 8 s against `?autobudget=` (default 3 ms): settled tau, resolution scale, GPU ms (use `--timeout=120`) |
+| `autosim` | auto quality against a made-up slow, noisy GPU (`--query="auto=1&autosim=x,noise,pixels"`: the real GPU ms x `x`, plus `pixels` ms at full resolution, +-`noise` every 500 ms; `?simbudget=` 13.3, `?simsecs=` 50): a row every 2 s and its steps, to replay a device's report (use `--timeout=100`) |
 | `autozoom` | auto quality across the 5x zoom: 4 s each unzoomed / zoomed / unzoomed / zoomed at the view (`canopyzoom --zoom=1`), per phase how long it was over the budget, frames over twice it, the longest frame, resolution changes, tau/scale every 250 ms (`--timeout=120`) |
 | `visible` | trees, clusters and triangles drawn vs seen (`--query=ids=1`: debug 6 writes each pixel's tree and cluster to the scene target; hardware geometry only): what occlusion culling leaves on the table |
 | `cullcheck` | why drawn-but-unseen clusters weren't culled (`--query=ids=1`): an exact-rect test on the CPU against HZB level 0 sorts them into "a finer test would get it", "only without the wind margin", "something farther shows in its rect"; triangles of each; and two tighter bounds (#7): an exact box rect (`boxCull`) and bark clusters facing away (`backface`) |

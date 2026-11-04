@@ -25,7 +25,7 @@ export interface AutoQuality {
   busy: boolean;
   busySince?: number; // (when the pending timestamp readback started)
   onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)
-  trials?: string[]; // resolution steps tried and what they saved (src/auto-quality.ts; the harness's autoTest)
+  trials?: string[]; // its tier changes and the resolution steps tried, what they saved (src/auto-quality.ts; the report; the harness's autoTest)
   forget?: () => void; // drops the controller's resolution trial state (the harness, between views)
 }
 
@@ -57,7 +57,7 @@ export function createHud(ctx: HudContext) {
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
     gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
-    quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
+    quality: { steps: auto.trials, tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
     resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: samples, taa: taa.enabled },
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
