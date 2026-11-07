@@ -17,7 +17,7 @@ export const short = (v: number): string =>
 
 /** What the panel shows besides the frame times (src/hud.ts fills it in). */
 export interface PerfDetails {
-  gpu: { render: number; compute: number; total: number; budget: number };
+  gpu: { render: number; compute: number; total: number; budget: number; queue?: number };
   quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number; steps?: string[] };
   resolution: { width: number; height: number; outWidth: number; outHeight: number; taaWidth?: number; taaHeight?: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
@@ -206,7 +206,7 @@ export class PerfPanel {
       `window       ${s.seconds.toFixed(1)} s, ${s.samples} frames, display ~${s.refresh} Hz`,
       `fps          ${fmt(s.avgFps)} avg, ${fmt(s.lowFps)} 1% low`,
       `frame ms     ${fmt(s.avgMs)} avg, ${fmt(s.medianMs)} median, ${fmt(s.p95Ms)} p95, ${fmt(s.p99Ms)} p99, ${fmt(s.longest)} longest, ${s.long} over 50 ms`,
-      `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}`,
+      `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}${g.queue ? `, ${fmt(g.queue)} from submit to done (over the GPU time: frames queued, and the desktop behind them)` : ''}`,
       `quality      error ${det.quality.tau.toFixed(2)} px${det.quality.guard > 1 ? ` x ${det.quality.guard.toFixed(2)} (the cluster lists are full)` : ''}, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}${det.quality.tier ? `, low-end tier ${det.quality.tier}` : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
       '',
       `plants       ${count(sc.trees)} visible (${count(sc.impostors)} impostors) of ${count(sc.total)} trees + ${count(sc.bushes)} bushes + ${count(sc.statues)} statues`,

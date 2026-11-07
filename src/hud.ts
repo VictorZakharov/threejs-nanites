@@ -20,6 +20,8 @@ export interface AutoQuality {
   minTau?: number; // the finest tau it goes to (1): past that, room in the budget stays unspent (src/webgpu-start.ts)
   scale: number; // resolution scale (of the base pixel ratio)
   gpuMs: number;
+  queueMs?: number; // eased: from a frame's submit to its GPU work done (src/webgpu-start.ts's loop)
+  queueLog?: number[]; // the last 3000 of them (--probe=gpuqueue)
   renderMs?: number;
   computeMs?: number;
   frameMs?: number; // eased frame time
@@ -58,7 +60,7 @@ export function createHud(ctx: HudContext) {
   const agl = () => camera.position.y - heightAt(camera.position.x, camera.position.z);
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
-    gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
+    gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget, queue: auto.queueMs },
     quality: { steps: auto.trials, tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
     resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, taaWidth: ctx.taaSize?.x, taaHeight: ctx.taaSize?.y, msaa: samples, taa: taa.enabled },
     scene: gs && {

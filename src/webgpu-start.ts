@@ -277,10 +277,18 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
-    if (gpuBound()) {
-      inFlight = true;
-      gpuBackend(renderer).device.queue.onSubmittedWorkDone().then(() => (inFlight = false), () => (inFlight = false));
-    }
+    // (from the frame's submit to its GPU work done: past a frame's own GPU time, frames are waiting in the queue, and so is
+    // the desktop's compositor behind them. The report's 'gpu queue'; --probe=gpuqueue on the AMD PC)
+    const submitted = performance.now(), bound = gpuBound();
+    if (bound) inFlight = true;
+    gpuBackend(renderer).device.queue.onSubmittedWorkDone().then(() => {
+      const ms = performance.now() - submitted;
+      auto.queueMs = auto.queueMs ? auto.queueMs * 0.9 + ms * 0.1 : ms;
+      (auto.queueLog ??= []).push(ms);
+      if (auto.queueLog.length > 3000) auto.queueLog.shift();
+    }).finally(() => {
+      if (bound) inFlight = false;
+    });
     if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
     zoomLog.frame(now, dt);
