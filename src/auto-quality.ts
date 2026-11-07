@@ -84,10 +84,12 @@ export function createAutoQuality(
   // own rather than a share (as a ratio, 1.43 from 18.8 -> 13.1 ms, a cheap spot at tier 2 came back to 1 within 5 s). In Chrome on the
   // AMD PC tier 2 -> 1 at 7.4 ms of timers took the frames from 12.6 ms submit to done to 27, every half a minute)
   const tierSaves: number[] = [];
-  let lastQ = 0, savesAt = 0, leftTier: { tier: number; q: number; t: number } | null = null;
+  type TierStep = { tier: number; q: number; t: number };
+  let lastQ = 0, savesAt = 0, leftTier: TierStep | null = null, cameDown: TierStep | null = null;
   const setTierTo = (t: number): void => {
     // (two steps within the settling time, as when hurrying 1 -> 2 -> 3: the first tier is the one learned, by the whole saving,
     // so it can't come back on what the second saved)
+    if (t < tier && lastQ > 0) cameDown = { tier: t, q: lastQ, t: performance.now() };
     if (t > tier && lastQ > 0) leftTier = { tier: leftTier?.tier ?? tier, q: leftTier?.q ?? lastQ, t: performance.now() };
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
@@ -369,17 +371,30 @@ export function createAutoQuality(
       // (both only when it lasts SUSTAIN ms: a stall isn't the GPU's load, and a lower quality can't fix it)
       const q = slowGpu() ? auto.queueMs ?? 0 : 0;
       lastQ = q;
+      const display = auto.budget / 0.8;
       if (leftTier && t - leftTier.t > 3000) {
         if (q > 0) tierSaves[leftTier.tier] = Math.max(tierSaves[leftTier.tier] ?? 0, leftTier.q - q);
         logStep(`tier ${leftTier.tier} -> ${tier}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
         leftTier = null;
+      }
+      // (and on the way down, what the tier cost: over a frame, straight back up and held there. The saving learned on the way up
+      // can be a costly spot's, too small: the AMD PC came back to tier 1 with frames waiting 26-29 ms for 40 s)
+      if (cameDown && t - cameDown.t > 3000) {
+        if (q > 0 && cameDown.tier === tier) {
+          tierSaves[tier] = Math.max(tierSaves[tier] ?? 0, q - cameDown.q);
+          if (q > display * 0.95 && auto.on && !zoomState) {
+            logStep(`tier ${tier + 1} -> ${tier}: ${cameDown.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done, back`);
+            setTierTo(tier + 1);
+            tierHold = t + BOUNCE_HOLD;
+          }
+        }
+        cameDown = null;
       }
       for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / SAVES_HALF);
       savesAt = t;
       // (by the display's frame, not the budget: under a frame from submit to done no frame waits, and part of it is the browser's
       // compositing, which no step lowers. By the budget, the user's Chrome at 14.75 ms with 6.4 ms of timers was pushed to the
       // floor, tier 3 and tau 16, and held there: "no quality, blurry")
-      const display = auto.budget / 0.8;
       // (until it's back under 90% of a frame: around a frame on end, a moment under restarted the wait each time, and at tier 1
       // the AMD PC's frames waited 26 ms for 40 s before it stepped)
       queuedSince = q > display || (queuedSince && q > display * 0.9) ? queuedSince || t : 0;
