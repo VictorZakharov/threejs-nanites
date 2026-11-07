@@ -43,6 +43,13 @@ async function hold(page: Page, keys: string[], ms: number, during?: () => Promi
 
 export async function play(page: Page, opts: Options) {
   const result: Record<string, unknown> = {};
+  // (never on the machine someone is using: a headless browser's pointer lock still confines the real cursor (Windows'
+  // ClipCursor) to its hidden window. Run here, it held the user's mouse in a small part of the screen, over and over.
+  // Only a visible window on the test PC, which `npm run remote -- --headed` sets up)
+  if (process.env.HARNESS_HEADED !== '1' || !process.env.HARNESS_REMOTE) {
+    console.error('--play captures the mouse: only with npm run remote -- --headed (never locally, never headless)');
+    return { skipped: true };
+  }
   for (const name of opts.views) {
     at(`play ${name}`);
     await page.evaluate((v) => window.__demo.setView(v), { ...VIEWS[name], zoom: 1 });
@@ -50,7 +57,11 @@ export async function play(page: Page, opts: Options) {
     await page.bringToFront();
     const size = page.viewportSize() ?? { width: 1280, height: 720 };
     const pos = { x: size.width / 2, y: size.height / 2, k: RAD_PER_PX };
-    await page.mouse.click(pos.x, pos.y);
+    // (Chrome refuses a new pointer lock for ~1 s after one ends: the previous view's Esc. Click again until it holds)
+    for (let k = 0; k < 5 && !(await page.evaluate(() => document.pointerLockElement !== null)); k++) {
+      await page.mouse.click(pos.x, pos.y);
+      await sleep(1500);
+    }
     await sleep(opts.playwait * 1000); // (auto quality settles)
     const locked = await page.evaluate(() => document.pointerLockElement !== null);
     await calibrate(page, pos);

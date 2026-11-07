@@ -98,6 +98,11 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   of the frames, 2 none: 78 ms), the report shows submit-to-done, `--probe=gpuqueue` measures it (headless queues too).
 - **"Impossible".** Native 4K at 60 fps on the iGPU was called out of reach; the user's target (1080p at 60, upscaled
   to 4K) was the useful framing. Say what a goal costs and what has to get cheaper, not that it can't be done.
+- **Taking the user's mouse.** A headless browser's pointer lock still confines the real cursor (Windows' ClipCursor) to
+  its hidden window: `--play` (real input, harness/play.ts) run on the dev machine held the user's mouse in a small part
+  of their screen, four times ("my mouse gets locked to a small portion of my screen"). Anything that captures the
+  pointer or sends real input runs only as `npm run remote -- --headed` on the test PC (`--play` refuses otherwise),
+  and only after asking whoever is at that PC.
 
 ## Open work: GitHub issues
 

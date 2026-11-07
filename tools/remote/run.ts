@@ -86,7 +86,7 @@ if (!headed) {
   const log = `${winDir}\\tools\\tmp\\remote-run.log`, done = `${winDir}\\tools\\tmp\\remote-run.done`;
   // (in a batch file, npm (npm.cmd) without call never returns: the done marker was never written)
   const batch = steps.map((x) => (x.startsWith('npm ') ? `call ${x}` : x));
-  batch.push('set HARNESS_HEADED=1', `call ${harness}`);
+  batch.push('set HARNESS_HEADED=1', 'set HARNESS_REMOTE=1', `call ${harness}`);
   ssh(`del /q "${done}" 2>nul`);
   if (!onDesktop('nanite-harness', [`del /q "${done}" 2>nul`, `(${batch.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`])) process.exit(1);
   const limit = Date.now() + (Number(args.find((a) => a.startsWith('--timeout='))?.slice(10) ?? 600) + 300) * 1000;
