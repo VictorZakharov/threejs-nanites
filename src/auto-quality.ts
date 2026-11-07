@@ -270,14 +270,15 @@ export function createAutoQuality(
   // minutes' flying: 42 fps, 40 ms from submit to done, while the timers read 14 ms (the browser's compositing of the canvas
   // and the iGPU's clocks aren't in them): auto quality had climbed back to 69% on the timers, and the frames queued (the
   // user: "enormous input lags and FPS drops"). Then the frame time stands in for the GPU's: budget x frame / display frame.
+  // (only on a 60-80 Hz display or a low-end device: a fast GPU on a 144 Hz screen can be held back by the browser's own
+  // presenting, which no quality step fixes)
+  const slowGpu = (): boolean => auto.budget / 0.8 >= 12 || tier >= 1;
   const paces: [number, number][] = []; // (time, ms since the frame before) over the last second
   const behindMs = (now: number): number => {
     while (paces.length && paces[0][0] < now - 1000) paces.shift();
     if (paces.length < 20) return 0;
     const v = paces.map(([, d]) => d).sort((a, b) => a - b), paced = v[v.length >> 1], display = auto.budget / 0.8;
-    // (only on a 60-80 Hz display or a low-end device: a fast GPU on a 144 Hz screen can be held back by the browser's own
-    // presenting, which no quality step fixes)
-    if (display < 12 && tier < 1) return 0;
+    if (!slowGpu()) return 0;
     return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
   };
   let behindLogged = 0, underRead = 1, underAt2 = 0;
@@ -346,7 +347,11 @@ export function createAutoQuality(
         logStep(`frames behind the display: ${(behind / 0.8).toFixed(1)} ms paced, GPU timers ${m.toFixed(1)} ms: steering by the frames`);
       }
       auto.behindMs = behind;
-      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behind) / auto.budget, true);
+      // (and from submit to done: what a frame really costs the GPU, the browser's compositing too, and past a frame's time
+      // the frames waiting: at 60 fps with 10-11 ms of timers the AMD PC's frames waited 26-37 ms, two frames of input lag,
+      // with the frame rate never falling behind)
+      const queued = slowGpu() ? auto.queueMs ?? 0 : 0;
+      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behind, queued) / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);
