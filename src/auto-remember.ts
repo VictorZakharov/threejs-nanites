@@ -2,6 +2,12 @@
 // once at load.
 
 /**
+ * The stored settings' key prefix. v2: the tiers changed (the lite tiers 4-5, a FullHD output from tier 2), and what the user's
+ * Chrome kept from stalled visits (tier 3, tau 16) started it at the old floor instead of the lite start.
+ */
+export const REMEMBER_PREFIX = 'nanite-auto2 ';
+
+/**
  * The low-end tier the last visit on this screen settled at (any scene; 0 when none was kept), for what's built once at load
  * (the grass's density). Not under the harness unless `?autoremember=1`.
  */
@@ -13,7 +19,7 @@ export function rememberedTier(params: URLSearchParams, harness: boolean): numbe
   try {
     for (let i = 0; i < localStorage.length; i++) {
       const k = localStorage.key(i);
-      if (k?.startsWith('nanite-auto ') && k.includes(screenKey)) tier = Math.max(tier, (JSON.parse(localStorage.getItem(k) ?? '{}') as { tier?: number }).tier ?? 0);
+      if (k?.startsWith(REMEMBER_PREFIX) && k.includes(screenKey)) tier = Math.max(tier, (JSON.parse(localStorage.getItem(k) ?? '{}') as { tier?: number }).tier ?? 0);
     }
   } catch {
     // (storage blocked: 0)

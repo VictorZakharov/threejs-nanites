@@ -31,6 +31,7 @@ import { createResolution } from './resolution.ts';
 import { createSlowFrames } from './slow-frames.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
 import { createTierSwitches } from './low-tiers.ts';
+import { REMEMBER_PREFIX } from './auto-remember.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -184,7 +185,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (where it settled on this screen and scene: the next visit starts there; ?autoremember=0 never, the harness only with =1)
   if (params.get('autoremember') === '1' || (!HARNESS && params.get('autoremember') !== '0')) {
-    void sceneName.then((name) => (auto.remember = `nanite-auto ${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
+    void sceneName.then((name) => (auto.remember = `${REMEMBER_PREFIX}${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
   }
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
