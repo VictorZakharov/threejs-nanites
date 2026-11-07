@@ -88,7 +88,7 @@ export function createFrame(c: FrameContext): (dt: number) => void {
     waypoint.update(camera);
     compass.update(camera, controls.walking);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
-    mipBias.value = taa.enabled ? -Math.log2(res.ratio()) : 0; // (textures for the output's pixels: the TAA upscales)
+    mipBias.value = taa.enabled ? res.mipBias() : 0; // (textures for the output's pixels: the TAA upscales)
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);

@@ -20,8 +20,16 @@ import { gpuBackend } from './three-gaps.ts';
 /** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
 const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
+/** Frames this much slower than the display, the main thread idle: the GPU is behind (`?behind=`, see behindMs). */
+const BEHIND = Number(new URLSearchParams(location.search).get('behind') ?? 1.2);
+/** The zoom's coarsest tau on the low-end tiers (`?zoomlowtau=`; see zoomTau). */
+const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
 const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
+/** A tier stepped down to within BOUNCE_MS of coming back up from it is held for BOUNCE_HOLD (ms). */
+const BOUNCE_MS = 30000, BOUNCE_HOLD = 120000;
+/** The coarsest tau on the last tier at the lowest resolution (`?lowmaxtau=`). */
+const LOW_MAX_TAU = Number(new URLSearchParams(location.search).get('lowmaxtau') ?? 16);
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
 const SETTLE = 2000, PAYS = 5;
 /** Far over the budget (x2): the wait between steps (ms). */
@@ -75,7 +83,10 @@ export function createAutoQuality(
   let saved: [number, number] | null = null;
   let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
   const minTau = (): number => auto.minTau ?? 1;
-  const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
+  // (on the low-end tiers the zoom may coarsen to ZOOM_LOW_TAU: the AMD PC's Lucy forest zoomed at tau 8 was 14.9 ms, over its
+  // budget, and the user saw it lag as they panned; at 16 11.5 ms, the small statues' faces gone but their shapes kept; 24 broke
+  // them up. A fast GPU never gets to the tiers, so its zoom is as before)
+  const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, tier >= 1 ? Math.max(auto.maxTau, ZOOM_LOW_TAU) : auto.maxTau));
   // Past the coarsest tau, the low-end tiers, what's least seen first. Tier 1 comes before the resolution (it's hardly seen, the blur
   // is), the others after it: with the lowest resolution, or one that doesn't pay. (The laptop's report: a third cut-off and short
   // windows read a step as not paying, and it sat at 75% with tier 3's flat shadows, at 48 fps where 64% had 55: --probe=autosim.)
@@ -83,7 +94,7 @@ export function createAutoQuality(
   // grass, wider, the floor's relief in 8 steps, and the output within 2x the scene's pixel ratio (following the resolution down: an AMD iGPU upscaled 4x on DPR 3). 2: narrowest 6 px, less grass again, the shadow map half its side, and the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
   // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
   // if that goes over again soon, it stays for a minute (each change is seen).
-  let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;
+  let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9, lowTauAt = -1e9;
   /** What it did and when (the report's `auto steps`, the trials too): a device's path can't be guessed from where it ended. */
   const logStep = (text: string): void => {
     (auto.trials ??= []).push(`${(performance.now() / 1000).toFixed(0)}s ${text}`);
@@ -92,6 +103,7 @@ export function createAutoQuality(
   const setTierTo = (t: number): void => {
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
+    if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
     tierAt = performance.now();
     auto.tier = t;
     setTier(t);
@@ -135,7 +147,10 @@ export function createAutoQuality(
     else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= auto.maxTau && (tier === 0 || auto.scale <= 0.505 || futile)) {
       const wait = hurry ? HURRY_MS : TIER_MS;
       if (now - tierAt < wait || now - underAt < wait) return;
-      if (now - lastDown < 3000) tierHold = now + 60000;
+      // (back down soon after coming back up: held there. Within 3 s it was a minute; the AMD PC flying between the statues and
+      // above them came back 5-10 s into a cheap stretch and fell behind again at the next costly one, a few seconds of lag
+      // each time, three times in 4 minutes)
+      if (now - lastDown < BOUNCE_MS) tierHold = now + BOUNCE_HOLD;
       setTierTo(tier + 1);
       if (timed) restart();
       return;
@@ -159,6 +174,21 @@ export function createAutoQuality(
       setScale(to);
       if (timed) restart(); // (measure the new resolution afresh)
     }
+    // at the last tier and the lowest resolution, still over: coarser past maxTau, up to LOW_MAX_TAU (the AMD PC among the
+    // Lucy forest's statues: tier 3, 50%, tau 8, 15-16 ms of timers, 33-37 ms from submit to done; their geometry is ~6 ms
+    // of it, and at 16 a zoomed statue kept its shape). Back to maxTau when the tier is left (setTierTo)
+    else if (!zoomState && over > limit && tier >= MAX_TIER && auto.scale <= 0.505 && tau.value < LOW_MAX_TAU) {
+      if (timed && now - lastAdjust < (hurry ? HURRY_MS : SETTLE)) return;
+      tau.value = Math.min(LOW_MAX_TAU, tau.value * Math.min(1.3, over));
+      lowTauAt = now;
+    }
+    // (nothing comes back while the frames wait or fall behind, however low the timers: in Chrome on the AMD PC it went back up to
+    // tier 1 at 5.9 ms of timers with 27 ms from submit to done)
+    else if (upBlocked) return;
+    // and back down from there first, before anything else comes back: slowly (the route between the statues and above them
+    // swung the cost every few seconds, and a quick way back undid each climb before it reached them)
+    else if (!zoomState && tau.value > auto.maxTau && over < 0.6 && now - lowTauAt > 10000) tau.value = Math.max(auto.maxTau, tau.value / 1.15);
+    else if (!zoomState && tau.value > auto.maxTau) return; // (nothing else comes back meanwhile)
     // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
@@ -254,8 +284,29 @@ export function createAutoQuality(
     }
   };
 
+  // Frames behind the display with the main thread idle: the GPU is behind, whatever its timers say. The AMD PC after 2-3
+  // minutes' flying: 42 fps, 40 ms from submit to done, while the timers read 14 ms (the browser's compositing of the canvas
+  // and the iGPU's clocks aren't in them): auto quality had climbed back to 69% on the timers, and the frames queued (the
+  // user: "enormous input lags and FPS drops"). Then the frame time stands in for the GPU's: budget x frame / display frame.
+  // (only on a 60-80 Hz display or a low-end device: a fast GPU on a 144 Hz screen can be held back by the browser's own
+  // presenting, which no quality step fixes)
+  const slowGpu = (): boolean => auto.budget / 0.8 >= 12 || tier >= 1;
+  const paces: [number, number][] = []; // (time, ms since the frame before) over the last second
+  const behindMs = (now: number): number => {
+    while (paces.length && paces[0][0] < now - 1000) paces.shift();
+    if (paces.length < 20) return 0;
+    const v = paces.map(([, d]) => d).sort((a, b) => a - b), paced = v[v.length >> 1], display = auto.budget / 0.8;
+    if (!slowGpu()) return 0;
+    return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
+  };
+  let behindLogged = 0, underRead = 1, underAt2 = 0, behindSince = 0;
+  let queuedSince = 0, upBlocked = false;
+  const BEHIND_LEARN = 3000, LEARN_AFTER = 20000, SUSTAIN = 1500;
+  // (the under-read factor's excess halves in this long, ms)
+  const UNDER_HALF = 180000;
   const perFrame = (dt: number): void => {
     remember(performance.now());
+    paces.push([performance.now(), dt * 1000]);
     // (a preset or a manual tau: they're auto quality's to give up; Profile GPU only holds it still, and measures what's on)
     if (!auto.on && !auto.holding && tier > 0) setTierTo(0);
     if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)
@@ -303,7 +354,34 @@ export function createAutoQuality(
       // GPU timings drift by 30% on their own)
       if (futile && ((m > 0 && Math.abs(m / futile.gpu - 1) > 0.5 && t - futile.at > 10000) || t - futile.at > 60000)) futile = null;
       // (the median of the last second: a single low sample after a change took a tier back, eased from nothing)
-      if (auto.on && !zoomState && m > 0) step(m / auto.budget, true);
+      const behind = behindMs(t);
+      // (how much the timers under-read when the frames fell behind, kept and eased back to 1 over minutes: going by the timers
+      // alone between those times, it went straight back up and behind again, tier 3 -> 1 -> 3 and 50% -> 69% -> 50% every
+      // half a minute on the AMD PC, with 30-40 ms from submit to done throughout)
+      // (learned only from frames behind for BEHIND_LEARN ms on end, not before LEARN_AFTER ms from the start: in the user's
+      // Chrome stalls of 30-80 ms with 6 ms of timers (the GPU idle) taught it 3x, and it sat at its floor, blurry, for nothing)
+      // (m is NaN for a moment after each change, too few samples: that's not the frames catching up)
+      behindSince = behind > 0 && !(behind <= m) ? behindSince || t : 0;
+      if (behind > m && m > 0 && t - behindSince > BEHIND_LEARN && t > LEARN_AFTER) underRead = Math.min(2, Math.max(underRead, behind / m));
+      else underRead = 1 + (underRead - 1) * 0.5 ** ((t - underAt2) / UNDER_HALF);
+      underAt2 = t;
+      auto.underRead = underRead;
+      if (behind > m && t - behindLogged > 10000 && auto.on && !zoomState) {
+        behindLogged = t;
+        logStep(`frames behind the display: ${(behind / 0.8).toFixed(1)} ms paced, GPU timers ${m.toFixed(1)} ms: steering by the frames`);
+      }
+      auto.behindMs = behind;
+      // (and from submit to done: what a frame really costs the GPU, the browser's compositing too, and past a frame's time
+      // the frames waiting: at 60 fps with 10-11 ms of timers the AMD PC's frames waited 26-37 ms, two frames of input lag,
+      // with the frame rate never falling behind)
+      // (both only when it lasts SUSTAIN ms: a stall isn't the GPU's load, and a lower quality can't fix it)
+      const q = slowGpu() ? auto.queueMs ?? 0 : 0;
+      queuedSince = q > auto.budget ? queuedSince || t : 0;
+      const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
+      const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
+      upBlocked = q > auto.budget * 0.85 || behind > 0;
+      auto.steer = [m, behindNow, queued];
+      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behindNow, queued) / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);

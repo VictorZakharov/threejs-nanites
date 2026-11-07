@@ -68,7 +68,7 @@ export function createWebGLOutput(renderer: THREE.WebGPURenderer, camera: THREE.
     begin(cam) {
       res.fit();
       taa.jitter(cam, res.render.x, res.render.y);
-      mipBias.value = taa.enabled ? -Math.log2(res.ratio()) : 0; // (textures for the output's pixels: the TAA upscales)
+      mipBias.value = taa.enabled ? res.mipBias() : 0; // (textures for the output's pixels: the TAA upscales)
     },
     draw(scene, cam) {
       renderer.setRenderTarget(sceneRT);

@@ -55,6 +55,12 @@ export class NaniteRenderer {
    * a step after a zoom reshaped a giant statue's shadow for a second or two).
    */
   shadowLodHeight: number | null = null;
+  /**
+   * The shadow casters' tau x this (the demo's low-end tiers: the map's side at a half or a quarter, its texels 2-4x as big,
+   * the casters as much coarser. The AMD PC's Lucy forest at tier 3, a 256 map: the statues' shadow geometry cost 1.6-2.2 ms,
+   * more than the statues seen, 1.1-1.3).
+   */
+  shadowTauScale = 1;
   /** Occlusion culling switched on (the menu, ?occ=0); u.occlusion is this and low enough to pay (the demo's webgpu-frame.ts). */
   occlusionOn = true;
   /** The shadow view ran this frame (its stats are stale otherwise: shadows off, or the average shadow from high up). */
@@ -216,7 +222,7 @@ export class NaniteRenderer {
     this.mainGuard.update();
     if (shadowCamera) this.shadowGuard.update();
     this.main.tauMul.value = this.mainGuard.scale;
-    this.shadow.tauMul.value = this.shadowGuard.scale * SHADOW_TAU_MUL * (camera.userData.zoom ?? 1) * (viewportHeight / (this.shadowLodHeight ?? viewportHeight));
+    this.shadow.tauMul.value = this.shadowGuard.scale * SHADOW_TAU_MUL * this.shadowTauScale * (camera.userData.zoom ?? 1) * (viewportHeight / (this.shadowLodHeight ?? viewportHeight));
     this.sw.begin(this.renderer, camera, size.x, size.y);
     this.splats.begin();
     this.main.impRetest.value = this.willOcclude(size.x, size.y) ? 1 : 0; // (phase 2 lists the impostors)

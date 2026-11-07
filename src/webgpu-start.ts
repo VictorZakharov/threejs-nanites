@@ -29,6 +29,7 @@ import { GodRays } from './godrays.ts';
 import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { createSlowFrames } from './slow-frames.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
 import { reliefSteps } from './ground/relief.ts';
 import { Precompile, warmUp } from './warmup.ts';
@@ -180,6 +181,13 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
   // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
   const OUT_RATIO = Number(params.get('outratio') ?? 2);
+  // (?outtier2=, ?miptier=) tier 2's cap on the output's pixel ratio and the mip bias cap from tier 1. Tier 2 keeps the output
+  // at 1 per CSS px: in a visible window on the AMD PC (DPR 3) a 1920x877 output took 17 ms from submit to done for 11.5 of
+  // GPU timers (the browser's compositing: untimed), 1280x585 12.5 for 10.5. (Lifted once on headless numbers, which
+  // composite nothing: a day's lag on the AMD PC.)
+  const OUT_TIER2 = Number(params.get('outtier2') ?? 1);
+  const MIP_TIER = Number(params.get('miptier') ?? 0.5);
+  const FAR_SHADOW_TIER = Number(params.get('farshadowtier') ?? Infinity);
   const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
@@ -202,10 +210,17 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
     grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
-    res.capOutput(tier >= 2 ? 1 : Infinity);
+    res.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
     res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
-    lighting.forceFarShadow(tier >= 3);
-    lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
+    // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
+    // mips were most of the cost of upscaling, and at 0.5 the image looks the same: src/resolution.ts)
+    res.capMipBias(tier >= 1 ? MIP_TIER : Infinity);
+    // (tier 3 keeps real shadows from a quarter-size map, down to 256: the average far shadow it used to switch to made the
+    // forest flat and evenly lit, "no quality" (the user on the AMD PC). There 256 cost +0.3..0.5 ms, 512 +0.8..1.1, and
+    // looked nearly alike: softer dapples. ?farshadowtier=3: the old)
+    lighting.forceFarShadow(tier >= FAR_SHADOW_TIER);
+    lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
+    forest.shadowTauScale = tier >= 3 ? 4 : tier >= 2 ? 2 : 1; // (casters as coarse as the map: src/nanite-lib/gpu/renderer.ts)
     // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
     reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
   });
@@ -229,6 +244,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const res = createResolution(renderer, camera, sceneRT, params);
   taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
   if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
+  if (params.get('shadowtauscale')) forest.shadowTauScale = Number(params.get('shadowtauscale')); // (a tier's: the harness's A/B)
   const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
   const fitToWindow = (): void => res.fit();
   fitToWindow();
@@ -257,7 +273,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     tau: forest.u.tau, scale: () => auto.scale, zoom: controls, forest,
     shadow: () => ({ size: sun.shadow.mapSize.x, half: (sun.shadow.camera as THREE.OrthographicCamera).right }),
   });
-  if (hud.perf) hud.perf.extra = zoomLog.report;
+  // (the report's slow frames by cause: src/slow-frames.ts)
+  const slowFrames = createSlowFrames();
+  if (hud.perf) hud.perf.extra = () => [slowFrames.report(), zoomLog.report()].filter(Boolean).join('\n\n');
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
   const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
@@ -280,9 +298,16 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   let inFlight = 0;
   const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
+  // (?simskip=N: skips N of every N+1 display frames, as a GPU behind the display whose timers read low: the harness's test of
+  // auto quality's frame-rate signal, src/auto-quality.ts behindMs)
+  const SIM_SKIP = Number(params.get('simskip') ?? 0);
+  let rafs = 0;
   function loop() {
-    if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
+    if (SIM_SKIP && rafs++ % (SIM_SKIP + 1) !== 0) return;
     const now = performance.now();
+    const skip = inFlight >= maxQueue && maxQueue > 0;
+    slowFrames.begin(now, skip, auto.queueMs ?? 0);
+    if (skip) return; // (the GPU has its frames: this display frame is skipped)
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
@@ -304,6 +329,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
+    const end = performance.now();
+    slowFrames.end(end);
+    auto.mainMs = auto.mainMs ? auto.mainMs * 0.9 + (end - now) * 0.1 : end - now;
   }
 
   // ---------------------------------------------------------------- harness API
