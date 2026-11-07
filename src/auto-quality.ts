@@ -27,7 +27,12 @@ const BEHIND = Number(new URLSearchParams(location.search).get('behind') ?? 1.2)
 /** The zoom's coarsest tau on the low-end tiers (`?zoomlowtau=`; see zoomTau). */
 const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
-const MAX_TIER = 4, TIER_MS = 2500, TIER_BACK = 0.6;
+// (4 the lite tier, 5 it with the plain ground: src/low-tiers.ts. Past maxTau, up to LOW_MAX_TAU, from the lite tier on; 5 only
+// after that: the plain ground reads as a lawn, coarser far trees hardly show)
+const LITE_TIER = 4, MAX_TIER = 5, TIER_MS = 2500, TIER_BACK = 0.6;
+// (the lite tier back to 3 only further under: it brings back the grass, god rays, the relief and nearer tree geometry at once,
+// and in the Lucy forest on the AMD PC 7.8 ms of timers became 13 and frames waited 28 ms)
+const LITE_BACK = 0.45;
 // (a first visit on a 60-80 Hz display starts at the last tier and half the resolution and comes back up from there:
 // the AMD PC's first 10-15 s at full quality were 15-30 fps, and "we should start at 60+ FPS". ?autostart=full: as before)
 const START_LITE = new URLSearchParams(location.search).get('autostart') !== 'full';
@@ -91,7 +96,7 @@ export function createAutoQuality(
     costs.stepping(tier, t, lastQ);
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
-    if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
+    if (t < LITE_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only from the lite tier)
     tierAt = performance.now();
     auto.tier = t;
     setTier(t);
@@ -132,7 +137,7 @@ export function createAutoQuality(
     // over the budget, the resolution above the base goes first (it's the extra: full detail came before it)
     if (over > limit && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
     else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
-    else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= auto.maxTau && (tier === 0 || auto.scale <= 0.505 || futile)) {
+    else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= (tier >= LITE_TIER ? LOW_MAX_TAU : auto.maxTau) && (tier === 0 || auto.scale <= 0.505 || futile)) {
       const wait = hurry ? HURRY_MS : TIER_MS;
       if (now - tierAt < wait || now - underAt < wait) return;
       // (back down soon after coming back up: held there. Within 3 s it was a minute; the AMD PC flying between the statues and
@@ -165,7 +170,7 @@ export function createAutoQuality(
     // at the last tier and the lowest resolution, still over: coarser past maxTau, up to LOW_MAX_TAU (the AMD PC among the
     // Lucy forest's statues: tier 3, 50%, tau 8, 15-16 ms of timers, 33-37 ms from submit to done; their geometry is ~6 ms
     // of it, and at 16 a zoomed statue kept its shape). Back to maxTau when the tier is left (setTierTo)
-    else if (!zoomState && over > limit && tier >= MAX_TIER && auto.scale <= 0.505 && tau.value < LOW_MAX_TAU) {
+    else if (!zoomState && over > limit && tier >= LITE_TIER && auto.scale <= 0.505 && tau.value < LOW_MAX_TAU) {
       if (timed && now - lastAdjust < (hurry ? HURRY_MS : SETTLE)) return;
       tau.value = Math.min(LOW_MAX_TAU, tau.value * Math.min(1.3, over));
       lowTauAt = now;
@@ -183,10 +188,10 @@ export function createAutoQuality(
     else if (zoomState) return;
     // (tier 1 goes last, with the resolution back: it came first)
     // (at the last, lite tier the resolution comes back first: the user's "blurry because resolution is low")
-    else if ((tier > 1 && !(tier === MAX_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
+    else if ((tier > 1 && !(tier === LITE_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
       const fits = !(lastQ + costs.saving(tier - 1) > (auto.budget / 0.8) * 0.9);
-      if (over < TIER_BACK && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
+      if (over < (tier === LITE_TIER ? LITE_BACK : TIER_BACK) && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
         if (timed) restart();

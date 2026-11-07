@@ -1,5 +1,5 @@
-// What each low-end tier of auto quality (src/auto-quality.ts) switches: 1-3 coarser and smaller, 4 the lite tier a first
-// visit on a 60-80 Hz display starts at (the AMD PC's reference: a Ryzen 7 5825U's Vega 8 at a 1280x585 CSS window, DPR 3).
+// What each low-end tier of auto quality (src/auto-quality.ts) switches: 1-3 coarser and smaller, 4 the lite tier, 5 it with
+// the plain ground, which a first visit on a 60-80 Hz display starts at (the AMD PC's reference: a Ryzen 7 5825U's Vega 8 at a 1280x585 CSS window, DPR 3).
 import { impMinPx, MIN_PX } from './nanite-lib/index.ts';
 import { plainGround } from './terrain.ts';
 import { reliefSteps } from './ground/relief.ts';
@@ -36,7 +36,8 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
   // (the plain ground ~1.7, grass and god rays ~1.2, impostors from 4x the size ~0-4 over the canopy, no finer mips ~1)
   const IMP_LITE = Number(params.get('implite') ?? 4), impPxBase = forest.u.impostorPx.value;
   const liteOff = { grass: false, rays: false };
-  // (?liteground=plain: the plain ground near the camera too at tier 4; else the detailed floor without its relief)
+  // (?liteground=plain: the plain ground near the camera too at tier 4; else the detailed floor without its relief, and the plain
+  // ground from tier 5: the last 0.6-0.8 ms at the AMD PC's spawn, 57.6 -> 60 fps)
   const LITE_PLAIN = params.get('liteground') === 'plain';
   return (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
@@ -45,7 +46,7 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
     rs.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
     rs.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     rs.capMipBias(tier >= 4 ? 0 : tier >= 1 ? MIP_TIER : Infinity);
-    plainGround.on = (tier >= 4 && LITE_PLAIN) || params.get('plainground') === '1';
+    plainGround.on = tier >= 5 || (tier >= 4 && LITE_PLAIN) || params.get('plainground') === '1';
     forest.u.impostorPx.value = impPxBase * (tier >= 4 ? IMP_LITE : 1);
     // (hidden by the tier, shown again by it: a switch the menu turned off stays off)
     if (tier >= 4 && grass.group.visible) (grass.group.visible = false), (liteOff.grass = true);
