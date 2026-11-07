@@ -94,7 +94,7 @@ export function createAutoQuality(
   // grass, wider, the floor's relief in 8 steps, and the output within 2x the scene's pixel ratio (following the resolution down: an AMD iGPU upscaled 4x on DPR 3). 2: narrowest 6 px, less grass again, the shadow map half its side, and the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
   // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
   // if that goes over again soon, it stays for a minute (each change is seen).
-  let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;
+  let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9, lowTauAt = -1e9;
   /** What it did and when (the report's `auto steps`, the trials too): a device's path can't be guessed from where it ended. */
   const logStep = (text: string): void => {
     (auto.trials ??= []).push(`${(performance.now() / 1000).toFixed(0)}s ${text}`);
@@ -178,11 +178,14 @@ export function createAutoQuality(
     // Lucy forest's statues: tier 3, 50%, tau 8, 15-16 ms of timers, 33-37 ms from submit to done; their geometry is ~6 ms
     // of it, and at 16 a zoomed statue kept its shape). Back to maxTau when the tier is left (setTierTo)
     else if (!zoomState && over > limit && tier >= MAX_TIER && auto.scale <= 0.505 && tau.value < LOW_MAX_TAU) {
-      if (timed && now - lastAdjust < SETTLE) return;
+      if (timed && now - lastAdjust < (hurry ? HURRY_MS : SETTLE)) return;
       tau.value = Math.min(LOW_MAX_TAU, tau.value * Math.min(1.3, over));
+      lowTauAt = now;
     }
-    // and back down from there first, before anything else comes back
-    else if (!zoomState && tau.value > auto.maxTau && over < 0.75) tau.value = Math.max(auto.maxTau, tau.value / 1.15);
+    // and back down from there first, before anything else comes back: slowly (the route between the statues and above them
+    // swung the cost every few seconds, and a quick way back undid each climb before it reached them)
+    else if (!zoomState && tau.value > auto.maxTau && over < 0.6 && now - lowTauAt > 10000) tau.value = Math.max(auto.maxTau, tau.value / 1.15);
+    else if (!zoomState && tau.value > auto.maxTau) return; // (nothing else comes back meanwhile)
     // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
