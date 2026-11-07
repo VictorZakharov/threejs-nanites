@@ -124,3 +124,6 @@ npx vite build && npm run harness -- --dist --example           # the library al
 `--host=`, `--dir=`, `--no-sync`): it checks out this commit there (push first), quotes each option for its cmd shell,
 streams the output and copies `tools/out` back to `tools/out/remote/`. Without `--url` it serves the remote checkout;
 for a PR use `--url=.../pr-preview/pr-N/`. Use `--device=amd --views=amdground`; Profile GPU there needs `--timeout=900`.
+Headless Chrome doesn't present its frames: the page's own loop runs at a flat 60 fps whatever the GPU takes, and
+nothing queues behind the desktop's compositor. Frame pacing, queued frames and input lag (`?gpuqueue=`) can't be
+measured by the harness, here or remotely: they need a person at a visible window.
