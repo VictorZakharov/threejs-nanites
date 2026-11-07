@@ -261,7 +261,10 @@ export function createAutoQuality(
     start: (to) => {
       if (to.scale > 0 && to.scale < auto.scale) setScale(to.scale);
       if (to.tier > 0) setTierTo(Math.min(MAX_TIER, to.tier));
-      tau.value = Math.max(tau.value, Math.min(to.tau, auto.maxTau));
+      // (the lite start at the floor's tau: from tau 8 it took 9 s to climb to 16, at ~55 fps, the leaves' prepass flipping off on
+      // the way as the leaf density fell; it comes back down from there as room allows)
+      tau.value = to.lite ? Math.max(tau.value, LOW_MAX_TAU) : Math.max(tau.value, Math.min(to.tau, auto.maxTau));
+      if (to.lite) lowTauAt = performance.now();
       logStep(to.lite ? 'started lite: the last tier, half the resolution' : `started where it settled: tier ${to.tier}, resolution ${to.scale.toFixed(2)}, tau ${to.tau.toFixed(1)}`);
       lastAdjust = performance.now();
     },

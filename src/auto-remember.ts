@@ -50,7 +50,7 @@ export function createRemember(
         const s = key ? (JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null) : null;
         if (!auto.on) return;
         const lite = o.lite();
-        // (at tau 8 at once: from tau 1 the lite start's first frames drew 814k triangles at 20-30 fps)
+        // (coarse at once: from tau 1 the lite start's first frames drew 814k triangles at 20-30 fps; src/auto-quality.ts sets it)
         if (!s && lite > 0) o.start({ tier: lite, scale: 0.5, tau: Math.max(tau.value, auto.maxTau), lite: true });
         else if (s) o.start({ ...s, lite: false });
         return;
