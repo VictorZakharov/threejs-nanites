@@ -408,5 +408,12 @@ export function createAutoQuality(
       console.warn('GPU timestamp readback failed', err);
     });
   };
+  // (?tier=N with auto quality off: held at that low-end tier, a test: `--query=auto=0&tier=3&pr=1.5` is FullHD's cost at the
+  // last tier)
+  const held = new URLSearchParams(location.search).get('tier');
+  if (held !== null && !auto.on) {
+    auto.holding = true;
+    setTierTo(Number(held));
+  }
   return { step: perFrame, followZoom, log: logStep };
 }
