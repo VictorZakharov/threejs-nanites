@@ -412,7 +412,7 @@ export function createAutoQuality(
   // last tier)
   // (at the first frame: the tier's switches need what's built after this)
   let held = new URLSearchParams(location.search).get('tier');
-  const step = (dt: number): void => {
+  const frameStep = (dt: number): void => {
     if (held !== null && !auto.on) {
       auto.holding = true;
       setTierTo(Number(held));
@@ -420,5 +420,5 @@ export function createAutoQuality(
     held = null;
     perFrame(dt);
   };
-  return { step, followZoom, log: logStep };
+  return { step: frameStep, followZoom, log: logStep };
 }
