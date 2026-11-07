@@ -100,7 +100,8 @@ export function createAutoQuality(
     (auto.trials ??= []).push(`${(performance.now() / 1000).toFixed(0)}s ${text}`);
     if (auto.trials.length > 16) auto.trials.shift();
   };
-  // (what a tier saved from submit to done, learned on the way up: the timers miss the output's compositing. In Chrome on the
+  // (what a tier saved from submit to done, ms, learned on the way up: the timers miss the output's compositing, a cost of its
+  // own rather than a share (as a ratio, 1.43 from 18.8 -> 13.1 ms, a cheap spot at tier 2 came back to 1 within 5 s). In Chrome on the
   // AMD PC tier 2 -> 1 at 7.4 ms of timers took the frames from 12.6 ms submit to done to 27, every half a minute)
   const tierSaves: number[] = [];
   let lastQ = 0, savesAt = 0, leftTier: { tier: number; q: number; t: number } | null = null;
@@ -203,7 +204,7 @@ export function createAutoQuality(
     // (tier 1 goes last, with the resolution back: it came first)
     else if (tier > 1 || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
-      const fits = !(lastQ * (tierSaves[tier - 1] ?? 1) > auto.budget * 0.9);
+      const fits = !(lastQ + (tierSaves[tier - 1] ?? 0) > auto.budget * 0.9);
       if (over < TIER_BACK && fits && now - tierAt > TIER_MS * 2 && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
@@ -386,11 +387,11 @@ export function createAutoQuality(
       const q = slowGpu() ? auto.queueMs ?? 0 : 0;
       lastQ = q;
       if (leftTier && t - leftTier.t > 3000) {
-        if (q > 0) tierSaves[leftTier.tier] = Math.min(3, Math.max(1, leftTier.q / q));
+        if (q > 0) tierSaves[leftTier.tier] = Math.max(0, leftTier.q - q);
         logStep(`tier ${leftTier.tier} -> ${tier}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
         leftTier = null;
       }
-      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] = 1 + (tierSaves[i] - 1) * 0.5 ** ((t - savesAt) / UNDER_HALF);
+      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / UNDER_HALF);
       savesAt = t;
       queuedSince = q > auto.budget ? queuedSince || t : 0;
       const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
