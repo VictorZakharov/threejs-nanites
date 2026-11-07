@@ -17,7 +17,7 @@ import type { setupGround } from './ground/setup.ts';
 import type { Precompile } from './warmup.ts';
 import type { LoadingScreen } from './loading.ts';
 import type { DemoState } from './harness-api.ts';
-import { rememberedTier } from './auto-quality.ts';
+import { rememberedTier } from './auto-remember.ts';
 import type { LayerData } from './texture-pixels.ts';
 import type { SceneName } from './scene.ts';
 import type { Float, Vec3 } from './types.ts';

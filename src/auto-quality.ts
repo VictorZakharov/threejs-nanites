@@ -49,26 +49,6 @@ let simAt = 0, simRoll = 1;
  * than the base ratio); `zoom`: the controls' zoom and its target (the swap happens as the button changes; null: one
  * setting for both, ?autozoom=0).
  */
-/**
- * The low-end tier the last visit on this screen settled at (any scene; 0 when none was kept), for what's built once at load
- * (the grass's density). Not under the harness unless `?autoremember=1`.
- */
-export function rememberedTier(params: URLSearchParams, harness: boolean): number {
-  if (params.has('remembertier')) return Number(params.get('remembertier')); // (a test: as if the last visit settled there)
-  if (params.get('autoremember') === '0' || (harness && params.get('autoremember') !== '1')) return 0;
-  const screenKey = ` ${screen.width}x${screen.height}@${devicePixelRatio} `;
-  let tier = 0;
-  try {
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k?.startsWith('nanite-auto ') && k.includes(screenKey)) tier = Math.max(tier, (JSON.parse(localStorage.getItem(k) ?? '{}') as { tier?: number }).tier ?? 0);
-    }
-  } catch {
-    // (storage blocked: 0)
-  }
-  return tier;
-}
-
 export function createAutoQuality(
   renderer: THREE.WebGPURenderer,
   auto: AutoQuality,
@@ -313,6 +293,9 @@ export function createAutoQuality(
   const BEHIND_LEARN = 3000, LEARN_AFTER = 20000, SUSTAIN = 1500;
   // (the under-read factor's excess halves in this long, ms)
   const UNDER_HALF = 180000;
+  // (a tier's learned saving halves in this long: at 3 min a saving learned at a costly spot had faded to 4 ms of the 13 tier 1 costs
+  // two minutes on, and tier 1 came back with frames waiting 26 ms)
+  const SAVES_HALF = 600000;
   const perFrame = (dt: number): void => {
     remember(performance.now());
     paces.push([performance.now(), dt * 1000]);
@@ -387,17 +370,19 @@ export function createAutoQuality(
       const q = slowGpu() ? auto.queueMs ?? 0 : 0;
       lastQ = q;
       if (leftTier && t - leftTier.t > 3000) {
-        if (q > 0) tierSaves[leftTier.tier] = Math.max(0, leftTier.q - q);
+        if (q > 0) tierSaves[leftTier.tier] = Math.max(tierSaves[leftTier.tier] ?? 0, leftTier.q - q);
         logStep(`tier ${leftTier.tier} -> ${tier}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
         leftTier = null;
       }
-      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / UNDER_HALF);
+      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / SAVES_HALF);
       savesAt = t;
       // (by the display's frame, not the budget: under a frame from submit to done no frame waits, and part of it is the browser's
       // compositing, which no step lowers. By the budget, the user's Chrome at 14.75 ms with 6.4 ms of timers was pushed to the
       // floor, tier 3 and tau 16, and held there: "no quality, blurry")
       const display = auto.budget / 0.8;
-      queuedSince = q > display ? queuedSince || t : 0;
+      // (until it's back under 90% of a frame: around a frame on end, a moment under restarted the wait each time, and at tier 1
+      // the AMD PC's frames waited 26 ms for 40 s before it stepped)
+      queuedSince = q > display || (queuedSince && q > display * 0.9) ? queuedSince || t : 0;
       const queued = queuedSince && t - queuedSince > SUSTAIN ? q * 0.8 : 0;
       const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
       upBlocked = q > display * 0.9 || behind > 0;
