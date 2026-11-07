@@ -6,6 +6,8 @@
 //   --host=amd-pc       the SSH host (an alias in ~/.ssh/config; default amd-pc)
 //   --dir=...           the repo there (default C:/Users/<its user>/threejs-nanites)
 //   --no-sync           run what's checked out there
+//   --open=URL          only opens URL in that PC's default browser, on its desktop (for the person there: no links sent
+//                       by chat), and exits
 //   --headed            a visible browser on that PC's desktop (HARNESS_HEADED=1): its frames are presented and
 //                       composited, so frame pacing, the GPU queue and the panel's fps are what a person sees. An SSH
 //                       session has no desktop: it runs as a scheduled task in the signed-in user's session (someone must
@@ -25,6 +27,7 @@ const take = (name: string): string | undefined => {
 const host = take('host') || 'amd-pc';
 const sync = take('no-sync') === undefined;
 const headed = take('headed') !== undefined;
+const open = take('open');
 const ssh = (command: string, inherit = false) =>
   spawnSync('ssh', ['-o', 'LogLevel=ERROR', host, command], { encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe' });
 const user = ssh('echo %USERNAME%').stdout?.trim();
@@ -34,6 +37,30 @@ if (!user) {
 }
 const dir = (take('dir') || `C:/Users/${user}/threejs-nanites`).replace(/\\/g, '/');
 const winDir = dir.replace(/\//g, '\\');
+
+// (a .cmd file there, run by a scheduled task in the signed-in user's session: an SSH session has no desktop)
+const onDesktop = (name: string, lines: string[]): boolean => {
+  mkdirSync('tools/tmp', { recursive: true });
+  writeFileSync(`tools/tmp/${name}.cmd`, ['@echo off', ...lines].join('\r\n'));
+  ssh(`if not exist "${winDir}\\tools\\tmp" mkdir "${winDir}\\tools\\tmp"`);
+  spawnSync('scp', ['-q', '-o', 'LogLevel=ERROR', `tools/tmp/${name}.cmd`, `${host}:${dir}/tools/tmp/${name}.cmd`], { stdio: 'inherit' });
+  // (/IT: only while the user is signed in, in their session: the desktop the window opens on)
+  const made = ssh(`schtasks /Create /F /TN ${name} /SC ONCE /ST 23:59 /IT /RL HIGHEST /TR "${winDir}\\tools\\tmp\\${name}.cmd" && schtasks /Run /TN ${name}`);
+  if (made.status !== 0) console.error(`[remote ${host}] couldn't start the task: ${made.stdout}${made.stderr}`);
+  return made.status === 0;
+};
+if (open !== undefined) {
+  // (cmd's own characters would end the URL or run something else)
+  if (!/^https?:\/\/[^\s"&|<>^%]+$/.test(open)) {
+    console.error(`--open takes an http(s) URL without spaces, quotes or & | < > ^ %: ${open}`);
+    process.exit(1);
+  }
+  const ok = onDesktop('nanite-open', [`start "" "${open}"`]);
+  spawnSync(process.execPath, ['-e', 'setTimeout(()=>{},3000)']);
+  ssh('schtasks /Delete /F /TN nanite-open');
+  console.log(ok ? `[remote ${host}] opened ${open}` : `[remote ${host}] not opened`);
+  process.exit(ok ? 0 : 1);
+}
 
 const git = (...a: string[]): string => spawnSync('git', a, { encoding: 'utf8' }).stdout.trim();
 const commit = git('rev-parse', 'HEAD');
@@ -60,19 +87,8 @@ if (!headed) {
   // (in a batch file, npm (npm.cmd) without call never returns: the done marker was never written)
   const batch = steps.map((x) => (x.startsWith('npm ') ? `call ${x}` : x));
   batch.push('set HARNESS_HEADED=1', `call ${harness}`);
-  const script = ['@echo off', `if not exist "${winDir}\\tools\\tmp" mkdir "${winDir}\\tools\\tmp"`, `del /q "${done}" 2>nul`,
-    `(${batch.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`].join('\r\n');
-  mkdirSync('tools/tmp', { recursive: true });
-  writeFileSync('tools/tmp/remote-run.cmd', script);
-  ssh(`if not exist "${winDir}\\tools\\tmp" mkdir "${winDir}\\tools\\tmp"`);
-  spawnSync('scp', ['-q', '-o', 'LogLevel=ERROR', 'tools/tmp/remote-run.cmd', `${host}:${dir}/tools/tmp/remote-run.cmd`], { stdio: 'inherit' });
   ssh(`del /q "${done}" 2>nul`);
-  // (/IT: only while the user is signed in, in their session: the desktop the window opens on)
-  const made = ssh(`schtasks /Create /F /TN nanite-harness /SC ONCE /ST 23:59 /IT /RL HIGHEST /TR "${winDir}\\tools\\tmp\\remote-run.cmd" && schtasks /Run /TN nanite-harness`);
-  if (made.status !== 0) {
-    console.error(`[remote ${host}] couldn't start the task: ${made.stdout}${made.stderr}`);
-    process.exit(1);
-  }
+  if (!onDesktop('nanite-harness', [`del /q "${done}" 2>nul`, `(${batch.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`])) process.exit(1);
   const limit = Date.now() + (Number(args.find((a) => a.startsWith('--timeout='))?.slice(10) ?? 600) + 300) * 1000;
   let shown = 0;
   for (;;) {
