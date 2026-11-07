@@ -36,6 +36,8 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
   // (the plain ground ~1.7, grass and god rays ~1.2, impostors from 4x the size ~0-4 over the canopy, no finer mips ~1)
   const IMP_LITE = Number(params.get('implite') ?? 4), impPxBase = forest.u.impostorPx.value;
   const liteOff = { grass: false, rays: false };
+  // (?liteground=plain: the plain ground near the camera too at tier 4; else the detailed floor without its relief)
+  const LITE_PLAIN = params.get('liteground') === 'plain';
   return (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
     grass.thin(tier >= 3 ? GRASS_TIER3 : tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
@@ -43,7 +45,7 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
     rs.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
     rs.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     rs.capMipBias(tier >= 4 ? 0 : tier >= 1 ? MIP_TIER : Infinity);
-    plainGround.on = tier >= 4 || params.get('plainground') === '1';
+    plainGround.on = (tier >= 4 && LITE_PLAIN) || params.get('plainground') === '1';
     forest.u.impostorPx.value = impPxBase * (tier >= 4 ? IMP_LITE : 1);
     // (hidden by the tier, shown again by it: a switch the menu turned off stays off)
     if (tier >= 4 && grass.group.visible) (grass.group.visible = false), (liteOff.grass = true);
@@ -55,6 +57,6 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
     lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
     forest.shadowTauScale = tier >= 3 ? 4 : tier >= 2 ? 2 : 1; // (casters as coarse as the map: src/nanite-lib/gpu/renderer.ts)
     // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
-    reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
+    reliefSteps.value = tier >= 4 ? 0 : tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
   };
 }
