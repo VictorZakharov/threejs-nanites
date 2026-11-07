@@ -20,6 +20,8 @@ import { gpuBackend } from './three-gaps.ts';
 /** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
 const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
+/** The zoom's coarsest tau on the low-end tiers (`?zoomlowtau=`; see zoomTau). */
+const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
 const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
@@ -75,7 +77,10 @@ export function createAutoQuality(
   let saved: [number, number] | null = null;
   let zoomState = false, wasOn = auto.on, lastZoom = zoom?.zoom ?? 1, written = tau.value;
   const minTau = (): number => auto.minTau ?? 1;
-  const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, auto.maxTau));
+  // (on the low-end tiers the zoom may coarsen to ZOOM_LOW_TAU: the AMD PC's Lucy forest zoomed at tau 8 was 14.9 ms, over its
+  // budget, and the user saw it lag as they panned; at 16 11.5 ms, the small statues' faces gone but their shapes kept; 24 broke
+  // them up. A fast GPU never gets to the tiers, so its zoom is as before)
+  const zoomTau = (t: number, z: number): number => Math.min(t * z, Math.max(t, tier >= 1 ? Math.max(auto.maxTau, ZOOM_LOW_TAU) : auto.maxTau));
   // Past the coarsest tau, the low-end tiers, what's least seen first. Tier 1 comes before the resolution (it's hardly seen, the blur
   // is), the others after it: with the lowest resolution, or one that doesn't pay. (The laptop's report: a third cut-off and short
   // windows read a step as not paying, and it sat at 75% with tier 3's flat shadows, at 48 fps where 64% had 55: --probe=autosim.)
