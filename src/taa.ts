@@ -17,7 +17,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, select, clamp, dot, sqrt, exp,
-  screenUV, screenSize, abs, length,
+  screenUV, screenSize, abs, length, If,
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
 import { ditherShift } from './nanite-lib/index.ts';
@@ -132,6 +132,9 @@ export class TAA {
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
       off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
       histSize: uniform(new THREE.Vector2(1, 1)), // the history's pixels (the output pass's texel)
+      // (1: the scene's samples over the cross, not the square: the lite tiers, src/low-tiers.ts; ~0.4-0.5 ms on the AMD PC at
+      // a FullHD output; ?taataps=5 always)
+      taps5: uniform(TAPS5 ? 1 : 0),
     };
     this.historyTex = texture(this.history[0].texture);
     const mat = new THREE.NodeMaterial();
@@ -178,22 +181,25 @@ export class TAA {
       const sum = vec3(0).toVar(), w = float(0).toVar();
       const m1 = vec3(0).toVar(), m2 = vec3(0).toVar();
       const zMin = float(1).toVar();
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          if (TAPS5 && dx !== 0 && dy !== 0) continue;
-          const q = ivec2(clamp(vec2(p).add(vec2(dx, dy)), vec2(0), R.sub(1)));
-          const e = enc(sceneAt(q));
-          const dq = vec2(q).add(0.5).sub(at).mul(u.ratio); // (output pixels)
-          const wq = exp(dot(dq, dq).mul(u.kernel));
-          sum.addAssign(e.mul(wq));
-          w.addAssign(wq);
-          const c = toYCoCg(e);
-          m1.addAssign(c);
-          m2.addAssign(c.mul(c));
-          if (!LEAN || dx === 0 || dy === 0) zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
-        }
+      const tap = (dx: number, dy: number): void => {
+        const q = ivec2(clamp(vec2(p).add(vec2(dx, dy)), vec2(0), R.sub(1)));
+        const e = enc(sceneAt(q));
+        const dq = vec2(q).add(0.5).sub(at).mul(u.ratio); // (output pixels)
+        const wq = exp(dot(dq, dq).mul(u.kernel));
+        sum.addAssign(e.mul(wq));
+        w.addAssign(wq);
+        const c = toYCoCg(e);
+        m1.addAssign(c);
+        m2.addAssign(c.mul(c));
+        if (!LEAN || dx === 0 || dy === 0) zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
+      };
+      // (the corners only without `taps5`: a uniform branch, the same for every pixel)
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx === 0 || dy === 0) tap(dx, dy);
+      If(u.taps5.lessThan(0.5), () => {
+        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) tap(dx, dy);
+      });
       for (let k = 1; k < samples; k++) zMin.assign(min(zMin, textureLoad(depth, p, int(k)).x));
-      const n = TAPS5 ? 5 : 9;
+      const n = select(u.taps5.greaterThan(0.5), float(5), float(9));
       const mean = m1.div(n);
       const sigma = sqrt(max(m2.div(n).sub(mean.mul(mean)), vec3(0)));
       // where this pixel was last frame: one matrix from this frame's clip space to last frame's, multiplied on

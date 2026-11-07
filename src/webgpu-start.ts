@@ -195,7 +195,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, createTierSwitches({ params, forest, grass, res: () => res, lighting, rays: () => rays }));
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, createTierSwitches({ params, forest, grass, res: () => res, lighting, rays: () => rays, taa: () => taa }));
   controls.onZoom = autoQuality.followZoom;
   // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
   const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log, () => `${forest.u.tau.value} ${auto.scale} ${auto.tier ?? 0}`);

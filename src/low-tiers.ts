@@ -12,10 +12,11 @@ interface TierParts {
   lighting: { forceFarShadow(on: boolean): void; scaleShadowMap(s: number): void };
   /** (built after the tiers' callback, as `res`: read when a tier is set) */
   rays: () => { enabled: boolean };
+  taa: () => { u: { taps5: { value: number } } };
 }
 
 /** The tier callback auto quality calls on every tier change. */
-export function createTierSwitches({ params, forest, grass, res, lighting, rays }: TierParts): (tier: number) => void {
+export function createTierSwitches({ params, forest, grass, res, lighting, rays, taa }: TierParts): (tier: number) => void {
   // (?outratio=) From tier 1 the output stays within this many pixels per scene pixel, along each axis: an AMD iGPU on a DPR 3
   // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
   // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
@@ -36,6 +37,7 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
   // (the plain ground ~1.7, grass and god rays ~1.2, impostors from 4x the size ~0-4 over the canopy, no finer mips ~1)
   const IMP_LITE = Number(params.get('implite') ?? 4), impPxBase = forest.u.impostorPx.value;
   const liteOff = { grass: false, rays: false };
+  const TAPS5 = params.get('taataps') === '5';
   // (?liteground=plain: the plain ground near the camera too at tier 4; else the detailed floor without its relief, and the plain
   // ground from tier 5: the last 0.6-0.8 ms at the AMD PC's spawn, 57.6 -> 60 fps)
   const LITE_PLAIN = params.get('liteground') === 'plain';
@@ -54,6 +56,8 @@ export function createTierSwitches({ params, forest, grass, res, lighting, rays 
     const r = rays();
     if (tier >= 4 && r.enabled) (r.enabled = false), (liteOff.rays = true);
     else if (tier < 4 && liteOff.rays) (r.enabled = true), (liteOff.rays = false);
+    // (the TAA's neighbourhood over the cross: ~0.4-0.5 ms at a FullHD output on the AMD PC)
+    taa().u.taps5.value = tier >= 4 || TAPS5 ? 1 : 0;
     lighting.forceFarShadow(tier >= FAR_SHADOW_TIER);
     lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
     forest.shadowTauScale = tier >= 3 ? 4 : tier >= 2 ? 2 : 1; // (casters as coarse as the map: src/nanite-lib/gpu/renderer.ts)
