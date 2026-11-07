@@ -20,3 +20,46 @@ export function rememberedTier(params: URLSearchParams, harness: boolean): numbe
   }
   return tier;
 }
+
+/** A setting to start at: where the last visit settled, or the lite start (`lite`: the last tier, half the resolution). */
+export interface StartAt {
+  tier: number;
+  scale: number;
+  tau: number;
+  lite: boolean;
+}
+
+/**
+ * Where auto quality settled, kept per screen (`auto.remember`: the storage key; not under the harness): the next visit starts
+ * there, not at full quality (the AMD PC's first 16 s at 15-17 fps). Written once it has held still 8 s; it moves on from
+ * there as usual. With nothing kept, `lite()` > 0 starts at that tier and half the resolution (src/auto-quality.ts).
+ * Returns the per-frame call.
+ */
+export function createRemember(
+  auto: { on: boolean; remember?: string; maxTau: number },
+  tau: { value: number },
+  o: { start(to: StartAt): void; current(): { tier: number; scale: number; tau: number }; still(now: number): boolean; lite(): number },
+): (now: number) => void {
+  let restored = false, lastSave = 0;
+  return (now) => {
+    const key = auto.remember;
+    if (!key && restored) return;
+    try {
+      if (!restored) {
+        restored = true;
+        const s = key ? (JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null) : null;
+        if (!auto.on) return;
+        const lite = o.lite();
+        // (at tau 8 at once: from tau 1 the lite start's first frames drew 814k triangles at 20-30 fps)
+        if (!s && lite > 0) o.start({ tier: lite, scale: 0.5, tau: Math.max(tau.value, auto.maxTau), lite: true });
+        else if (s) o.start({ ...s, lite: false });
+        return;
+      }
+      if (!key || !auto.on || now - lastSave < 5000 || !o.still(now)) return;
+      lastSave = now;
+      localStorage.setItem(key, JSON.stringify(o.current()));
+    } catch {
+      // (storage blocked: it starts at full quality, as before)
+    }
+  };
+}

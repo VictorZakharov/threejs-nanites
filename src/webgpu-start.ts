@@ -3,7 +3,7 @@
 // (src/webgpu-frame.ts), the HUD, menu and harness API, then the shaders compiled and the first frame shown.
 import * as THREE from 'three/webgpu';
 import { vec4, mrt, output as colourOutput } from 'three/tsl';
-import { heightAt, terrainForAltitude, plainGround, type createTerrain } from './terrain.ts';
+import { heightAt, terrainForAltitude, type createTerrain } from './terrain.ts';
 import { setupGround } from './ground/setup.ts';
 import { VARIANTS, type BuiltTree } from './trees.ts';
 import { PHASE2_LAYER } from './nanite-lib/index.ts';
@@ -12,7 +12,6 @@ import { createClouds } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
 import { budgetFor, refreshRate } from './refresh.ts';
-import { impMinPx, MIN_PX } from './nanite-lib/index.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
@@ -31,7 +30,7 @@ import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
 import { createSlowFrames } from './slow-frames.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
-import { reliefSteps } from './ground/relief.ts';
+import { createTierSwitches } from './low-tiers.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -177,23 +176,6 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
-  // (?outratio=) From tier 1 the output stays within this many pixels per scene pixel, along each axis: an AMD iGPU on a DPR 3
-  // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
-  // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
-  const OUT_RATIO = Number(params.get('outratio') ?? 2);
-  // (?outtier2=, ?miptier=) tier 2's cap on the output's pixel ratio and the mip bias cap from tier 1. Tier 2 keeps the output
-  // at 1 per CSS px: in a visible window on the AMD PC (DPR 3) a 1920x877 output took 17 ms from submit to done for 11.5 of
-  // GPU timers (the browser's compositing: untimed), 1280x585 12.5 for 10.5. (Lifted once on headless numbers, which
-  // composite nothing: a day's lag on the AMD PC.)
-  // (FullHD at the AMD PC's 1280x585 CSS window: the user asked for it; 1 per CSS px was 1280x585 stretched 3x, "blurry")
-  const OUT_TIER2 = Number(params.get('outtier2') ?? 1.5);
-  // the lite tier (4): what was left at the spawn on the AMD PC at a FullHD output, GPU timers 17.7 -> ~12 ms at 1357x620
-  // (the plain ground ~1.7, grass and god rays ~1.2, impostors from 4x the size ~0-4 over the canopy, no finer mips ~1)
-  const IMP_LITE = Number(params.get('implite') ?? 4), impPxBase = forest.u.impostorPx.value;
-  const liteOff = { grass: false, rays: false };
-  const MIP_TIER = Number(params.get('miptier') ?? 0.5);
-  const FAR_SHADOW_TIER = Number(params.get('farshadowtier') ?? Infinity);
-  const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
@@ -207,36 +189,12 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
-  const GRASS_TIER3 = Number(params.get('grasstier3') ?? 1.5); // (blades per m² at the last tier)
   const setScale = (s: number): void => {
     auto.scale = s;
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
-    impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
-    grass.thin(tier >= 3 ? GRASS_TIER3 : tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
-    res.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
-    res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
-    // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
-    // mips were most of the cost of upscaling, and at 0.5 the image looks the same: src/resolution.ts)
-    res.capMipBias(tier >= 4 ? 0 : tier >= 1 ? MIP_TIER : Infinity);
-    plainGround.on = tier >= 4 || params.get('plainground') === '1';
-    forest.u.impostorPx.value = impPxBase * (tier >= 4 ? IMP_LITE : 1);
-    // (hidden by the tier, shown again by it: a switch the menu turned off stays off)
-    if (tier >= 4 && grass.group.visible) (grass.group.visible = false), (liteOff.grass = true);
-    else if (tier < 4 && liteOff.grass) (grass.group.visible = true), (liteOff.grass = false);
-    if (tier >= 4 && rays.enabled) (rays.enabled = false), (liteOff.rays = true);
-    else if (tier < 4 && liteOff.rays) (rays.enabled = true), (liteOff.rays = false);
-    // (tier 3 keeps real shadows from a quarter-size map, down to 256: the average far shadow it used to switch to made the
-    // forest flat and evenly lit, "no quality" (the user on the AMD PC). There 256 cost +0.3..0.5 ms, 512 +0.8..1.1, and
-    // looked nearly alike: softer dapples. ?farshadowtier=3: the old)
-    lighting.forceFarShadow(tier >= FAR_SHADOW_TIER);
-    lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
-    forest.shadowTauScale = tier >= 3 ? 4 : tier >= 2 ? 2 : 1; // (casters as coarse as the map: src/nanite-lib/gpu/renderer.ts)
-    // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
-    reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
-  });
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, createTierSwitches({ params, forest, grass, res: () => res, lighting, rays: () => rays }));
   controls.onZoom = autoQuality.followZoom;
   // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
   const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log, () => `${forest.u.tau.value} ${auto.scale} ${auto.tier ?? 0}`);

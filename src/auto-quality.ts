@@ -16,6 +16,8 @@
 import * as THREE from 'three/webgpu';
 import type { AutoQuality } from './hud.ts';
 import { gpuBackend } from './three-gaps.ts';
+import { createTierCosts } from './tier-costs.ts';
+import { createRemember } from './auto-remember.ts';
 
 /** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
 const ZOOM_FLOOR = 50;
@@ -83,17 +85,10 @@ export function createAutoQuality(
     (auto.trials ??= []).push(`${(performance.now() / 1000).toFixed(0)}s ${text}`);
     if (auto.trials.length > 16) auto.trials.shift();
   };
-  // (what a tier saved from submit to done, ms, learned on the way up: the timers miss the output's compositing, a cost of its
-  // own rather than a share (as a ratio, 1.43 from 18.8 -> 13.1 ms, a cheap spot at tier 2 came back to 1 within 5 s). In Chrome on the
-  // AMD PC tier 2 -> 1 at 7.4 ms of timers took the frames from 12.6 ms submit to done to 27, every half a minute)
-  const tierSaves: number[] = [];
-  type TierStep = { tier: number; q: number; t: number };
-  let lastQ = 0, savesAt = 0, leftTier: TierStep | null = null, cameDown: TierStep | null = null;
+  const costs = createTierCosts(); // (what each tier saves from submit to done: src/tier-costs.ts)
+  let lastQ = 0;
   const setTierTo = (t: number): void => {
-    // (two steps within the settling time, as when hurrying 1 -> 2 -> 3: the first tier is the one learned, by the whole saving,
-    // so it can't come back on what the second saved)
-    if (t < tier && lastQ > 0) cameDown = { tier: t, q: lastQ, t: performance.now() };
-    if (t > tier && lastQ > 0) leftTier = { tier: leftTier?.tier ?? tier, q: leftTier?.q ?? lastQ, t: performance.now() };
+    costs.stepping(tier, t, lastQ);
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
     if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
@@ -190,7 +185,7 @@ export function createAutoQuality(
     // (at the last, lite tier the resolution comes back first: the user's "blurry because resolution is low")
     else if ((tier > 1 && !(tier === MAX_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
-      const fits = !(lastQ + (tierSaves[tier - 1] ?? 0) > (auto.budget / 0.8) * 0.9);
+      const fits = !(lastQ + costs.saving(tier - 1) > (auto.budget / 0.8) * 0.9);
       if (over < TIER_BACK && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
@@ -253,40 +248,19 @@ export function createAutoQuality(
     if (!z && zoom.zoom === 1) saved = null;
   };
 
-  // Where it settled, kept per screen (`auto.remember`: the storage key; not under the harness): the next visit starts there, not
-  // at full quality (the AMD PC's first 16 s at 15-17 fps). Written once it has held still 8 s; it moves on from there as usual.
-  let restored = false, lastSave = 0;
-  const remember = (now: number): void => {
-    const key = auto.remember;
-    if (!key && restored) return;
-    try {
-      if (!restored) {
-        restored = true;
-        const s = key ? (JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null) : null;
-        if (!auto.on) return;
-        if (!s) {
-          if (!START_LITE || auto.budget / 0.8 < 12) return;
-          setScale(0.5);
-          setTierTo(MAX_TIER);
-          tau.value = Math.max(tau.value, auto.maxTau); // (from tau 1 the first frames drew 814k triangles at 20-30 fps)
-          logStep('started lite: the last tier, half the resolution');
-          lastAdjust = now;
-          return;
-        }
-        tau.value = Math.max(tau.value, Math.min(s.tau, auto.maxTau));
-        if (s.scale > 0 && s.scale < auto.scale) setScale(s.scale);
-        if (s.tier > 0) setTierTo(Math.min(MAX_TIER, s.tier));
-        logStep(`started where it settled: tier ${s.tier}, resolution ${s.scale.toFixed(2)}, tau ${s.tau.toFixed(1)}`);
-        lastAdjust = now;
-        return;
-      }
-      if (!key || !auto.on || zoomState || now - lastSave < 5000 || now - lastAdjust < 8000 || now - tierAt < 8000) return;
-      lastSave = now;
-      localStorage.setItem(key, JSON.stringify({ tier, scale: auto.scale, tau: tau.value }));
-    } catch {
-      // (storage blocked: it starts at full quality, as before)
-    }
-  };
+  // where it settled, kept per screen, or the lite start (src/auto-remember.ts)
+  const remember = createRemember(auto, tau, {
+    start: (to) => {
+      if (to.scale > 0 && to.scale < auto.scale) setScale(to.scale);
+      if (to.tier > 0) setTierTo(Math.min(MAX_TIER, to.tier));
+      tau.value = Math.max(tau.value, Math.min(to.tau, auto.maxTau));
+      logStep(to.lite ? 'started lite: the last tier, half the resolution' : `started where it settled: tier ${to.tier}, resolution ${to.scale.toFixed(2)}, tau ${to.tau.toFixed(1)}`);
+      lastAdjust = performance.now();
+    },
+    current: () => ({ tier, scale: auto.scale, tau: tau.value }),
+    still: (now) => !zoomState && now - lastAdjust >= 8000 && now - tierAt >= 8000,
+    lite: () => (START_LITE && auto.budget / 0.8 >= 12 ? MAX_TIER : 0),
+  });
 
   // Frames behind the display with the main thread idle: the GPU is behind, whatever its timers say. The AMD PC after 2-3
   // minutes' flying: 42 fps, 40 ms from submit to done, while the timers read 14 ms (the browser's compositing of the canvas
@@ -308,9 +282,6 @@ export function createAutoQuality(
   const BEHIND_LEARN = 3000, LEARN_AFTER = 20000, SUSTAIN = 1500;
   // (the under-read factor's excess halves in this long, ms)
   const UNDER_HALF = 180000;
-  // (a tier's learned saving halves in this long: at 3 min a saving learned at a costly spot had faded to 4 ms of the 13 tier 1 costs
-  // two minutes on, and tier 1 came back with frames waiting 26 ms)
-  const SAVES_HALF = 600000;
   const perFrame = (dt: number): void => {
     remember(performance.now());
     paces.push([performance.now(), dt * 1000]);
@@ -385,26 +356,10 @@ export function createAutoQuality(
       const q = slowGpu() ? auto.queueMs ?? 0 : 0;
       lastQ = q;
       const display = auto.budget / 0.8;
-      if (leftTier && t - leftTier.t > 3000) {
-        if (q > 0) tierSaves[leftTier.tier] = Math.max(tierSaves[leftTier.tier] ?? 0, leftTier.q - q);
-        logStep(`tier ${leftTier.tier} -> ${tier}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
-        leftTier = null;
+      if (costs.sample(q, t, tier, display, logStep) && auto.on && !zoomState) {
+        setTierTo(tier + 1);
+        tierHold = t + BOUNCE_HOLD;
       }
-      // (and on the way down, what the tier cost: over a frame, straight back up and held there. The saving learned on the way up
-      // can be a costly spot's, too small: the AMD PC came back to tier 1 with frames waiting 26-29 ms for 40 s)
-      if (cameDown && t - cameDown.t > 3000) {
-        if (q > 0 && cameDown.tier === tier) {
-          tierSaves[tier] = Math.max(tierSaves[tier] ?? 0, q - cameDown.q);
-          if (q > display * 0.95 && auto.on && !zoomState) {
-            logStep(`tier ${tier + 1} -> ${tier}: ${cameDown.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done, back`);
-            setTierTo(tier + 1);
-            tierHold = t + BOUNCE_HOLD;
-          }
-        }
-        cameDown = null;
-      }
-      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / SAVES_HALF);
-      savesAt = t;
       // (by the display's frame, not the budget: under a frame from submit to done no frame waits, and part of it is the browser's
       // compositing, which no step lowers. By the budget, the user's Chrome at 14.75 ms with 6.4 ms of timers was pushed to the
       // floor, tier 3 and tau 16, and held there: "no quality, blurry")
