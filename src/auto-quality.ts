@@ -268,6 +268,7 @@ export function createAutoQuality(
           if (!START_LITE || auto.budget / 0.8 < 12) return;
           setScale(0.5);
           setTierTo(MAX_TIER);
+          tau.value = Math.max(tau.value, auto.maxTau); // (from tau 1 the first frames drew 814k triangles at 20-30 fps)
           logStep('started lite: the last tier, half the resolution');
           lastAdjust = now;
           return;
