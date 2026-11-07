@@ -54,6 +54,10 @@ export const VIEWS: Record<string, HarnessView> = {
   // the Lucy scene (--scene=lucy): a 2.9 x statue's face from 3 m (the user: "is it supposed to be that non-detailed?")
   // the Lucy scene from 60 m: statues and their shadows (the user: "zoomed out, they drop shadow in another direction")
   lucyshadow: { x: 20, z: 40, agl: 60, yaw: 30, pitch: -40 },
+  // the Lucy forest's costliest spots on the AMD PC's --play route (ground level among the statues, turning round: 15-16 ms of
+  // GPU timers and 33-35 ms from submit to done at its lowest settings; from 50 m up 5-10 ms)
+  lucyturn1: { x: -1793, z: -2231, agl: 2, yaw: 274, pitch: 3 },
+  lucyturn2: { x: -890, z: -1097, agl: 2, yaw: 196, pitch: 3 },
   lucyface: { x: 48.1, z: 38.5, y: 4.6, yaw: 29.3, pitch: 0 },
   // straight down over a 79 m statue (scale 19.8), climbing: its shadow by altitude (the user: "look directly down,
   // and move up... see how shadows change"; a gap at its base, the shadow changing with the zoom)
