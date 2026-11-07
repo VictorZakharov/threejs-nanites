@@ -187,8 +187,11 @@ export function createAutoQuality(
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
     else if (zoomState) return;
     // (tier 1 goes last, with the resolution back: it came first)
-    // (at the last, lite tier the resolution comes back first: the user's "blurry because resolution is low")
-    else if ((tier > 1 && !(tier === LITE_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
+    // (nothing else comes back while a tier's step is measured, src/tier-costs.ts: within those 3 s the resolution went 50 -> 81%
+    // on the AMD PC, the cost was put down to tier 4, and it was held at 5 and 50% for the rest of the flight)
+    else if (now - tierAt < 4000) return;
+    // (from the lite tier on, the resolution comes back first: the user's "blurry because resolution is low")
+    else if ((tier > 1 && !(tier >= LITE_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
       const fits = !(lastQ + costs.saving(tier - 1) > (auto.budget / 0.8) * 0.9);
       if (over < (tier === LITE_TIER ? LITE_BACK : TIER_BACK) && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
