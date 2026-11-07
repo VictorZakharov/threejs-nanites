@@ -88,10 +88,14 @@ function steps(ctx: ProfileContext): Step[] {
   return list.filter((x): x is Step => Boolean(x));
 }
 
-/** Median render and compute GPU ms over the next TAKE timestamp samples (after SKIP). */
-function sample(auto: AutoQuality): Promise<[number, number]> {
+/**
+ * Median render and compute GPU ms over the next TAKE timestamp samples (after SKIP), and the frames' submit-to-done ms
+ * (`queueMs`: the browser's compositing and anything else the timers miss; the AMD PC 100 m over the forest: 10 ms of
+ * timers, 33-100 ms from submit to done).
+ */
+function sample(auto: AutoQuality): Promise<[number, number, number]> {
   return new Promise((resolve, reject) => {
-    const r: number[] = [], c: number[] = [];
+    const r: number[] = [], c: number[] = [], q: number[] = [];
     let k = 0;
     // (no GPU timestamps, or they stopped: it waited forever, "profiling" on screen)
     let timer = setTimeout(() => reject(new Error('no GPU timings')), 10000);
@@ -101,10 +105,11 @@ function sample(auto: AutoQuality): Promise<[number, number]> {
       if (k++ < SKIP) return;
       r.push(render);
       c.push(compute);
+      q.push(auto.queueMs ?? 0);
       if (r.length < TAKE) return;
       clearTimeout(timer);
       auto.onSample = undefined;
-      resolve([median(r), median(c)]);
+      resolve([median(r), median(c), median(q)]);
     };
   });
 }
@@ -121,11 +126,11 @@ export async function runProfile(ctx: ProfileContext, progress: ProfileProgress)
   const left = (i: number): number | null => (timed ? ((performance.now() - t0) / 1000 / timed) * (all.length + 1 - i) : null);
   try {
     progress('baseline', 0, all.length + 1, null);
-    const [r0, c0] = await sample(auto);
+    const [r0, c0, q0] = await sample(auto);
     timed++;
     const lines = [
       `gpu profile  median ms of ${TAKE} frames each, same view and quality; "saves" = baseline minus that feature off`,
-      `  baseline           render ${f(r0)}  compute ${f(c0)}  total ${f(r0 + c0)}`,
+      `  baseline           render ${f(r0)}  compute ${f(c0)}  total ${f(r0 + c0)}  submit to done ${f(q0)}`,
     ];
     for (let i = 0; i < all.length; i++) {
       const s = all[i];
@@ -135,10 +140,10 @@ export async function runProfile(ctx: ProfileContext, progress: ProfileProgress)
         lines.push(`  ${s.label.padEnd(18)} (already)`);
         continue;
       }
-      const [r, c] = await sample(auto);
+      const [r, c, q] = await sample(auto);
       timed++;
       undo();
-      lines.push(`  ${s.label.padEnd(18)} render ${f(r)}  compute ${f(c)}  saves ${f(r0 + c0 - r - c)}`);
+      lines.push(`  ${s.label.padEnd(18)} render ${f(r)}  compute ${f(c)}  saves ${f(r0 + c0 - r - c)}  submit to done ${f(q)}`);
     }
     return lines.join('\n');
   } finally {
