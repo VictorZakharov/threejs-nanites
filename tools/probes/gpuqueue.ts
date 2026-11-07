@@ -1,4 +1,4 @@
-// Frames queued on the GPU, in the page's own loop (`--query=auto=0&...`, `?gpuqueue=0|1`): for ?queuesecs= (10) s, each
+// Frames queued on the GPU, in the page's own loop (`--query=auto=0&...`, `?gpuqueue=0|1`): for ?queuesecs= (10) s after ?queuewait= (3) s, each
 // frame's time from its submit to its GPU work done (src/webgpu-start.ts's loop). Past the frame's own GPU time it's frames
 // waiting, and the desktop's compositor waits behind them: on the AMD PC's iGPU the mouse moved in jumps. Headless
 // presents nothing, but the queue still builds: run it there (npm run remote). `median`/`p95` ms, `gpu` the GPU time, `fps`.
@@ -9,7 +9,7 @@ async (demo: Demo) => {
   const secs = Number(q.get('queuesecs') ?? 10);
   auto.tuning = true;
   await demo.live(true);
-  await new Promise((r) => setTimeout(r, 3000)); // (settled)
+  await new Promise((r) => setTimeout(r, Number(q.get('queuewait') ?? 3) * 1000)); // (settled: ?queuewait= s, 25 with auto quality)
   auto.queueLog = [];
   let frames = 0, run = true;
   const count = (): void => {
