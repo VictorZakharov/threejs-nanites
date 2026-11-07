@@ -275,7 +275,9 @@ export function createAutoQuality(
     if (display < 12 && tier < 1) return 0;
     return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
   };
-  let behindLogged = 0;
+  let behindLogged = 0, underRead = 1, underAt2 = 0;
+  // (the under-read factor's excess halves in this long, ms)
+  const UNDER_HALF = 180000;
   const perFrame = (dt: number): void => {
     remember(performance.now());
     paces.push([performance.now(), dt * 1000]);
@@ -327,12 +329,19 @@ export function createAutoQuality(
       if (futile && ((m > 0 && Math.abs(m / futile.gpu - 1) > 0.5 && t - futile.at > 10000) || t - futile.at > 60000)) futile = null;
       // (the median of the last second: a single low sample after a change took a tier back, eased from nothing)
       const behind = behindMs(t);
+      // (how much the timers under-read when the frames fell behind, kept and eased back to 1 over minutes: going by the timers
+      // alone between those times, it went straight back up and behind again, tier 3 -> 1 -> 3 and 50% -> 69% -> 50% every
+      // half a minute on the AMD PC, with 30-40 ms from submit to done throughout)
+      if (behind > m && m > 0) underRead = Math.min(3, Math.max(underRead, behind / m));
+      else underRead = 1 + (underRead - 1) * 0.5 ** ((t - underAt2) / UNDER_HALF);
+      underAt2 = t;
+      auto.underRead = underRead;
       if (behind > m && t - behindLogged > 10000 && auto.on && !zoomState) {
         behindLogged = t;
         logStep(`frames behind the display: ${(behind / 0.8).toFixed(1)} ms paced, GPU timers ${m.toFixed(1)} ms: steering by the frames`);
       }
       auto.behindMs = behind;
-      if (auto.on && !zoomState && m > 0) step(Math.max(m, behind) / auto.budget, true);
+      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behind) / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);

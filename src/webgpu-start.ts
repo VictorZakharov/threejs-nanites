@@ -181,9 +181,11 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
   // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
   const OUT_RATIO = Number(params.get('outratio') ?? 2);
-  // (?outtier2=, ?miptier=) tier 2's cap on the output's pixel ratio (1 per CSS px held the AMD PC at 1280x585 output before
-  // the mip cap; with it 960x439 into 1920x877 ran at 60 fps) and the mip bias cap from tier 1
-  const OUT_TIER2 = Number(params.get('outtier2') ?? Infinity);
+  // (?outtier2=, ?miptier=) tier 2's cap on the output's pixel ratio and the mip bias cap from tier 1. Tier 2 keeps the output
+  // at 1 per CSS px: in a visible window on the AMD PC (DPR 3) a 1920x877 output took 17 ms from submit to done for 11.5 of
+  // GPU timers (the browser's compositing: untimed), 1280x585 12.5 for 10.5. (Lifted once on headless numbers, which
+  // composite nothing: a day's lag on the AMD PC.)
+  const OUT_TIER2 = Number(params.get('outtier2') ?? 1);
   const MIP_TIER = Number(params.get('miptier') ?? 0.5);
   const FAR_SHADOW_TIER = Number(params.get('farshadowtier') ?? Infinity);
   const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
