@@ -49,7 +49,7 @@ export function createAutoQuality(
   maxScale: () => number,
   zoom: { zoom: number; zoomTarget: number } | null,
   setTier: (tier: number) => void = () => {},
-): { step: (dt: number) => void; followZoom: () => void } {
+): { step: (dt: number) => void; followZoom: () => void; log: (text: string) => void } {
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
@@ -289,5 +289,5 @@ export function createAutoQuality(
       console.warn('GPU timestamp readback failed', err);
     });
   };
-  return { step: perFrame, followZoom };
+  return { step: perFrame, followZoom, log: logStep };
 }

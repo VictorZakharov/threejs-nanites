@@ -29,6 +29,7 @@ import { GodRays } from './godrays.ts';
 import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { createPrepassTrial } from './prepass-trial.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -203,6 +204,8 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     lighting.forceFarShadow(tier >= 3);
   });
   controls.onZoom = autoQuality.followZoom;
+  // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
+  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
@@ -292,6 +295,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     });
     if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
+    prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
   }
