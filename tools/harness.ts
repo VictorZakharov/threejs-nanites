@@ -18,6 +18,17 @@ import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
 import { zoomTime, flyTime, copyKey } from './harness/zoomtime.ts';
 import { play } from './harness/play.ts';
+
+/**
+ * --query with a --ab variant's settings over it: a setting in both takes the variant's (the page reads a repeated
+ * setting's first value, so appended, `tau=4` over `--query=tau=8` measured tau 8 and `relief=0` relief 8).
+ */
+function withVariant(query: string, variant: string | null): string {
+  if (!variant) return query;
+  const q = new URLSearchParams(query);
+  for (const [k, v] of new URLSearchParams(variant)) q.set(k, v);
+  return q.toString();
+}
 import { typeMatch } from './harness/typematch.ts';
 import { lodCheck } from './harness/lodcheck.ts';
 import { runExample } from './harness/example.ts';
@@ -49,7 +60,7 @@ if (opts.load) {
   try {
     const out: Record<string, unknown> = {};
     for (const variant of opts.variants ?? [null]) {
-      const query = [opts.query, variant].filter(Boolean).join('&');
+      const query = withVariant(opts.query, variant);
       if (variant !== null) console.log(`
 === variant: ${variant}`);
       out[query] = await measureLoads(url, query, opts, outDir);
@@ -89,7 +100,7 @@ try {
   const variants = opts.variants ?? [null];
   const reports: Record<string, unknown>[] = [];
   for (const [k, variant] of variants.entries()) {
-    const query = [opts.query, variant].filter(Boolean).join('&');
+    const query = withVariant(opts.query, variant);
     at(`booting ${query || '(no query)'}`);
     const tb = Date.now();
     const info = await boot(page, url, query, opts, outDir);
