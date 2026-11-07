@@ -2,6 +2,7 @@
 // frame time and its p95, the GPU time split into draw and compute against the auto-quality budget, the resolution
 // and the quality. A click (or tap) copies a plain-text report with everything needed to compare devices: the
 // numbers, the scene counters, the camera, the adapter and the URL.
+import { refreshRate } from './refresh.ts';
 
 const WINDOW_MS = 15000;
 const MAX_SAMPLES = 8192;
@@ -140,9 +141,8 @@ export class PerfPanel {
     // 1% low: the rate of the average of the slowest 1% of frames (not the p99 sample)
     const slow = Math.max(1, Math.ceil(d.length * 0.01));
     const slowMs = d.slice(-slow).reduce((a, b) => a + b, 0) / slow;
-    const fast = pct(0.1);
-    const raw = fast > 0 ? 1000 / fast : 60;
-    const refresh = [30, 60, 75, 90, 100, 120, 144, 165, 240].reduce((a, b) => (Math.abs(b - raw) < Math.abs(a - raw) ? b : a), 60);
+    // (the display's, from the loading's frames: from these, a GPU at 18 fps read as a 30 Hz screen)
+    const refresh = refreshRate();
     return {
       samples: d.length,
       seconds: d.length ? Math.min(WINDOW_MS, total) / 1000 : 0,

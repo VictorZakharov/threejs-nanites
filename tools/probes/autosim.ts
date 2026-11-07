@@ -11,7 +11,7 @@ async (demo: Demo) => {
   await demo.live(true);
   const rows: string[] = [], t0 = performance.now(), secs = Number(q.get('simsecs') ?? 50);
   while (performance.now() - t0 < secs * 1000) {
-    rows.push(`${((performance.now() - t0) / 1000).toFixed(0)}s tier${auto.tier ?? 0} tau${demo.forest.u.tau.value.toFixed(2)} s${auto.scale.toFixed(2)} gpu${auto.gpuMs.toFixed(1)}`);
+    rows.push(`${((performance.now() - t0) / 1000).toFixed(0)}s tier${auto.tier ?? 0} tau${demo.forest.u.tau.value.toFixed(2)} s${auto.scale.toFixed(2)} out${demo.renderer.domElement.width}x${demo.renderer.domElement.height} gpu${auto.gpuMs.toFixed(1)}`);
     await sleep(2000);
   }
   await demo.live(false);

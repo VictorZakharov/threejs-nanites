@@ -21,13 +21,18 @@ export interface Resolution {
   readonly outPR: number;
   /** Caps the canvas's pixel ratio (auto quality's low-end tier; Infinity: none). Applied at the next `fit()`, at a frame's start: resizing clears the canvas. */
   capOutput(pr: number): void;
+  /**
+   * Caps the canvas's pixel ratio at `r` times the scene's, but not under one per CSS pixel (auto quality's tier 1; Infinity:
+   * none). As the scene's resolution comes down, the output follows it. Applied at the next frame's `fit()`.
+   */
+  capRatio(r: number): void;
   /** Upscaling on (the canvas at `outPR`) or off (at the scene's ratio, stretched by the browser: Profile GPU). */
   readonly upscale: boolean;
   setUpscale(on: boolean): void;
   /** Output pixels per scene pixel, along each axis (1: none). */
   ratio(): number;
   /** Follows the window (every frame: a resize while loading fired before any listener existed). */
-  fit(): void;
+  fit(toOutput?: boolean): void;
   /** The scene's resolution scale (auto quality: of `basePR`). */
   setScale(s: number): void;
   /** The highest useful scale: the scene at the output's resolution (1 without upscaling). */
@@ -39,8 +44,8 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
   let upscale = params.get('taau') !== '0' && params.get('taa') !== '0';
   const outPR = Number(params.get('outpr') ?? Math.max(basePR, Math.min(window.devicePixelRatio, OUT_MAX)));
   const render = new THREE.Vector2(), output = new THREE.Vector2(), view = new THREE.Vector2();
-  let scale = 1, cap = Infinity;
-  const outNow = (): number => Math.min(outPR, cap);
+  let scale = 1, cap = Infinity, ratioCap = Infinity;
+  const outNow = (): number => Math.min(outPR, cap, Math.max(1, ratioCap * basePR * scale));
   renderer.setPixelRatio(upscale ? outPR : basePR);
   const res: Resolution = {
     render, output, basePR,
@@ -49,6 +54,9 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
     },
     capOutput(pr) {
       cap = pr;
+    },
+    capRatio(r) {
+      ratioCap = r;
     },
     get upscale() {
       return upscale;
@@ -60,8 +68,8 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
     },
     ratio: () => output.x / render.x,
     maxScale: () => (upscale ? Math.max(1, outNow() / basePR) : 1),
-    fit() {
-      if (upscale && renderer.getPixelRatio() !== outNow()) renderer.setPixelRatio(outNow());
+    fit(toOutput = true) {
+      if (toOutput && upscale && renderer.getPixelRatio() !== outNow()) renderer.setPixelRatio(outNow());
       renderer.getSize(view);
       const w = window.innerWidth, h = window.innerHeight;
       if (view.x !== w || view.y !== h) {
@@ -78,7 +86,9 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
     setScale(s) {
       scale = s;
       if (!upscale) renderer.setPixelRatio(basePR * s); // (the canvas follows the scene, as before)
-      res.fit();
+      // (the scene's target now; a new output size (capRatio) waits for the next frame's start: resizing the canvas clears it,
+      // and set after a frame the browser shows that frame blank)
+      res.fit(!upscale);
     },
   };
   return res;

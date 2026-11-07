@@ -173,6 +173,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
+  // (?outratio=) From tier 1 the output stays within this many pixels per scene pixel, along each axis: an AMD iGPU on a DPR 3
+  // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
+  // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
+  const OUT_RATIO = Number(params.get('outratio') ?? 2);
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
@@ -191,6 +195,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
     grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
     res.capOutput(tier >= 2 ? 1 : Infinity);
+    res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     lighting.forceFarShadow(tier >= 3);
   });
   controls.onZoom = autoQuality.followZoom;
