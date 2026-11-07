@@ -22,5 +22,8 @@ async (demo: Demo) => {
   await demo.live(false);
   const v = [...(auto.queueLog ?? [])].sort((a, b) => a - b);
   const at = (p: number): number => +(v[Math.min(v.length - 1, Math.floor(p * v.length))] ?? 0).toFixed(1);
-  return { frames: v.length, fps: +(v.length / secs).toFixed(1), raf: +(frames / secs).toFixed(1), median: at(0.5), p95: at(0.95), gpu: +auto.gpuMs.toFixed(1) };
+  return { frames: v.length, fps: +(v.length / secs).toFixed(1), raf: +(frames / secs).toFixed(1), median: at(0.5), p95: at(0.95), gpu: +auto.gpuMs.toFixed(1),
+    // (where auto quality settled: its tier, resolution scale and tau, the scene's and the TAA's sizes, the steps it took)
+    tier: auto.tier ?? 0, scale: +auto.scale.toFixed(3), tau: +demo.forest.u.tau.value.toFixed(2), scene: `${demo.sceneRT.width}x${demo.sceneRT.height}`,
+    taa: demo.taa.size?.toArray().join('x'), steps: auto.trials };
 }
