@@ -100,7 +100,12 @@ export function createAutoQuality(
     (auto.trials ??= []).push(`${(performance.now() / 1000).toFixed(0)}s ${text}`);
     if (auto.trials.length > 16) auto.trials.shift();
   };
+  // (what a tier saved from submit to done, learned on the way up: the timers miss the output's compositing. In Chrome on the
+  // AMD PC tier 2 -> 1 at 7.4 ms of timers took the frames from 12.6 ms submit to done to 27, every half a minute)
+  const tierSaves: number[] = [];
+  let lastQ = 0, savesAt = 0, leftTier: { tier: number; q: number; t: number } | null = null;
   const setTierTo = (t: number): void => {
+    if (t > tier && lastQ > 0) leftTier = { tier, q: lastQ, t: performance.now() };
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
     if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
@@ -196,7 +201,8 @@ export function createAutoQuality(
     // (tier 1 goes last, with the resolution back: it came first)
     else if (tier > 1 || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
-      if (over < TIER_BACK && now - tierAt > TIER_MS * 2 && now > tierHold) {
+      const fits = !(lastQ * (tierSaves[tier - 1] ?? 1) > auto.budget * 0.9);
+      if (over < TIER_BACK && fits && now - tierAt > TIER_MS * 2 && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
         if (timed) restart();
@@ -376,6 +382,14 @@ export function createAutoQuality(
       // with the frame rate never falling behind)
       // (both only when it lasts SUSTAIN ms: a stall isn't the GPU's load, and a lower quality can't fix it)
       const q = slowGpu() ? auto.queueMs ?? 0 : 0;
+      lastQ = q;
+      if (leftTier && t - leftTier.t > 3000) {
+        if (q > 0) tierSaves[leftTier.tier] = Math.min(3, Math.max(1, leftTier.q / q));
+        logStep(`tier ${leftTier.tier} -> ${leftTier.tier + 1}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
+        leftTier = null;
+      }
+      for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] = 1 + (tierSaves[i] - 1) * 0.5 ** ((t - savesAt) / UNDER_HALF);
+      savesAt = t;
       queuedSince = q > auto.budget ? queuedSince || t : 0;
       const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
       const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
