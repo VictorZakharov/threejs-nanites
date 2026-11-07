@@ -26,6 +26,7 @@
     "typecheck": "tsc -p . && tsc -p tools && node tools/check-lib.ts",
     "preview": "vite preview",
     "harness": "node tools/harness.ts",
+    "remote": "node tools/remote/run.ts",
     "model": "node --max-old-space-size=8000 tools/nanite-model.ts"
   },
   "dependencies": {
