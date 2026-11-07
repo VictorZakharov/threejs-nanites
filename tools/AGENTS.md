@@ -117,3 +117,10 @@ npx vite build && npm run harness -- --dist --example           # the library al
 - Debug URL parameters worth knowing (see `src/main.ts`, `src/lighting.ts`, `src/nanite-lib/gpu/`): `imppx` (impostor size threshold, 0 = no impostors),
   `occ=0` (no occlusion culling), `farall=1` (far-field shading everywhere, to calibrate it), `tau`, `shadows=0`,
   `debug=1|2|3` (cluster / DAG level / tree colours), `wind=0`, `trees=N`.
+
+## Remote test PC
+
+`npm run remote -- <harness options>` runs the harness on the reference low-end AMD PC over SSH (`tools/remote/run.ts`;
+`--host=`, `--dir=`, `--no-sync`): it checks out this commit there (push first), quotes each option for its cmd shell,
+streams the output and copies `tools/out` back to `tools/out/remote/`. Without `--url` it serves the remote checkout;
+for a PR use `--url=.../pr-preview/pr-N/`. Use `--device=amd --views=amdground`; Profile GPU there needs `--timeout=900`.

@@ -60,6 +60,40 @@ iGPU, a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown.
 resolution) was 18.7 fps, 44 ms of GPU time, nearly all of it by pixels: ~27 ms in the TAA and output passes, the scene's
 pixels ~16. Tune the low-end steps and their estimates against it: `--device=amd` (its screen, and for `--probe=autosim`
 its GPU modelled on the dev GPU's, `tools/harness/options.ts`) with the `amdground` view (its report's camera).
+It's reachable over SSH (since 2026-11-07): `npm run remote -- <harness options>` runs the harness on it, at this commit
+(pushed), and copies `tools/out` back to `tools/out/remote/` (`tools/remote/run.ts`; host alias `amd-pc` in the dev
+machine's ~/.ssh/config; set up once with `tools/remote/setup-device.ps1`). Measure there before telling the user what a
+change does on a weak GPU; the PC must be on. Its Profile GPU takes over 300 s: `--timeout=900`.
+
+## Mistakes not to repeat
+
+What went wrong in past sessions (the user: "document all slops, so next time they don't happen"):
+- **Estimates as if measured.** A weak GPU's frame time was predicted by scaling the dev GPU's numbers (x15, then a
+  model): "about 12 ms" came back as a worse report (48 fps against 55), and a x15 model read 40-50 ms after every tier.
+  The dev GPU's split of the frame isn't a weak GPU's (on the AMD PC tree draws were 56% of the frame, on the dev GPU
+  under 20%). Measure on the device (`npm run remote`); label anything else an estimate, with what it rests on.
+- **A saving read off a broken image.** A rewritten impostor shader rendered black and its runs read as faster; a TSL
+  var first assigned in a branch reset in the next. Look at the images (`img.ts mean`, crops) before believing a number.
+- **Floating-point thresholds.** `Math.SQRT1_2 ** 2` is 0.5000000000000001: two resolution steps landed just above
+  `<= 0.5`, and the tiers stalled. Compare with a margin (`<= 0.505`) where a value comes from arithmetic.
+- **A new rule without its exit.** A "don't climb back to the resolution you left" ceiling also held with the GPU far
+  under budget (71% with 40 ms spare). For every hold or ceiling, check the case where the cost has gone away.
+- **Explaining before reading.** A tier "stall" was explained with a guess; the code showed Profile GPU cleared the
+  tiers. Read the code path before telling the user why.
+- **A switch tuned on one GPU.** The leaf prepass's density rule came from the dev GPU; the AMD PC saved 2.4-7 ms with
+  it on where the rule said off (and at 1080p the dev GPU did too). A per-GPU trade-off is measured on the device, or
+  decided at run time by timing both.
+- **Building before checking the picture.** A 4K output-pass upscale was built and wired before seeing that a bilinear
+  upscale looks like the browser's stretch. Mock the visual result (`--ab`, crops) first, then build.
+- **The panel's own guesses.** "display ~30 Hz" was the slow GPU's frame rate read as the screen's. Values derived from
+  what's being measured can't describe the setup.
+- **Scripts the user runs.** A setup script went silent for minutes on one step (Windows' capability install) and read
+  as frozen. Anything the user runs by hand shows numbered, timed steps, each tool's own progress, and stops on an
+  error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
+- **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
+  every argument (`tools/remote/run.ts` does).
+- **"Impossible".** Native 4K at 60 fps on the iGPU was called out of reach; the user's target (1080p at 60, upscaled
+  to 4K) was the useful framing. Say what a goal costs and what has to get cheaper, not that it can't be done.
 
 ## Open work: GitHub issues
 
