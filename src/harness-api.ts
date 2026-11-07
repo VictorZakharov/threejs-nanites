@@ -9,6 +9,7 @@ import type { TAA } from './taa.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
 import { impMinPx } from './nanite-lib/index.ts';
+import { reliefSteps } from './ground/relief.ts';
 import { grassShare, grassThin } from './grass-keep.ts';
 import type { CoverMap } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
@@ -158,6 +159,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   return {
     auto, // (--probe=zoompan: its raw GPU samples)
     impMinPx, // (--probe=cost)
+    reliefSteps, // (--probe=cost: reliefSteps.value=0/32)
     grassShare, grassThin, // (--probe=cost)
   renderer, scene, camera, forest, controls, instances, sceneRT, taa,
   info: () => ({

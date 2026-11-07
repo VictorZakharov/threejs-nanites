@@ -8,7 +8,7 @@
 // frame by its altitude, so it can't be switched off). A dotted name is a boolean property of an object of the demo
 // (`forest.leafPrepass.mode`, with ?leafpre=1: the leaves' depth prepass) or a uniform's 0 / 1 (`forest.u.sw.value`); `a;b` switches objects together. `impmin=2/4`: the
 // impostors' narrowest width at 2 ("off") and 4 ("on"), with the impostors listed in each. `grassshare=1/0.33`: the grass's share of
-// its blades, likewise.
+// its blades, likewise. `path=lo/hi`: any number of the demo, `reliefSteps.value=0/32` (the floor's parallax steps).
 import type { Demo } from '../../src/harness-api.ts';
 import type * as THREE from 'three/webgpu';
 
@@ -29,6 +29,11 @@ async (demo: Demo) => {
     } else if (name.startsWith('grassshare=')) {
       const [lo, hi] = name.slice(11).split('/').map(Number);
       toggle = { get visible() { return demo.grassShare.value === hi; }, set visible(v: boolean) { demo.grassShare.value = demo.grassThin.target = v ? hi : lo; } };
+    } else if (/^[\w.]+=[\d.]+\/[\d.]+$/.test(name)) {
+      // (`reliefSteps.value=0/32`: a number of the demo at lo ("off") and hi ("on"))
+      const [path, range] = name.split('='), [lo, hi] = range.split('/').map(Number), keys = path.split('.'), key = keys.pop()!;
+      const owner = keys.reduce<Record<string, unknown> | undefined>((o, k) => o?.[k] as Record<string, unknown> | undefined, demo as unknown as Record<string, unknown>);
+      if (owner && typeof owner[key] === 'number') toggle = { get visible() { return owner[key] === hi; }, set visible(v: boolean) { owner[key] = v ? hi : lo; } };
     } else if (name.includes(';')) {
       // (objects switched together: `nanite-leaves-main-pre;nanite-leaves-main-after`, a draw and its prepass)
       const objs = name.split(';').map((n) => demo.scene.getObjectByName(n));
