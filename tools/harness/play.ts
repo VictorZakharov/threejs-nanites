@@ -70,6 +70,16 @@ export async function play(page: Page, opts: Options) {
     // --playsecs (the user: lags "after flying around for 2-3 min"), a line per lap: fps, GPU and queue ms, tier, scale)
     const until = Date.now() + opts.playsecs * 1000;
     let lap = 0;
+    // (a sample a second in the page: where the camera was, the GPU and queue ms, tau, tier: the worst spots are printed, to
+    // become views)
+    await page.evaluate(() => {
+      const w = window as unknown as { __playTrace: number[][]; __playTimer: number };
+      w.__playTrace = [];
+      w.__playTimer = window.setInterval(() => {
+        const d = window.__demo, c = d.camera.position, a = d.auto;
+        w.__playTrace.push([performance.now(), c.x, c.y, c.z, d.controls.yaw, d.controls.pitch, a.gpuMs, a.queueMs ?? 0, d.forest.u.tau.value, a.tier ?? 0]);
+      }, 1000);
+    });
     do {
       const t0 = Date.now(), f0 = await page.evaluate(() => window.__demo.renderer.info.frame);
       await look(page, pos, 2 * Math.PI, 4000);
@@ -89,11 +99,19 @@ export async function play(page: Page, opts: Options) {
       const fps = ((s.frame - f0) * 1000) / (Date.now() - t0);
       console.log(`  lap ${++lap} at ${((Date.now() - until) / 1000 + opts.playsecs).toFixed(0)} s: ${fps.toFixed(1)} fps, gpu ${s.gpu.toFixed(1)} ms, queue ${s.queue.toFixed(1)} ms, behind ${s.behind.toFixed(1)}, tier ${s.tier}, scale ${s.scale.toFixed(2)}, tau ${s.tau.toFixed(1)}`);
     } while (Date.now() < until);
+    const trace = await page.evaluate(() => {
+      const w = window as unknown as { __playTrace: number[][]; __playTimer: number };
+      clearInterval(w.__playTimer);
+      return w.__playTrace;
+    });
+    console.log('  worst spots by queue (x, y, z, yaw deg, pitch deg: gpu / queue ms, tau, tier):');
+    for (const [, x, y, z, yaw, pitch, gpu, queue, tau, tier] of [...trace].sort((a, b) => b[7] - a[7]).slice(0, 5))
+      console.log(`    ${x.toFixed(0)}, ${y.toFixed(0)}, ${z.toFixed(0)}, ${((yaw * 180) / Math.PI % 360).toFixed(0)}, ${((pitch * 180) / Math.PI).toFixed(0)}: ${gpu.toFixed(1)} / ${queue.toFixed(1)} ms, tau ${tau.toFixed(1)}, tier ${tier}`);
     const turned = await page.evaluate((y0) => window.__demo.controls.yaw - y0, yaw0);
     const report = await page.evaluate(() => window.__demo.perfReport());
     await page.keyboard.press('Escape'); // (gives the mouse back)
     await page.evaluate(() => window.__demo.live(false));
-    result[name] = { locked, radPerPx: pos.k, turned: +turned.toFixed(2), report };
+    result[name] = { locked, radPerPx: pos.k, turned: +turned.toFixed(2), report, trace };
     console.log(`play ${name}: pointer locked ${locked}, ${pos.k.toFixed(5)} rad/px, turned ${turned.toFixed(2)} rad in ${lap} laps (a lap: ${(7 * Math.PI).toFixed(2)})`);
     console.log(report ?? '(no report: use --query=perf=1)');
   }
