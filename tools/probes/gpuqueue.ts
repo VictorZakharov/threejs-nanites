@@ -12,7 +12,13 @@ async (demo: Demo) => {
   // (?queuetrace=1: a line a second from the start, gpu / submit-to-done / tier / tau / scale, to see the first seconds after load:
   // the user's reports from the AMD PC came from them, 25-30 fps with 25 ms of timers at tier 3)
   const trace: string[] = [], t0 = performance.now();
-  const tick = q.get('queuetrace') === '1' ? setInterval(() => trace.push(`${((performance.now() - t0) / 1000).toFixed(0)}s gpu ${auto.gpuMs.toFixed(1)} queue ${(auto.queueMs ?? 0).toFixed(1)} frame ${(auto.frameMs ?? 0).toFixed(1)} tier ${auto.tier ?? 0} tau ${demo.forest.u.tau.value.toFixed(1)} scale ${auto.scale.toFixed(2)}`), 1000) : 0;
+  // (and what's drawn: the forest's triangles and impostors, and whether the leaves' prepass is on)
+  const tick = q.get('queuetrace') === '1'
+    ? setInterval(() => {
+        const head = `${((performance.now() - t0) / 1000).toFixed(0)}s gpu ${auto.gpuMs.toFixed(1)} queue ${(auto.queueMs ?? 0).toFixed(1)} frame ${(auto.frameMs ?? 0).toFixed(1)} tier ${auto.tier ?? 0} tau ${demo.forest.u.tau.value.toFixed(1)} scale ${auto.scale.toFixed(2)}`;
+        void demo.stats().then((st) => trace.push(`${head} tris ${((st.barkTris + st.leafTris) / 1000).toFixed(0)}k imp ${(st.impostors / 1000).toFixed(1)}k pre ${demo.forest.leafPrepass.on ? 1 : 0}`));
+      }, 1000)
+    : 0;
   await new Promise((r) => setTimeout(r, Number(q.get('queuewait') ?? 3) * 1000)); // (settled: ?queuewait= s, 25 with auto quality)
   auto.queueLog = [];
   let frames = 0, run = true;
