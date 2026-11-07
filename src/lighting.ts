@@ -52,7 +52,7 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   sun.shadow.mapSize.set(2048, 2048);
   /**
    * The shadow map's side for a drawing buffer of `pixels` (`?smap=` fixes it): 2048 at 1080p (texels ~2 px on the
-   * nearest ground), fewer for fewer pixels, a power of two from 512 to 2048. It was 2048 everywhere: a laptop's
+   * nearest ground), fewer for fewer pixels, a power of two from 512 (256 at auto quality's tier 3) to 2048. It was 2048 everywhere: a laptop's
    * integrated GPU at half resolution filled 8x more shadow texels than screen pixels (on the dev GPU at its settings
    * 42% of the frame), a phone's 30x.
    */
@@ -61,7 +61,7 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   const SHRINK_MS = 10000;
   let smallerSince = 0, fitted = false, mapScale = 1;
   function fitShadowMap(pixels: number): void {
-    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * mapScale * Math.sqrt(pixels / (1920 * 1080))))));
+    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(mapScale < 0.5 ? 8 : 9, Math.round(Math.log2(2048 * mapScale * Math.sqrt(pixels / (1920 * 1080))))));
     const now = performance.now(), have = sun.shadow.mapSize.x;
     if (n < have && !smapParam && fitted) {
       smallerSince ||= now;

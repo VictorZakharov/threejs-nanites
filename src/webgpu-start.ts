@@ -185,6 +185,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // the mip cap; with it 960x439 into 1920x877 ran at 60 fps) and the mip bias cap from tier 1
   const OUT_TIER2 = Number(params.get('outtier2') ?? Infinity);
   const MIP_TIER = Number(params.get('miptier') ?? 0.5);
+  const FAR_SHADOW_TIER = Number(params.get('farshadowtier') ?? Infinity);
   const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
@@ -212,8 +213,11 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
     // mips were most of the cost of upscaling, and at 0.5 the image looks the same: src/resolution.ts)
     res.capMipBias(tier >= 1 ? MIP_TIER : Infinity);
-    lighting.forceFarShadow(tier >= 3);
-    lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
+    // (tier 3 keeps real shadows from a quarter-size map, down to 256: the average far shadow it used to switch to made the
+    // forest flat and evenly lit, "no quality" (the user on the AMD PC). There 256 cost +0.3..0.5 ms, 512 +0.8..1.1, and
+    // looked nearly alike: softer dapples. ?farshadowtier=3: the old)
+    lighting.forceFarShadow(tier >= FAR_SHADOW_TIER);
+    lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
     // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
     reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
   });
