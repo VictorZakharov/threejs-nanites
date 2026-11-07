@@ -877,7 +877,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   for the old blend): averaged in linear light, the far pines' tips (sub-pixel specks against the bright sky) came
   out as pale ghosts (the user: "ghosted peaks"; `peaks` view, ridge colour vs `taa=0&pr=2` at 800x450); the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
-  visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
+  visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU. The resolve reads the god rays once for its 3x3, dilates the depth over the cross and takes the history's weight from a Catmull-Rom tap (`?taalean=0` the old): 34 reads a pixel -> 21, the same image (`slope`, `sunrays`), 6% of it on the dev GPU at 4K. Its history has its own size (`res.taa`, `taa.size`); `?out4k=1` keeps the canvas at the display's pixels under the caps and the output pass upscales (bilinear: looked like the browser's stretch), `?taapr=` sets the cap.
 - Far shimmer under TAA: distant trees were hard cut-outs (impostor alpha sharpened by `impostorCoverage`, software
   leaves by the a2c smoothstep), so each few-pixel crown was a blob that hit or missed pixels, and TAA's history
   clipping let that through when turning. With TAA on, impostors and software-rasterized leaves instead draw each

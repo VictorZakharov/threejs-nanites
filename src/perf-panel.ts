@@ -19,7 +19,7 @@ export const short = (v: number): string =>
 export interface PerfDetails {
   gpu: { render: number; compute: number; total: number; budget: number };
   quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number; steps?: string[] };
-  resolution: { width: number; height: number; outWidth: number; outHeight: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
+  resolution: { width: number; height: number; outWidth: number; outHeight: number; taaWidth?: number; taaHeight?: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
     trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
     tris: number; swTris: number; impostorTris: number; shadowTris: number;
@@ -201,7 +201,7 @@ export class PerfPanel {
       `url          ${location.href}`,
       `browser      ${navigator.userAgent}`,
       `adapter      ${det.adapter}`,
-      `screen       ${r.width}x${r.height} rendered, ${r.outWidth}x${r.outHeight} output${r.outWidth !== r.width ? ` (upscaled ${(r.outWidth / r.width).toFixed(2)}x by the TAA)` : ''}, ${innerWidth}x${innerHeight} css (device pixel ratio ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
+      `screen       ${r.width}x${r.height} rendered, ${r.outWidth}x${r.outHeight} output${r.outWidth !== r.width ? ` (upscaled ${(r.outWidth / r.width).toFixed(2)}x${r.taaWidth && r.taaWidth !== r.outWidth ? `: the TAA at ${r.taaWidth}x${r.taaHeight}, then the output pass` : ' by the TAA'})` : ''}, ${innerWidth}x${innerHeight} css (device pixel ratio ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
       '',
       `window       ${s.seconds.toFixed(1)} s, ${s.samples} frames, display ~${s.refresh} Hz`,
       `fps          ${fmt(s.avgFps)} avg, ${fmt(s.lowFps)} 1% low`,

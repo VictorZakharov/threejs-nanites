@@ -218,6 +218,8 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   // the canvas at the display's resolution, the scene at auto quality's (src/resolution.ts; the TAA upscales)
   const res = createResolution(renderer, camera, sceneRT, params);
+  taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
+  if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
   const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
   const fitToWindow = (): void => res.fit();
   fitToWindow();
@@ -236,7 +238,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   // HUD and performance panel
   const hud = createHud({
-    renderer, camera, controls, forest, taa, auto, size, output: res.output, samples, shadowsOn: () => shadowsOn,
+    renderer, camera, controls, forest, taa, auto, size, output: res.output, taaSize: res.taa, samples, shadowsOn: () => shadowsOn,
     harness: HARNESS && params.get('perf') !== '1', // (?perf=1: the panel under the harness too)
     adapterName: [ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown adapter',
   });

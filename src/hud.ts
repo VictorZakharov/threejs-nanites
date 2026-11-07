@@ -39,6 +39,7 @@ export interface HudContext {
   auto: AutoQuality;
   size: THREE.Vector2; // the scene's pixels
   output: THREE.Vector2; // the canvas's (the TAA upscales to it)
+  taaSize?: THREE.Vector2; // the TAA history's (under the output's, past auto quality's tier 1: the output pass upscales it)
   samples: number;
   adapterName: string;
   harness: boolean;
@@ -59,7 +60,7 @@ export function createHud(ctx: HudContext) {
   const perf = ctx.harness ? null : new PerfPanel(() => ({
     gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
     quality: { steps: auto.trials, tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
-    resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: samples, taa: taa.enabled },
+    resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, taaWidth: ctx.taaSize?.x, taaHeight: ctx.taaSize?.y, msaa: samples, taa: taa.enabled },
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,
