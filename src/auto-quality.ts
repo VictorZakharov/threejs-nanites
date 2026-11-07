@@ -296,7 +296,9 @@ export function createAutoQuality(
     if (!slowGpu()) return 0;
     return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
   };
-  let behindLogged = 0, underRead = 1, underAt2 = 0;
+  let behindLogged = 0, underRead = 1, underAt2 = 0, behindSince = 0;
+  let queuedSince = 0;
+  const BEHIND_LEARN = 3000, LEARN_AFTER = 20000, SUSTAIN = 1500;
   // (the under-read factor's excess halves in this long, ms)
   const UNDER_HALF = 180000;
   const perFrame = (dt: number): void => {
@@ -353,7 +355,11 @@ export function createAutoQuality(
       // (how much the timers under-read when the frames fell behind, kept and eased back to 1 over minutes: going by the timers
       // alone between those times, it went straight back up and behind again, tier 3 -> 1 -> 3 and 50% -> 69% -> 50% every
       // half a minute on the AMD PC, with 30-40 ms from submit to done throughout)
-      if (behind > m && m > 0) underRead = Math.min(3, Math.max(underRead, behind / m));
+      // (learned only from frames behind for BEHIND_LEARN ms on end, not before LEARN_AFTER ms from the start: in the user's
+      // Chrome stalls of 30-80 ms with 6 ms of timers (the GPU idle) taught it 3x, and it sat at its floor, blurry, for nothing)
+      // (m is NaN for a moment after each change, too few samples: that's not the frames catching up)
+      behindSince = behind > 0 && !(behind <= m) ? behindSince || t : 0;
+      if (behind > m && m > 0 && t - behindSince > BEHIND_LEARN && t > LEARN_AFTER) underRead = Math.min(2, Math.max(underRead, behind / m));
       else underRead = 1 + (underRead - 1) * 0.5 ** ((t - underAt2) / UNDER_HALF);
       underAt2 = t;
       auto.underRead = underRead;
@@ -365,8 +371,13 @@ export function createAutoQuality(
       // (and from submit to done: what a frame really costs the GPU, the browser's compositing too, and past a frame's time
       // the frames waiting: at 60 fps with 10-11 ms of timers the AMD PC's frames waited 26-37 ms, two frames of input lag,
       // with the frame rate never falling behind)
-      const queued = slowGpu() ? auto.queueMs ?? 0 : 0;
-      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behind, queued) / auto.budget, true);
+      // (both only when it lasts SUSTAIN ms: a stall isn't the GPU's load, and a lower quality can't fix it)
+      const q = slowGpu() ? auto.queueMs ?? 0 : 0;
+      queuedSince = q > auto.budget ? queuedSince || t : 0;
+      const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
+      const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
+      auto.steer = [m, behindNow, queued];
+      if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behindNow, queued) / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);

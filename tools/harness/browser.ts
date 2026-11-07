@@ -81,7 +81,10 @@ function gpuArgs(): string[] {
 /** A headless browser with WebGPU: Playwright's Chromium, else the installed Edge, else Chrome. */
 export async function launchBrowser(): Promise<Browser> {
   const fails: string[] = [];
-  for (const channel of ['chromium', 'msedge', 'chrome']) {
+  // (HARNESS_CHANNEL=chrome|msedge|chromium, `--channel=` in npm run remote: the browser the user has. The AMD PC took msedge,
+  // the user's Chrome stalled where it didn't)
+  const want = process.env.HARNESS_CHANNEL?.trim();
+  for (const channel of want ? [want] : ['chromium', 'msedge', 'chrome']) {
     try {
       // (HARNESS_HEADED=1: a visible window, so frames are presented and the desktop composites them: frame pacing and
       // queueing as a person sees them. npm run remote -- --headed starts it on the test PC's desktop)
