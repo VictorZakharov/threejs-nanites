@@ -753,6 +753,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - Each tree switches to its impostor at its own size (`switchPx` in `src/nanite-lib/gpu/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
+- Impostors have a depth prepass (`impostor-prepass.ts`, `?imppre=0` none): their alpha alone first, then lit only where
+  their depth equals it. A shader that discards loses early depth testing, and from above the crowns overlap many deep:
+  the AMD PC's `slope` 12.8 -> 9.3 ms, `canopy` 14.9 -> 13.2; the dev GPU -0.15..0.5 ms, the ground views the same.
 - Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
   draws their billboards turned to the sun into the shadow map. So the real map is used wherever it reaches; an
   average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the

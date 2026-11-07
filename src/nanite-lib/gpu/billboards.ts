@@ -15,6 +15,7 @@ import type { View } from './types.ts';
 import type { ImpostorAtlas } from '../impostors/atlas.ts';
 import type { Bool, Float, Uint, Vec2, Vec3, Vec4 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
+import { IMP_PRE, impostorPrepass } from './impostor-prepass.ts';
 
 /** A billboard's shader pieces (see _impostorQuad). */
 interface ImpostorQuad {
@@ -43,9 +44,6 @@ interface ImpostorQuad {
 }
 // impostor alpha: 'dither' (by coverage, averaged by TAA; the default with TAA on) or 'cut' (`?impalpha=`)
 export const IMP_DITHER = (new URLSearchParams(location.search).get('impalpha') ?? (new URLSearchParams(location.search).get('taa') === '0' ? 'cut' : 'dither')) === 'dither';
-// (?imppre=1: the impostors' depth prepass, below: their alpha test alone first, then lit only where their depth matches. A
-// shader that can discard loses the GPU's early depth test, and from above the crowns overlap many deep: every layer was lit)
-export const IMP_PRE = new URLSearchParams(location.search).get('imppre') === '1';
 export const IMP_COV = Number(new URLSearchParams(location.search).get('impcov') ?? 0.9); // (coverage scale: matches the cut-out's mean colour)
 // per baked elevation (ELEVATIONS): the quad's scale (see grow below); ?grow=a,b,c,d to calibrate
 export const GROW = (new URLSearchParams(location.search).get('grow') ?? '1,0.9,0.8,0.8').split(',').map(Number);
@@ -357,29 +355,11 @@ export const billboardMethods = {
     mesh.name = 'nanite-impostors';
     // drawn in phase 2, after occlusion() has dropped the hidden ones (with occlusion off, all flagged ones)
     mesh.layers.set(PHASE2_LAYER);
-    if (IMP_PRE) {
-      // (the depth prepass: the alpha alone, no colour or light, before every other phase 2 draw; then the lit impostors
-      // where their depth equals it, writing none: only the front one of each pixel is lit, the same image)
-      const pre = new THREE.MeshBasicNodeMaterial({ side: THREE.DoubleSide, alphaTest: mat.alphaTest });
-      pre.alphaToCoverage = mat.alphaToCoverage;
-      pre.colorWrite = false;
-      pre.lights = false;
-      pre.fog = false;
-      pre.colorNode = Fn(() => {
-        const l = q.lod.toVar();
-        const t = q.sample(l);
-        return vec4(1, 1, 1, alphaOf(t, l, q.cutAlpha(t, l).map((ak) => ak.toVar())));
-      })();
-      pre.positionNode = q.position;
-      const preMesh = new THREE.Mesh(mesh.geometry, pre);
-      preMesh.frustumCulled = false;
-      preMesh.name = 'nanite-impostors-pre';
-      preMesh.layers.set(PHASE2_LAYER);
-      preMesh.renderOrder = -1;
-      mesh.add(preMesh); // (shown and hidden with it)
-      mat.depthFunc = THREE.EqualDepth;
-      mat.depthWrite = false;
-    }
+    if (IMP_PRE) impostorPrepass(mesh, Fn(() => {
+      const l = q.lod.toVar();
+      const t = q.sample(l);
+      return vec4(1, 1, 1, alphaOf(t, l, q.cutAlpha(t, l).map((ak) => ak.toVar())));
+    })(), q.position);
     return mesh;
   },
 
