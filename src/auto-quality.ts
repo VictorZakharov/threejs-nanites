@@ -204,7 +204,7 @@ export function createAutoQuality(
     // (tier 1 goes last, with the resolution back: it came first)
     else if (tier > 1 || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
-      const fits = !(lastQ + (tierSaves[tier - 1] ?? 0) > auto.budget * 0.9);
+      const fits = !(lastQ + (tierSaves[tier - 1] ?? 0) > (auto.budget / 0.8) * 0.9);
       if (over < TIER_BACK && fits && now - tierAt > TIER_MS * 2 && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
@@ -393,10 +393,14 @@ export function createAutoQuality(
       }
       for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] *= 0.5 ** ((t - savesAt) / UNDER_HALF);
       savesAt = t;
-      queuedSince = q > auto.budget ? queuedSince || t : 0;
-      const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
+      // (by the display's frame, not the budget: under a frame from submit to done no frame waits, and part of it is the browser's
+      // compositing, which no step lowers. By the budget, the user's Chrome at 14.75 ms with 6.4 ms of timers was pushed to the
+      // floor, tier 3 and tau 16, and held there: "no quality, blurry")
+      const display = auto.budget / 0.8;
+      queuedSince = q > display ? queuedSince || t : 0;
+      const queued = queuedSince && t - queuedSince > SUSTAIN ? q * 0.8 : 0;
       const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
-      upBlocked = q > auto.budget * 0.85 || behind > 0;
+      upBlocked = q > display * 0.9 || behind > 0;
       auto.steer = [m, behindNow, queued];
       if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behindNow, queued) / auto.budget, true);
     }, (err) => {
