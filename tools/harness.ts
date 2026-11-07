@@ -17,6 +17,7 @@ import { boot, runViews } from './harness/session.ts';
 import { measureLoads } from './harness/load.ts';
 import { sweeps, dolly } from './harness/motion.ts';
 import { zoomTime, flyTime, copyKey } from './harness/zoomtime.ts';
+import { play } from './harness/play.ts';
 import { typeMatch } from './harness/typematch.ts';
 import { lodCheck } from './harness/lodcheck.ts';
 import { runExample } from './harness/example.ts';
@@ -110,6 +111,7 @@ try {
     if (opts.zoomtime) report.zoomtime = await zoomTime(page, opts, outDir, tag);
     if (opts.copykey) report.copykey = await copyKey(page);
     if (opts.flytime) report.flytime = await flyTime(page, opts, outDir, tag);
+    if (opts.play) report.play = await play(page, opts);
     if (opts.typematch) report.typematch = await typeMatch(page, opts, outDir);
     if (opts.lodcheck) report.lodcheck = await lodCheck(page, opts, outDir, opts.lodcheck);
     reports.push(report);
