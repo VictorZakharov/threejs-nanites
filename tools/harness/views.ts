@@ -80,6 +80,7 @@ export const VIEWS: Record<string, HarnessView> = {
   userstill: { x: 20, z: 40, agl: 239, yaw: 110, pitch: -6.5 }, // (the user's report: zoomed, held still, side-on to the sun, statues flicker: T stops it)
   userzoomin: { x: 0, z: 8, agl: 368, yaw: 34.2, pitch: -13.6 }, // (the user's report: triangles spike mid-zoom)
   laptop: { x: 20, z: 40, agl: 193, yaw: 14.2, pitch: -38.6 }, // (the user's $700 laptop, Intel Xe2-LPG: 39 fps in the forest, 27 ms GPU at half resolution)
+  amdhover: { x: 28, z: 35, agl: 23, yaw: 62.2, pitch: 2.7 }, // (the user's Chrome on the AMD PC, 2026-11-07: 9.2 ms of timers, frames every 38-42 ms)
   amdabove: { x: 20, z: 40, agl: 102, yaw: 40, pitch: 1.7 }, // (the AMD PC in the user's Chrome, 2026-11-07: 30 fps, 15 ms of render timers at tier 3)
   amdground: { x: 20, z: 40, agl: 2, yaw: 31.8, pitch: 2.7 }, // (the reference low-end PC's report, AMD RDNA 2 iGPU at DPR 3: --device=amd; 18.7 fps, 44 ms on production)
   laptopground: { x: 20, z: 40, agl: 2, yaw: 30, pitch: 4 }, // (the same laptop on the ground in the Lucy forest: 55 fps, 5.1 of 17.4 ms on grass)

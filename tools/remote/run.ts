@@ -8,6 +8,7 @@
 //   --no-sync           run what's checked out there
 //   --open=URL          only opens URL in that PC's default browser, on its desktop (for the person there: no links sent
 //                       by chat), and exits
+//   --plain             the browser without the harness's GPU flags (as a person has it)
 //   --browserargs="--a --b"  extra browser flags (HARNESS_ARGS)
 //   --channel=chrome    the browser the harness uses there (default: the first of chromium, msedge, chrome that starts)
 //   --headed            a visible browser on that PC's desktop (HARNESS_HEADED=1): its frames are presented and
@@ -33,6 +34,7 @@ const open = take('open');
 const channel = take('channel'); // (chrome, msedge, chromium: the harness's browser there, HARNESS_CHANNEL)
 // (extra browser flags there, space-separated, HARNESS_ARGS: what a feature costs that the page can't switch, e.g. Dawn's checks)
 const browserArgs = take('browserargs');
+const plain = take('plain') !== undefined; // (--plain: the browser without the harness's GPU flags, HARNESS_PLAIN)
 const ssh = (command: string, inherit = false) =>
   spawnSync('ssh', ['-o', 'LogLevel=ERROR', host, command], { encoding: 'utf8', stdio: inherit ? 'inherit' : 'pipe' });
 const user = ssh('echo %USERNAME%').stdout?.trim();
@@ -91,7 +93,7 @@ if (!headed) {
   const log = `${winDir}\\tools\\tmp\\remote-run.log`, done = `${winDir}\\tools\\tmp\\remote-run.done`;
   // (in a batch file, npm (npm.cmd) without call never returns: the done marker was never written)
   const batch = steps.map((x) => (x.startsWith('npm ') ? `call ${x}` : x));
-  batch.push('set "HARNESS_HEADED=1"', 'set "HARNESS_REMOTE=1"', ...(channel ? [`set "HARNESS_CHANNEL=${channel}"`] : []), ...(browserArgs ? [`set "HARNESS_ARGS=${browserArgs}"`] : []), `call ${harness}`);
+  batch.push('set "HARNESS_HEADED=1"', 'set "HARNESS_REMOTE=1"', ...(channel ? [`set "HARNESS_CHANNEL=${channel}"`] : []), ...(browserArgs ? [`set "HARNESS_ARGS=${browserArgs}"`] : []), ...(plain ? ['set "HARNESS_PLAIN=1"'] : []), `call ${harness}`);
   ssh(`del /q "${done}" 2>nul`);
   if (!onDesktop('nanite-harness', [`del /q "${done}" 2>nul`, `(${batch.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`])) process.exit(1);
   const limit = Date.now() + (Number(args.find((a) => a.startsWith('--timeout='))?.slice(10) ?? 600) + 300) * 1000;
