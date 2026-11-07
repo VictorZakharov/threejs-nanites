@@ -262,13 +262,25 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // settings menu + keyboard shortcuts (src/menu.ts)
   createMenu({ controls, u: forest.u, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
+  // One frame on the GPU at a time where the GPU is what limits the frame rate (?gpuqueue=0 never, 1 always): Chrome queued
+  // several 40 ms frames on the AMD PC's iGPU, which it shares with Windows' compositor, and the whole PC lagged behind them
+  // (the user: the mouse moved in jumps, a button click was skipped). Waiting costs up to a vsync per frame there; on a GPU
+  // that keeps up the work is done long before the next frame and nothing changes.
+  const queueMode = params.get('gpuqueue');
+  let inFlight = false;
+  const gpuBound = (): boolean => (queueMode === '1' ? true : queueMode === '0' ? false : auto.gpuMs > 0.75 * (1000 / refreshRate()));
   let prev = performance.now();
   function loop() {
+    if (inFlight) return; // (the last frame's GPU work isn't done: this display frame is skipped)
     const now = performance.now();
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
+    if (gpuBound()) {
+      inFlight = true;
+      gpuBackend(renderer).device.queue.onSubmittedWorkDone().then(() => (inFlight = false), () => (inFlight = false));
+    }
     if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
     zoomLog.frame(now, dt);
