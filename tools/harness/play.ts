@@ -46,7 +46,7 @@ export async function play(page: Page, opts: Options) {
   // (never on the machine someone is using: a headless browser's pointer lock still confines the real cursor (Windows'
   // ClipCursor) to its hidden window. Run here, it held the user's mouse in a small part of the screen, over and over.
   // Only a visible window on the test PC, which `npm run remote -- --headed` sets up)
-  if (process.env.HARNESS_HEADED !== '1' || !process.env.HARNESS_REMOTE) {
+  if (process.env.HARNESS_HEADED?.trim() !== '1' || !process.env.HARNESS_REMOTE) {
     console.error('--play captures the mouse: only with npm run remote -- --headed (never locally, never headless)');
     return { skipped: true };
   }

@@ -92,6 +92,10 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
 - **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
   every argument (`tools/remote/run.ts` does).
+- **Trusting a mode without seeing it.** `npm run remote -- --headed` wrote `set HARNESS_HEADED=1 && ...` into a batch file:
+  cmd keeps the space before `&&`, the value was "1 ", the harness wanted "1", and every "headed" run on the AMD PC for a
+  day was headless: its smooth 60 fps "with real input" were never what a person sees, and the user's lag never showed.
+  The harness now prints which it launched (`browser: ..., headed`); check that line before believing a run.
 - **Steering by GPU timers alone.** The timers cover the render and compute passes, not the browser's compositing of the
   canvas or a hot iGPU's clocks: after 2-3 minutes' flying the AMD PC ran at 42 fps with 40 ms from submit to done while
   the timers read 14, auto quality had climbed back to 69% on them, and the frames queued (the user: "enormous input
