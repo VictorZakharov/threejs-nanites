@@ -57,6 +57,10 @@ export interface GrassContext {
    * shader and the dropped blades collapsed onto their root (the vertex invocations cost, kept or not: hence fewer
    * blades there). */
   webgl?: boolean;
+  /** Blades per m² unless `?grassdense=` says: a weak GPU's last visit settled at a low-end tier (src/auto-quality.ts's
+   * `rememberedTier`), so it's built thin. Thinning a dense grass (`thin`) still tests every cell in the keep pass: on
+   * the AMD PC density 1.5 was 11.6 ms where density 6 thinned to the same blades was 13.1. */
+  dense?: number;
   /** The blades' wind motion for the TAA resolve (default: on WebGPU; the WebGL mode's when it has TAA). */
   motion?: boolean;
 }
@@ -106,7 +110,7 @@ export function createGrass(ctx: GrassContext) {
   group.name = 'grass';
   if (!(scale > 0)) return { group, update() {}, thin() {}, async stats() { return []; } };
   const webgl = Boolean(ctx.webgl);
-  const dense = denseOf(webgl);
+  const dense = params.has('grassdense') || !ctx.dense ? denseOf(webgl) : Math.min(ctx.dense, denseOf(webgl));
   const motion = ctx.motion ?? !webgl;
 
   // terrain heights as a float texture: the terrain mesh's vertices, read back exactly

@@ -141,6 +141,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
 
   const built = await buildForest({
+    harness: HARNESS,
     renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing,
     sceneName, samples, terrain, ground, lighting, shadowsOn: () => shadowsOn, pre,
   });
