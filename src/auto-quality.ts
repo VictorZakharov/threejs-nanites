@@ -105,7 +105,9 @@ export function createAutoQuality(
   const tierSaves: number[] = [];
   let lastQ = 0, savesAt = 0, leftTier: { tier: number; q: number; t: number } | null = null;
   const setTierTo = (t: number): void => {
-    if (t > tier && lastQ > 0) leftTier = { tier, q: lastQ, t: performance.now() };
+    // (two steps within the settling time, as when hurrying 1 -> 2 -> 3: the first tier is the one learned, by the whole saving,
+    // so it can't come back on what the second saved)
+    if (t > tier && lastQ > 0) leftTier = { tier: leftTier?.tier ?? tier, q: leftTier?.q ?? lastQ, t: performance.now() };
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
     if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
@@ -385,7 +387,7 @@ export function createAutoQuality(
       lastQ = q;
       if (leftTier && t - leftTier.t > 3000) {
         if (q > 0) tierSaves[leftTier.tier] = Math.min(3, Math.max(1, leftTier.q / q));
-        logStep(`tier ${leftTier.tier} -> ${leftTier.tier + 1}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
+        logStep(`tier ${leftTier.tier} -> ${tier}: ${leftTier.q.toFixed(1)} -> ${q.toFixed(1)} ms from submit to done`);
         leftTier = null;
       }
       for (let i = 0; i < tierSaves.length; i++) if (tierSaves[i]) tierSaves[i] = 1 + (tierSaves[i] - 1) * 0.5 ** ((t - savesAt) / UNDER_HALF);
