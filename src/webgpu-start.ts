@@ -180,6 +180,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
   // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
   const OUT_RATIO = Number(params.get('outratio') ?? 2);
+  // (?outtier2=, ?miptier=) tier 2's cap on the output's pixel ratio (1 per CSS px held the AMD PC at 1280x585 output before
+  // the mip cap; with it 960x439 into 1920x877 ran at 60 fps) and the mip bias cap from tier 1
+  const OUT_TIER2 = Number(params.get('outtier2') ?? Infinity);
+  const MIP_TIER = Number(params.get('miptier') ?? 0.5);
   const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
@@ -202,8 +206,11 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
     grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
-    res.capOutput(tier >= 2 ? 1 : Infinity);
+    res.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
     res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
+    // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
+    // mips were most of the cost of upscaling, and at 0.5 the image looks the same: src/resolution.ts)
+    res.capMipBias(tier >= 1 ? MIP_TIER : Infinity);
     lighting.forceFarShadow(tier >= 3);
     lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
     // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
