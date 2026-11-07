@@ -183,6 +183,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // screen at tau 2.3 (the user), and far statues look the same at 2.3 and 4; `userstill` 8.7M -> 5.1M, `statue`'s pops
   // +12% (--sweep=lod, 715 -> 799), its feathers softer from 4 on. A preset or a manual tau can still go finer.
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  // (where it settled on this screen and scene: the next visit starts there; ?autoremember=0 never, the harness only with =1)
+  if (params.get('autoremember') === '1' || (!HARNESS && params.get('autoremember') !== '0')) {
+    void sceneName.then((name) => (auto.remember = `nanite-auto ${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
+  }
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;

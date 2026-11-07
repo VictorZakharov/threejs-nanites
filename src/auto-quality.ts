@@ -24,6 +24,8 @@ const ZOOM_RES = 2.5;
 const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
 const SETTLE = 2000, PAYS = 5;
+/** Far over the budget (x2): the wait between steps (ms). */
+const HURRY_MS = 700;
 /**
  * `?autosim=x,noise,pixels,output` (--probe=autosim), a weak GPU's controller on the dev GPU: its GPU samples x x, plus `pixels` ms at full
  * resolution (by the square of the scale; the dev GPU's cost hardly follows the pixels where the laptop's does), plus `output` ms per
@@ -100,6 +102,8 @@ export function createAutoQuality(
     // far from the budget (after a jump in cost: the zoom, a turn): bigger, quicker steps; x1.3 a half second was
     // seconds of slow frames, and /1.1 seconds of lost detail after
     const far = over > 1.5 || over < 0.5;
+    // (twice the budget or more: no trials and short waits. The AMD PC took 16 s at 15-17 fps to reach tier 3 from the start)
+    const hurry = over > 2 && !zoomState;
     // (slower while the resolution is lowered: each change restarts the TAA history; quicker on the way back up)
     if (now - lastAdjust < (far ? 250 : auto.scale !== 1 ? (over < 0.85 ? 700 : 1500) : 500)) return;
     // (zoomed, only past the floor, and never back up: it stays at the setting it was zoomed in with)
@@ -109,7 +113,8 @@ export function createAutoQuality(
     if (over > limit && auto.scale > 1) setScale(Math.max(1, auto.scale * (far ? 0.75 : 0.85)));
     else if (over > limit && tau.value < auto.maxTau) tau.value = Math.min(auto.maxTau, tau.value * Math.min(far ? 1.6 : 1.3, over));
     else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= auto.maxTau && (tier === 0 || auto.scale <= 0.505 || futile)) {
-      if (now - tierAt < TIER_MS || now - underAt < TIER_MS) return;
+      const wait = hurry ? HURRY_MS : TIER_MS;
+      if (now - tierAt < wait || now - underAt < wait) return;
       if (now - lastDown < 3000) tierHold = now + 60000;
       setTierTo(tier + 1);
       if (timed) restart();
@@ -117,12 +122,12 @@ export function createAutoQuality(
     }
     else if (over > (zoomState ? ZOOM_RES : limit) && auto.scale > 0.505 && !futile) {
       // (settled: a tier eases in over 1.5 s, and a short window of a noisy GPU's samples decides nothing)
-      if (timed && !zoomState && now - lastAdjust < SETTLE) return;
+      if (timed && !zoomState && now - lastAdjust < (hurry ? HURRY_MS : SETTLE)) return;
       const before = median(Math.max(lastAdjust + 200, now - SETTLE), now);
       if (timed && !(before > 0)) return; // (not measured since the last change yet)
       const to = Math.max(0.5, auto.scale * (zoomState ? (far ? 0.75 : 0.85) : Math.SQRT1_2));
       // (a small last step saves too little to read: no trial. It's on the way to the lowest anyway)
-      if (timed && !zoomState && 1 - (to / auto.scale) ** 2 > 0.4) trial = { from: auto.scale, before, at: now };
+      if (timed && !hurry && 1 - (to / auto.scale) ** 2 > 0.4) trial = { from: auto.scale, before, at: now };
       // (back up too soon after coming down, it hunts, and each step is seen: the longer if it came straight back)
       if (!zoomState) {
         scaleHold = now + (now - lastUp < 10000 ? 60000 : 10000);
@@ -203,7 +208,34 @@ export function createAutoQuality(
     if (!z && zoom.zoom === 1) saved = null;
   };
 
+  // Where it settled, kept per screen (`auto.remember`: the storage key; not under the harness): the next visit starts there, not
+  // at full quality (the AMD PC's first 16 s at 15-17 fps). Written once it has held still 8 s; it moves on from there as usual.
+  let restored = false, lastSave = 0;
+  const remember = (now: number): void => {
+    const key = auto.remember;
+    if (!key) return;
+    try {
+      if (!restored) {
+        restored = true;
+        const s = JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null;
+        if (!s || !auto.on) return;
+        tau.value = Math.max(tau.value, Math.min(s.tau, auto.maxTau));
+        if (s.scale > 0 && s.scale < auto.scale) setScale(s.scale);
+        if (s.tier > 0) setTierTo(Math.min(MAX_TIER, s.tier));
+        logStep(`started where it settled: tier ${s.tier}, resolution ${s.scale.toFixed(2)}, tau ${s.tau.toFixed(1)}`);
+        lastAdjust = now;
+        return;
+      }
+      if (!auto.on || zoomState || now - lastSave < 5000 || now - lastAdjust < 8000 || now - tierAt < 8000) return;
+      lastSave = now;
+      localStorage.setItem(key, JSON.stringify({ tier, scale: auto.scale, tau: tau.value }));
+    } catch {
+      // (storage blocked: it starts at full quality, as before)
+    }
+  };
+
   const perFrame = (dt: number): void => {
+    remember(performance.now());
     // (a preset or a manual tau: they're auto quality's to give up; Profile GPU only holds it still, and measures what's on)
     if (!auto.on && !auto.holding && tier > 0) setTierTo(0);
     if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)

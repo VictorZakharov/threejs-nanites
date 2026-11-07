@@ -13,6 +13,7 @@ export interface AutoQuality {
   on: boolean;
   budget: number; // GPU ms
   maxTau: number;
+  remember?: string; // (the storage key for where auto quality settled; unset: it starts at full quality every time)
   holding?: boolean; // (Profile GPU: off, but the low-end tiers stay)
   tuning?: boolean; // (a probe set its own budget: it stays)
   tier?: number; // past its limit: what has been given up (src/auto-quality.ts)

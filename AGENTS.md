@@ -484,7 +484,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
   `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
   Small statues are off whatever the tau (unzoomed, under 16 px: ~25% of the shape lost, +8..12/255 luma against a
-  control's -2): not explained yet. A resolution step down is half the pixels and a trial (a small last one isn't: too little to read), held 10 s before coming back up, and for a minute not back to the resolution it left: if it saved under a fifth of its share of the pixels
+  control's -2): not explained yet. Twice the budget or more, it hurries: no trials, 0.7 s between steps (the AMD PC took 16 s at 15-17 fps to settle). Where it settled is kept per scene and screen (`auto.remember`, localStorage, written after 8 s still; `?autoremember=0|1`, the harness only with 1) and the next visit starts there. A resolution step down is half the pixels and a trial (a small last one isn't: too little to read), held 10 s before coming back up, and for a minute not back to the resolution it left: if it saved under a fifth of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off

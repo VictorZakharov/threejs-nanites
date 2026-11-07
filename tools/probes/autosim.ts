@@ -15,5 +15,5 @@ async (demo: Demo) => {
     await sleep(2000);
   }
   await demo.live(false);
-  return { rows, steps: auto.trials ?? [] };
+  return { rows, steps: auto.trials ?? [], remembered: auto.remember ? localStorage.getItem(auto.remember) : null };
 }
