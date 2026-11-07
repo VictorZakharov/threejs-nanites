@@ -33,6 +33,9 @@ const LITE_TIER = 4, MAX_TIER = 5, TIER_MS = 2500, TIER_BACK = 0.6;
 // (the lite tier back to 3 only further under: it brings back the grass, god rays, the relief and nearer tree geometry at once,
 // and in the Lucy forest on the AMD PC 7.8 ms of timers became 13 and frames waited 28 ms)
 const LITE_BACK = 0.45;
+// (the plain ground back to the floor sooner: it's 0.6-0.8 ms on the AMD PC, and at 0.6 the forest flew at a native FullHD render
+// with 62% of the budget on the lawn-like ground)
+const PLAIN_BACK = 0.75;
 // (a first visit on a 60-80 Hz display starts at the last tier and half the resolution and comes back up from there:
 // the AMD PC's first 10-15 s at full quality were 15-30 fps, and "we should start at 60+ FPS". ?autostart=full: as before)
 const START_LITE = new URLSearchParams(location.search).get('autostart') !== 'full';
@@ -194,7 +197,7 @@ export function createAutoQuality(
     else if ((tier > 1 && !(tier >= LITE_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
       const fits = !(lastQ + costs.saving(tier - 1) > (auto.budget / 0.8) * 0.9);
-      if (over < (tier === LITE_TIER ? LITE_BACK : TIER_BACK) && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
+      if (over < (tier === LITE_TIER ? LITE_BACK : tier === MAX_TIER ? PLAIN_BACK : TIER_BACK) && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
         if (timed) restart();
