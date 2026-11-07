@@ -20,7 +20,8 @@ export function createPrepassTrial(auto: AutoQuality, prepass: LeafPrepass, zoom
   return {
     /** Per frame, after auto quality's step. */
     step(now: number): void {
-      if (!ENABLED || !auto.on || auto.gpuMs <= 0) return;
+      // (with auto quality off too: it only flips a switch that changes no pixel; not while Profile GPU holds it)
+      if (!ENABLED || auto.holding || auto.gpuMs <= 0) return;
       samples.push([now, auto.gpuMs]);
       while (samples.length && samples[0][0] < now - 5000) samples.shift();
       if (trial) {
