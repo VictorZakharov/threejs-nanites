@@ -26,6 +26,8 @@ const BEHIND = Number(new URLSearchParams(location.search).get('behind') ?? 1.2)
 const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
 const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
+/** A tier stepped down to within BOUNCE_MS of coming back up from it is held for BOUNCE_HOLD (ms). */
+const BOUNCE_MS = 30000, BOUNCE_HOLD = 120000;
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
 const SETTLE = 2000, PAYS = 5;
 /** Far over the budget (x2): the wait between steps (ms). */
@@ -142,7 +144,10 @@ export function createAutoQuality(
     else if (!zoomState && over > limit && tier < MAX_TIER && tau.value >= auto.maxTau && (tier === 0 || auto.scale <= 0.505 || futile)) {
       const wait = hurry ? HURRY_MS : TIER_MS;
       if (now - tierAt < wait || now - underAt < wait) return;
-      if (now - lastDown < 3000) tierHold = now + 60000;
+      // (back down soon after coming back up: held there. Within 3 s it was a minute; the AMD PC flying between the statues and
+      // above them came back 5-10 s into a cheap stretch and fell behind again at the next costly one, a few seconds of lag
+      // each time, three times in 4 minutes)
+      if (now - lastDown < BOUNCE_MS) tierHold = now + BOUNCE_HOLD;
       setTierTo(tier + 1);
       if (timed) restart();
       return;
