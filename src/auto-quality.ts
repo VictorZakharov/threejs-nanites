@@ -28,6 +28,8 @@ const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau
 const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
 /** A tier stepped down to within BOUNCE_MS of coming back up from it is held for BOUNCE_HOLD (ms). */
 const BOUNCE_MS = 30000, BOUNCE_HOLD = 120000;
+/** The coarsest tau on the last tier at the lowest resolution (`?lowmaxtau=`). */
+const LOW_MAX_TAU = Number(new URLSearchParams(location.search).get('lowmaxtau') ?? 16);
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
 const SETTLE = 2000, PAYS = 5;
 /** Far over the budget (x2): the wait between steps (ms). */
@@ -101,6 +103,7 @@ export function createAutoQuality(
   const setTierTo = (t: number): void => {
     logStep(`tier ${tier}->${t} at ${auto.gpuMs.toFixed(1)} ms, resolution ${auto.scale.toFixed(2)}`);
     tier = t;
+    if (t < MAX_TIER && tau.value > auto.maxTau && !zoomState) tau.value = auto.maxTau; // (past maxTau only on the last tier)
     tierAt = performance.now();
     auto.tier = t;
     setTier(t);
@@ -171,6 +174,15 @@ export function createAutoQuality(
       setScale(to);
       if (timed) restart(); // (measure the new resolution afresh)
     }
+    // at the last tier and the lowest resolution, still over: coarser past maxTau, up to LOW_MAX_TAU (the AMD PC among the
+    // Lucy forest's statues: tier 3, 50%, tau 8, 15-16 ms of timers, 33-37 ms from submit to done; their geometry is ~6 ms
+    // of it, and at 16 a zoomed statue kept its shape). Back to maxTau when the tier is left (setTierTo)
+    else if (!zoomState && over > limit && tier >= MAX_TIER && auto.scale <= 0.505 && tau.value < LOW_MAX_TAU) {
+      if (timed && now - lastAdjust < SETTLE) return;
+      tau.value = Math.min(LOW_MAX_TAU, tau.value * Math.min(1.3, over));
+    }
+    // and back down from there first, before anything else comes back
+    else if (!zoomState && tau.value > auto.maxTau && over < 0.75) tau.value = Math.max(auto.maxTau, tau.value / 1.15);
     // back up: the resolution first (it's what reads as sharp), under 85% of the budget (a step adds less than its
     // x1.38 pixels: the culling and the shadow map don't grow), then the detail, once the resolution is back.
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
