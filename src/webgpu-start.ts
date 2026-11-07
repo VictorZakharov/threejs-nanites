@@ -29,6 +29,7 @@ import { GodRays } from './godrays.ts';
 import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { createSlowFrames } from './slow-frames.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
 import { reliefSteps } from './ground/relief.ts';
 import { Precompile, warmUp } from './warmup.ts';
@@ -264,7 +265,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     tau: forest.u.tau, scale: () => auto.scale, zoom: controls, forest,
     shadow: () => ({ size: sun.shadow.mapSize.x, half: (sun.shadow.camera as THREE.OrthographicCamera).right }),
   });
-  if (hud.perf) hud.perf.extra = zoomLog.report;
+  // (the report's slow frames by cause: src/slow-frames.ts)
+  const slowFrames = createSlowFrames();
+  if (hud.perf) hud.perf.extra = () => [slowFrames.report(), zoomLog.report()].filter(Boolean).join('\n\n');
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
   const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
@@ -288,8 +291,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
   function loop() {
-    if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
     const now = performance.now();
+    const skip = inFlight >= maxQueue && maxQueue > 0;
+    slowFrames.begin(now, skip, auto.queueMs ?? 0);
+    if (skip) return; // (the GPU has its frames: this display frame is skipped)
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
@@ -311,6 +316,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
+    slowFrames.end(performance.now());
   }
 
   // ---------------------------------------------------------------- harness API
