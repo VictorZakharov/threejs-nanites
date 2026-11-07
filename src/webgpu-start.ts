@@ -239,7 +239,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   });
   controls.onZoom = autoQuality.followZoom;
   // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
-  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log);
+  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log, () => `${forest.u.tau.value} ${auto.scale} ${auto.tier ?? 0}`);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
