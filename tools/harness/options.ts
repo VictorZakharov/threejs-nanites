@@ -45,7 +45,8 @@ measuring
   --rise=M           --dolly: also climb this many metres per step (negative: descend)
   --rect=x,y,w,h     --dolly: count only the tiles inside this screen rectangle (e.g. the distant treeline)
   --play             flies a route with real input (a click captures the mouse, held keys, mouse moves) in the page's
-                     loop, then prints the panel's report (--query=perf=1; --playwait=15 s to settle first; harness/play.ts)
+                     loop, then prints the panel's report (--query=perf=1; --playwait=15 s to settle first; --playsecs=N repeats
+                     the ~25 s route for N s, a line per lap; harness/play.ts)
   --copykey          a real press of C while zoomed (--query=perf=1): what reaches the clipboard
   --zoomtime         the real loop with auto quality: 5 s unzoomed, then the 5x zoom; screenshots over the 6 s after
                      (zoomtime-<view>-<ms>.png), tau / resolution / shadow map / GPU ms by 250 ms, pixels changed between shots
@@ -116,6 +117,7 @@ export function parseOptions(argv: string[]) {
     copykey: Boolean(args.copykey),
     play: Boolean(args.play),
     playwait: Number(args.playwait ?? 15),
+    playsecs: Number(args.playsecs ?? 0),
     flytime: args.flytime ? String(args.flytime).split(',') : null,
     turn: args.turn ? Number(args.turn) : 0,
     rise: args.rise ? Number(args.rise) : 0,
@@ -145,9 +147,9 @@ export function parseOptions(argv: string[]) {
 export type Options = ReturnType<typeof parseOptions>;
 
 /** A generous estimate of a run's wall time (a basic two-view run takes ~20 s), for the watchdog. */
-function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; zoomtime: boolean; flytime: string[] | null; play: boolean; steps: number | null; typematch: string | null; lodcheck: number[] | null }): number {
+function expectedSeconds(o: { load: number; views: string[]; variants: string[] | null; sweep: string[] | null; dolly: boolean; zoomtime: boolean; flytime: string[] | null; play: boolean; playsecs: number; steps: number | null; typematch: string | null; lodcheck: number[] | null }): number {
   const runs = o.views.length * (o.variants?.length ?? 1);
-  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0) + (o.zoomtime || o.flytime ? 25 : 0) + (o.play ? 60 : 0) + (o.lodcheck ? 40 * (o.lodcheck.length + 1) : 0);
+  const steps = ((o.sweep?.length ?? 0) + (o.dolly ? 1 : 0)) * (o.steps ?? 40) + (o.typematch ? 30 : 0) + (o.zoomtime || o.flytime ? 25 : 0) + (o.play ? 60 + o.playsecs : 0) + (o.lodcheck ? 40 * (o.lodcheck.length + 1) : 0);
   if (o.load) return 30 + o.load * (o.variants?.length ?? 1) * 120; // (throttled boots can take a minute or two)
   return Math.round(30 + runs * (8 + steps));
 }

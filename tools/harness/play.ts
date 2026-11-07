@@ -66,22 +66,35 @@ export async function play(page: Page, opts: Options) {
     const locked = await page.evaluate(() => document.pointerLockElement !== null);
     await calibrate(page, pos);
     const yaw0 = await page.evaluate(() => window.__demo.controls.yaw);
-    // (the route: turn round, fly on fast, look about, climb, turn round twice quickly)
-    await look(page, pos, 2 * Math.PI, 4000);
-    await hold(page, ['ShiftLeft', 'KeyW'], 4000);
-    await look(page, pos, Math.PI / 2, 800);
-    await look(page, pos, -Math.PI, 1200);
-    await look(page, pos, Math.PI / 2, 800, -0.3);
-    await hold(page, ['Space'], 3000, () => look(page, pos, Math.PI, 3000));
-    await look(page, pos, 0, 300, 0.3);
-    await look(page, pos, 4 * Math.PI, 4000);
-    await hold(page, ['KeyW'], 3000, () => look(page, pos, -Math.PI, 3000));
+    // (the route: turn round, fly on fast, look about, climb, turn round twice quickly, fly on, come down; repeated for
+    // --playsecs (the user: lags "after flying around for 2-3 min"), a line per lap: fps, GPU and queue ms, tier, scale)
+    const until = Date.now() + opts.playsecs * 1000;
+    let lap = 0;
+    do {
+      const t0 = Date.now(), f0 = await page.evaluate(() => window.__demo.renderer.info.frame);
+      await look(page, pos, 2 * Math.PI, 4000);
+      await hold(page, ['ShiftLeft', 'KeyW'], 4000);
+      await look(page, pos, Math.PI / 2, 800);
+      await look(page, pos, -Math.PI, 1200);
+      await look(page, pos, Math.PI / 2, 800, -0.3);
+      await hold(page, ['Space'], 3000, () => look(page, pos, Math.PI, 3000));
+      await look(page, pos, 0, 300, 0.3);
+      await look(page, pos, 4 * Math.PI, 4000);
+      await hold(page, ['KeyW'], 3000, () => look(page, pos, -Math.PI, 3000));
+      await hold(page, ['ControlLeft'], 3000);
+      const s = await page.evaluate(() => {
+        const a = window.__demo.auto;
+        return { frame: window.__demo.renderer.info.frame, gpu: a.gpuMs, queue: a.queueMs ?? 0, behind: a.behindMs ?? 0, tier: a.tier ?? 0, scale: a.scale, tau: window.__demo.forest.u.tau.value };
+      });
+      const fps = ((s.frame - f0) * 1000) / (Date.now() - t0);
+      console.log(`  lap ${++lap} at ${((Date.now() - until) / 1000 + opts.playsecs).toFixed(0)} s: ${fps.toFixed(1)} fps, gpu ${s.gpu.toFixed(1)} ms, queue ${s.queue.toFixed(1)} ms, behind ${s.behind.toFixed(1)}, tier ${s.tier}, scale ${s.scale.toFixed(2)}, tau ${s.tau.toFixed(1)}`);
+    } while (Date.now() < until);
     const turned = await page.evaluate((y0) => window.__demo.controls.yaw - y0, yaw0);
     const report = await page.evaluate(() => window.__demo.perfReport());
     await page.keyboard.press('Escape'); // (gives the mouse back)
     await page.evaluate(() => window.__demo.live(false));
     result[name] = { locked, radPerPx: pos.k, turned: +turned.toFixed(2), report };
-    console.log(`play ${name}: pointer locked ${locked}, ${pos.k.toFixed(5)} rad/px, turned ${turned.toFixed(2)} rad (route: ${(7 * Math.PI).toFixed(2)})`);
+    console.log(`play ${name}: pointer locked ${locked}, ${pos.k.toFixed(5)} rad/px, turned ${turned.toFixed(2)} rad in ${lap} laps (a lap: ${(7 * Math.PI).toFixed(2)})`);
     console.log(report ?? '(no report: use --query=perf=1)');
   }
   return result;
