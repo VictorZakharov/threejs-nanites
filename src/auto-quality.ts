@@ -182,6 +182,9 @@ export function createAutoQuality(
       tau.value = Math.min(LOW_MAX_TAU, tau.value * Math.min(1.3, over));
       lowTauAt = now;
     }
+    // (nothing comes back while the frames wait or fall behind, however low the timers: in Chrome on the AMD PC it went back up to
+    // tier 1 at 5.9 ms of timers with 27 ms from submit to done)
+    else if (upBlocked) return;
     // and back down from there first, before anything else comes back: slowly (the route between the statues and above them
     // swung the cost every few seconds, and a quick way back undid each climb before it reached them)
     else if (!zoomState && tau.value > auto.maxTau && over < 0.6 && now - lowTauAt > 10000) tau.value = Math.max(auto.maxTau, tau.value / 1.15);
@@ -297,7 +300,7 @@ export function createAutoQuality(
     return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
   };
   let behindLogged = 0, underRead = 1, underAt2 = 0, behindSince = 0;
-  let queuedSince = 0;
+  let queuedSince = 0, upBlocked = false;
   const BEHIND_LEARN = 3000, LEARN_AFTER = 20000, SUSTAIN = 1500;
   // (the under-read factor's excess halves in this long, ms)
   const UNDER_HALF = 180000;
@@ -376,6 +379,7 @@ export function createAutoQuality(
       queuedSince = q > auto.budget ? queuedSince || t : 0;
       const queued = queuedSince && t - queuedSince > SUSTAIN ? q : 0;
       const behindNow = behindSince && t - behindSince > SUSTAIN ? behind : 0;
+      upBlocked = q > auto.budget * 0.85 || behind > 0;
       auto.steer = [m, behindNow, queued];
       if (auto.on && !zoomState && m > 0) step(Math.max(m * underRead, behindNow, queued) / auto.budget, true);
     }, (err) => {
