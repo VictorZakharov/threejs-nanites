@@ -60,7 +60,7 @@ export function createAutoQuality(
   // is), the others after it: with the lowest resolution, or one that doesn't pay. (The laptop's report: a third cut-off and short
   // windows read a step as not paying, and it sat at 75% with tier 3's flat shadows, at 48 fps where 64% had 55: --probe=autosim.)
   // 1: tiny impostors as fewer, bigger quads (narrowest 4 px: 45% fewer on `laptop`, the same image and flicker), a third of the
-  // grass, wider, and the output within 2x the scene's pixel ratio (following the resolution down: an AMD iGPU upscaled 4x on DPR 3). 2: narrowest 6 px, less grass again, and the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
+  // grass, wider, the floor's relief in 8 steps, and the output within 2x the scene's pixel ratio (following the resolution down: an AMD iGPU upscaled 4x on DPR 3). 2: narrowest 6 px, less grass again, the shadow map half its side, and the output at one pixel per CSS pixel (the TAA and the output pass). 3: the map's shadows for the average shadow. On a $700 laptop's Intel Xe2 at
   // the limit: 27 ms in the forest, 14 in the Lucy forest, on a 60 Hz screen. The last in is the first out, once well under;
   // if that goes over again soon, it stays for a minute (each change is seen).
   let tier = 0, tierAt = 0, tierHold = 0, lastDown = -1e9;

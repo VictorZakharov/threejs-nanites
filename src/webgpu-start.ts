@@ -30,6 +30,7 @@ import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
+import { reliefSteps } from './ground/relief.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -178,6 +179,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
   // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
   const OUT_RATIO = Number(params.get('outratio') ?? 2);
+  const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
@@ -202,6 +204,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.capOutput(tier >= 2 ? 1 : Infinity);
     res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     lighting.forceFarShadow(tier >= 3);
+    lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
+    // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
+    reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
   });
   controls.onZoom = autoQuality.followZoom;
   // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)

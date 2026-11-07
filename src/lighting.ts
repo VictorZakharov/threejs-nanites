@@ -59,9 +59,9 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   // (a smaller map only once it's been wanted for SHRINK_MS: auto quality's resolution steps after a zoom halved it,
   // every shadow twice as coarse for a second or two, the user's "zooming in... changes shadows too much")
   const SHRINK_MS = 10000;
-  let smallerSince = 0, fitted = false;
+  let smallerSince = 0, fitted = false, mapScale = 1;
   function fitShadowMap(pixels: number): void {
-    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * Math.sqrt(pixels / (1920 * 1080))))));
+    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * mapScale * Math.sqrt(pixels / (1920 * 1080))))));
     const now = performance.now(), have = sun.shadow.mapSize.x;
     if (n < have && !smapParam && fitted) {
       smallerSince ||= now;
@@ -195,5 +195,7 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
     sun.shadow.updateMatrices(sun);
   }
 
-  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly, forceFarShadow: (on: boolean): void => void (farForce = on ? 1 : 0) };
+  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly, forceFarShadow: (on: boolean): void => void (farForce = on ? 1 : 0),
+    /** The shadow map's side x `s` (auto quality's tier 2: half, 4.5 of 38 ms on the AMD PC at 1080p). */
+    scaleShadowMap: (s: number): void => void (mapScale = s) };
 }
