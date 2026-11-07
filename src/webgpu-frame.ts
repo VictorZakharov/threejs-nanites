@@ -31,6 +31,7 @@ const SPLAT_ALTITUDE = Number(params.get('splatalt') ?? 2000); // m above the gr
 const SW_ALTITUDE = Number(params.get('swalt') ?? SPLAT_ALTITUDE);
 // occlusion culling below this (m above the ground; ?occalt=): 260 m up it cost 0.24 ms, 8.8 km up 0.4, a phone 9%
 const OCC_ALTITUDE = Number(params.get('occalt') ?? 150);
+const MIP_BIAS_MAX = Number(params.get('mipbiasmax') ?? Infinity);
 
 export interface FrameContext {
   renderer: THREE.WebGPURenderer;
@@ -88,7 +89,8 @@ export function createFrame(c: FrameContext): (dt: number) => void {
     waypoint.update(camera);
     compass.update(camera, controls.walking);
     taa.jitter(camera, size.x, size.y); // (this frame's sub-pixel offset, before anything is culled or drawn)
-    mipBias.value = taa.enabled ? -Math.log2(res.ratio()) : 0; // (textures for the output's pixels: the TAA upscales)
+    // (textures for the output's pixels: the TAA upscales. ?mipbiasmax= caps how many mip levels finer: test)
+    mipBias.value = taa.enabled ? -Math.min(MIP_BIAS_MAX, Math.log2(res.ratio())) : 0;
 
     // view distance: the higher you fly, the further you see (fog thins), up to just inside the terrain's edge
     const altitude = Math.max(0, camera.position.y - gy);
