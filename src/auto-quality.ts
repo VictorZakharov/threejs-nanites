@@ -25,7 +25,10 @@ const BEHIND = Number(new URLSearchParams(location.search).get('behind') ?? 1.2)
 /** The zoom's coarsest tau on the low-end tiers (`?zoomlowtau=`; see zoomTau). */
 const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
-const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
+const MAX_TIER = 4, TIER_MS = 2500, TIER_BACK = 0.6;
+// (a first visit on a 60-80 Hz display starts at the last tier and half the resolution and comes back up from there:
+// the AMD PC's first 10-15 s at full quality were 15-30 fps, and "we should start at 60+ FPS". ?autostart=full: as before)
+const START_LITE = new URLSearchParams(location.search).get('autostart') !== 'full';
 /** A tier stepped down to within BOUNCE_MS of coming back up from it is held for BOUNCE_HOLD (ms). */
 const BOUNCE_MS = 30000, BOUNCE_HOLD = 120000;
 /** The coarsest tau on the last tier at the lowest resolution (`?lowmaxtau=`). */
@@ -184,10 +187,11 @@ export function createAutoQuality(
     // "Under 60%" left it stuck blurry at ground level after the orbit (the user): 60-110% at half resolution.
     else if (zoomState) return;
     // (tier 1 goes last, with the resolution back: it came first)
-    else if (tier > 1 || (tier === 1 && auto.scale >= 1)) {
+    // (at the last, lite tier the resolution comes back first: the user's "blurry because resolution is low")
+    else if ((tier > 1 && !(tier === MAX_TIER && auto.scale < 1)) || (tier === 1 && auto.scale >= 1)) {
       // (well under: the tier's saving comes back on top, and the steps above don't undo each other)
       const fits = !(lastQ + (tierSaves[tier - 1] ?? 0) > (auto.budget / 0.8) * 0.9);
-      if (over < TIER_BACK && fits && now - tierAt > TIER_MS * 2 && now > tierHold) {
+      if (over < TIER_BACK && fits && now - tierAt > (over < 0.35 ? TIER_MS / 2 : TIER_MS * 2) && now > tierHold) {
         lastDown = now;
         setTierTo(tier - 1);
         if (timed) restart();
@@ -254,12 +258,20 @@ export function createAutoQuality(
   let restored = false, lastSave = 0;
   const remember = (now: number): void => {
     const key = auto.remember;
-    if (!key) return;
+    if (!key && restored) return;
     try {
       if (!restored) {
         restored = true;
-        const s = JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null;
-        if (!s || !auto.on) return;
+        const s = key ? (JSON.parse(localStorage.getItem(key) ?? 'null') as { tier: number; scale: number; tau: number } | null) : null;
+        if (!auto.on) return;
+        if (!s) {
+          if (!START_LITE || auto.budget / 0.8 < 12) return;
+          setScale(0.5);
+          setTierTo(MAX_TIER);
+          logStep('started lite: the last tier, half the resolution');
+          lastAdjust = now;
+          return;
+        }
         tau.value = Math.max(tau.value, Math.min(s.tau, auto.maxTau));
         if (s.scale > 0 && s.scale < auto.scale) setScale(s.scale);
         if (s.tier > 0) setTierTo(Math.min(MAX_TIER, s.tier));
@@ -267,7 +279,7 @@ export function createAutoQuality(
         lastAdjust = now;
         return;
       }
-      if (!auto.on || zoomState || now - lastSave < 5000 || now - lastAdjust < 8000 || now - tierAt < 8000) return;
+      if (!key || !auto.on || zoomState || now - lastSave < 5000 || now - lastAdjust < 8000 || now - tierAt < 8000) return;
       lastSave = now;
       localStorage.setItem(key, JSON.stringify({ tier, scale: auto.scale, tau: tau.value }));
     } catch {

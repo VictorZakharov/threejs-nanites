@@ -3,7 +3,7 @@
 // (src/webgpu-frame.ts), the HUD, menu and harness API, then the shaders compiled and the first frame shown.
 import * as THREE from 'three/webgpu';
 import { vec4, mrt, output as colourOutput } from 'three/tsl';
-import { heightAt, terrainForAltitude, type createTerrain } from './terrain.ts';
+import { heightAt, terrainForAltitude, plainGround, type createTerrain } from './terrain.ts';
 import { setupGround } from './ground/setup.ts';
 import { VARIANTS, type BuiltTree } from './trees.ts';
 import { PHASE2_LAYER } from './nanite-lib/index.ts';
@@ -185,7 +185,12 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // at 1 per CSS px: in a visible window on the AMD PC (DPR 3) a 1920x877 output took 17 ms from submit to done for 11.5 of
   // GPU timers (the browser's compositing: untimed), 1280x585 12.5 for 10.5. (Lifted once on headless numbers, which
   // composite nothing: a day's lag on the AMD PC.)
-  const OUT_TIER2 = Number(params.get('outtier2') ?? 1);
+  // (FullHD at the AMD PC's 1280x585 CSS window: the user asked for it; 1 per CSS px was 1280x585 stretched 3x, "blurry")
+  const OUT_TIER2 = Number(params.get('outtier2') ?? 1.5);
+  // the lite tier (4): what was left at the spawn on the AMD PC at a FullHD output, GPU timers 17.7 -> ~12 ms at 1357x620
+  // (the plain ground ~1.7, grass and god rays ~1.2, impostors from 4x the size ~0-4 over the canopy, no finer mips ~1)
+  const IMP_LITE = Number(params.get('implite') ?? 4), impPxBase = forest.u.impostorPx.value;
+  const liteOff = { grass: false, rays: false };
   const MIP_TIER = Number(params.get('miptier') ?? 0.5);
   const FAR_SHADOW_TIER = Number(params.get('farshadowtier') ?? Infinity);
   const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
@@ -215,7 +220,14 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
     // mips were most of the cost of upscaling, and at 0.5 the image looks the same: src/resolution.ts)
-    res.capMipBias(tier >= 1 ? MIP_TIER : Infinity);
+    res.capMipBias(tier >= 4 ? 0 : tier >= 1 ? MIP_TIER : Infinity);
+    plainGround.on = tier >= 4 || params.get('plainground') === '1';
+    forest.u.impostorPx.value = impPxBase * (tier >= 4 ? IMP_LITE : 1);
+    // (hidden by the tier, shown again by it: a switch the menu turned off stays off)
+    if (tier >= 4 && grass.group.visible) (grass.group.visible = false), (liteOff.grass = true);
+    else if (tier < 4 && liteOff.grass) (grass.group.visible = true), (liteOff.grass = false);
+    if (tier >= 4 && rays.enabled) (rays.enabled = false), (liteOff.rays = true);
+    else if (tier < 4 && liteOff.rays) (rays.enabled = true), (liteOff.rays = false);
     // (tier 3 keeps real shadows from a quarter-size map, down to 256: the average far shadow it used to switch to made the
     // forest flat and evenly lit, "no quality" (the user on the AMD PC). There 256 cost +0.3..0.5 ms, 512 +0.8..1.1, and
     // looked nearly alike: softer dapples. ?farshadowtier=3: the old)
