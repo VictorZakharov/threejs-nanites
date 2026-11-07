@@ -64,6 +64,10 @@ const toRGB = (y: Vec3): Vec3 => vec3(y.x.add(y.y).sub(y.z), y.x.add(y.z), y.x.s
 // history around: it never settled (the user: statues flicker zoomed, side-on to the sun; T stops it; --probe=stillfilm).
 const BOX_MOVING = 1.25, BOX_STILL = Number(params.get('taastill') ?? 3);
 const PERCEPTUAL = params.get('taaspace') !== 'linear';
+// (?taalean=0: the old reads) The resolve runs per output pixel, the TAA's dearest pass on a weak GPU (the AMD PC: ~4 ms per
+// million pixels). Lean: the god rays (smooth, half resolution) read once for the 3x3, not 9 times; the depth's dilation over
+// the cross (5), not the square; the history's weight from a Catmull-Rom tap, not its own read. 34 reads a pixel -> 21.
+const LEAN = params.get('taalean') !== '0';
 const enc = (c: Vec3): Vec3 => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
 const dec = (c: Vec3): Vec3 => (PERCEPTUAL ? c.mul(c) : c);
 
@@ -86,6 +90,8 @@ export class TAA {
   readonly prevViewProjCPU = new THREE.Matrix4();
   readonly prevViewer = new THREE.Vector3();
   readonly outSize = new THREE.Vector2();
+  /** The history's size (src/resolution.ts's `taa`); null: the canvas's. The output pass upscales it to the canvas. */
+  size: THREE.Vector2 | null = null;
   lastRatio = 0;
   readonly historyTex: THREE.TextureNode;
   readonly quad: THREE.QuadMesh;
@@ -121,6 +127,7 @@ export class TAA {
       kernel: uniform(-KERNEL), // (-KERNEL / ratio)
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
       off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
+      histSize: uniform(new THREE.Vector2(1, 1)), // the history's pixels (the output pass's texel)
     };
     this.historyTex = texture(this.history[0].texture);
     const mat = new THREE.NodeMaterial();
@@ -129,7 +136,7 @@ export class TAA {
     this.quad = new THREE.QuadMesh(mat);
     this.outputTex = texture(sceneRT.texture);
     // ... through a light unsharp mask (4 neighbours) when TAA is on
-    const px = vec2(1).div(screenSize);
+    const px = vec2(1).div(this.u.histSize);
     const c = extra ? this.outputTex.rgb.add(extra(screenUV).mul(this.u.off)) : this.outputTex.rgb;
     // (in a compressed space, x / (1 + x): in linear HDR the sun's disc, far above 1, pulled the pixels around it
     // below zero, a black ring round the sun, and isolated dark specks against the sky went black)
@@ -154,8 +161,10 @@ export class TAA {
       // this frame's jitter), and the texel whose sample lands nearest it
       const at = screenUV.mul(R).sub(u.jitterOff);
       const p = ivec2(clamp(at.floor(), vec2(0), R.sub(1))).toVar();
+      const rays = LEAN && this.extra ? this.extra(vec2(p).add(0.5).div(R)).toVar() : null;
       const sceneAt = (q: IVec2): Vec3 => {
         const c = textureLoad(colour, q).rgb;
+        if (rays) return c.add(rays);
         return this.extra ? c.add(this.extra(vec2(q).add(0.5).div(R))) : c;
       };
       // the 3x3 samples round it: this frame's value at the pixel (each weighted by how far from its centre it
@@ -176,7 +185,7 @@ export class TAA {
           const c = toYCoCg(e);
           m1.addAssign(c);
           m2.addAssign(c.mul(c));
-          zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
+          if (!LEAN || dx === 0 || dy === 0) zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
         }
       for (let k = 1; k < samples; k++) zMin.assign(min(zMin, textureLoad(depth, p, int(k)).x));
       const mean = m1.div(9);
@@ -204,14 +213,15 @@ export class TAA {
         .sub(wind ? textureLoad(wind, p).xy : vec2(0)); // (none in the WebGL mode: src/webgl/output.ts)
       const onScreen = prevUv.x.greaterThanEqual(0).and(prevUv.x.lessThanEqual(1)).and(prevUv.y.greaterThanEqual(0)).and(prevUv.y.lessThanEqual(1));
       // history, clipped towards the mean into the box (clipping, not clamping: no colour shift at the box corners)
-      const hist = toYCoCg(enc(this._catmullRom(prevUv)));
+      const histTaps = this._catmullRom(prevUv);
+      const hist = toYCoCg(enc(histTaps.rgb));
       const d = hist.sub(mean);
       const moved = clamp(length(prevUv.sub(screenUV).mul(screenSize)).mul(4), 0, 1);
       const ext = max(sigma.mul(moved.mul(BOX_MOVING - BOX_STILL).add(BOX_STILL)), vec3(1e-4));
       const outside = max(max(abs(d.x).div(ext.x), abs(d.y).div(ext.y)), abs(d.z).div(ext.z)); // (> 1: outside the box)
       const clipped = toRGB(select(outside.greaterThan(1), mean.add(d.div(outside)), hist));
       // the history's weight: none off screen or after a reset, less the further outside the box it was
-      const kept = select(onScreen.and(u.resetting.equal(0)), min(this.historyTex.sample(prevUv).a, u.maxWeight), float(0));
+      const kept = select(onScreen.and(u.resetting.equal(0)), min(LEAN ? histTaps.a : this.historyTex.sample(prevUv).a, u.maxWeight), float(0));
       const wHist = kept.mul(clamp(float(2).sub(outside), 0.5, 1));
       // blend in tone-mapped space (weights 1 / (1 + luma)): bright sky pixels don't swamp the leaves next to them
       const cur = sum.div(max(w, 1e-5));
@@ -228,7 +238,7 @@ export class TAA {
    * The history at `uv`, Catmull-Rom filtered (5 bilinear taps): a plain bilinear lookup blurs a little more every
    * frame wherever things move (the leaves in the wind), and the trees went soft.
    */
-  _catmullRom(uv: Vec2): Vec3 {
+  _catmullRom(uv: Vec2) {
     const size = screenSize;
     const pos = uv.mul(size);
     const t1 = pos.sub(0.5).floor().add(0.5);
@@ -240,13 +250,14 @@ export class TAA {
     const w12 = w1.add(w2);
     const t0 = t1.sub(1).div(size), t3 = t1.add(2).div(size), t12 = t1.add(w2.div(w12)).div(size);
     const tap = (x: Float, y: Float, w: Float): Vec3 => this.historyTex.sample(vec2(x, y)).rgb.mul(w);
+    const mid = this.historyTex.sample(t12); // (its alpha: the history's weight, near enough the pixel's own)
     const sum = tap(t12.x, t0.y, w12.x.mul(w0.y))
       .add(tap(t0.x, t12.y, w0.x.mul(w12.y)))
-      .add(tap(t12.x, t12.y, w12.x.mul(w12.y)))
+      .add(mid.rgb.mul(w12.x.mul(w12.y)))
       .add(tap(t3.x, t12.y, w3.x.mul(w12.y)))
       .add(tap(t12.x, t3.y, w12.x.mul(w3.y)));
     const wsum = w12.x.mul(w0.y).add(w0.x.mul(w12.y)).add(w12.x.mul(w12.y)).add(w3.x.mul(w12.y)).add(w12.x.mul(w3.y));
-    return max(sum.div(wsum), vec3(0));
+    return vec4(max(sum.div(wsum), vec3(0)), mid.a);
   }
 
   /**
@@ -264,8 +275,8 @@ export class TAA {
       ditherShift.value.set(0, 0);
       return;
     }
-    this.renderer.getDrawingBufferSize(this.outSize);
-    const ratio = this.outSize.x / width;
+    const out = this.size ?? this.renderer.getDrawingBufferSize(this.outSize);
+    const ratio = out.x / width;
     const i = (this.frame % phasesOf(ratio)) + 1;
     const jx = (halton(i, 2) - 0.5) * this.spread, jy = (halton(i, 3) - 0.5) * this.spread;
     const e = camera.projectionMatrix.elements;
@@ -297,8 +308,9 @@ export class TAA {
       this.outputTex.value = this.sceneRT.texture;
       return;
     }
-    r.getDrawingBufferSize(this.outSize);
-    const w = this.outSize.x, h = this.outSize.y;
+    const out = this.size ?? r.getDrawingBufferSize(this.outSize);
+    const w = out.x, h = out.y;
+    this.u.histSize.value.set(w, h);
     const src = this.history[this.frame % 2], dst = this.history[(this.frame + 1) % 2];
     for (const rt of this.history) if (rt.width !== w || rt.height !== h) {
       rt.setSize(w, h);

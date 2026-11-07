@@ -11,6 +11,8 @@ import { LEAF_DITHER } from './nanite-lib/index.ts';
 import { createClouds } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
+import { budgetFor, refreshRate } from './refresh.ts';
+import { impMinPx, MIN_PX } from './nanite-lib/index.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
@@ -27,6 +29,8 @@ import { GodRays } from './godrays.ts';
 import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { createPrepassTrial } from './prepass-trial.ts';
+import { reliefSteps } from './ground/relief.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -137,6 +141,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
 
   const built = await buildForest({
+    harness: HARNESS,
     renderer, scene, camera, ui, demo, params, TREE_COUNT, terrainSize, barkTypes, leafTypes, t0, plantedMs, barkLayers, leafLayers, planting, growing,
     sceneName, samples, terrain, ground, lighting, shadowsOn: () => shadowsOn, pre,
   });
@@ -171,11 +176,21 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
-  const budget = Number(params.get('budget') ?? (isTouchDevice(params) ? 14 : 5.5));
+  // (?outratio=) From tier 1 the output stays within this many pixels per scene pixel, along each axis: an AMD iGPU on a DPR 3
+  // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
+  // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
+  const OUT_RATIO = Number(params.get('outratio') ?? 2);
+  const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
+  const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
+  const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
   // screen at tau 2.3 (the user), and far statues look the same at 2.3 and 4; `userstill` 8.7M -> 5.1M, `statue`'s pops
   // +12% (--sweep=lod, 715 -> 799), its feathers softer from 4 on. A preset or a manual tau can still go finer.
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
+  // (where it settled on this screen and scene: the next visit starts there; ?autoremember=0 never, the harness only with =1)
+  if (params.get('autoremember') === '1' || (!HARNESS && params.get('autoremember') !== '0')) {
+    void sceneName.then((name) => (auto.remember = `nanite-auto ${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
+  }
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
@@ -184,8 +199,19 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls);
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
+    impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
+    grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
+    res.capOutput(tier >= 2 ? 1 : Infinity);
+    res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
+    lighting.forceFarShadow(tier >= 3);
+    lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
+    // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
+    reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
+  });
   controls.onZoom = autoQuality.followZoom;
+  // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
+  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
@@ -201,6 +227,8 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   // the canvas at the display's resolution, the scene at auto quality's (src/resolution.ts; the TAA upscales)
   const res = createResolution(renderer, camera, sceneRT, params);
+  taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
+  if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
   const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
   const fitToWindow = (): void => res.fit();
   fitToWindow();
@@ -219,7 +247,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   // HUD and performance panel
   const hud = createHud({
-    renderer, camera, controls, forest, taa, auto, size, output: res.output, samples, shadowsOn: () => shadowsOn,
+    renderer, camera, controls, forest, taa, auto, size, output: res.output, taaSize: res.taa, samples, shadowsOn: () => shadowsOn,
     harness: HARNESS && params.get('perf') !== '1', // (?perf=1: the panel under the harness too)
     adapterName: [ai.vendor, ai.architecture, ai.description].filter(Boolean).join(' ') || 'unknown adapter',
   });
@@ -243,14 +271,37 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // settings menu + keyboard shortcuts (src/menu.ts)
   createMenu({ controls, u: forest.u, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
+  // At most a few frames on the GPU (?gpuqueue=N, below): Chrome queued
+  // several 40 ms frames on the AMD PC's iGPU, which it shares with Windows' compositor, and the whole PC lagged behind them
+  // (the user: the mouse moved in jumps, a button click was skipped).
+  // (?gpuqueue=N: at most N frames on the GPU, 0 no limit; default 2: one drawn, one waiting, so the GPU never idles to the
+  // next vsync. The AMD PC at 1080p: no limit, frames waited a median 5 s in the queue; 1, 45 ms but 14% fewer frames)
+  const maxQueue = Number(params.get('gpuqueue') ?? 2);
+  let inFlight = 0;
+  const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
   function loop() {
+    if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
     const now = performance.now();
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
     else frame(dt);
+    // (from the frame's submit to its GPU work done: past a frame's own GPU time, frames are waiting in the queue, and so is
+    // the desktop's compositor behind them. The report's 'gpu queue'; --probe=gpuqueue on the AMD PC)
+    const submitted = performance.now(), bound = gpuBound();
+    if (bound) inFlight++;
+    gpuBackend(renderer).device.queue.onSubmittedWorkDone().then(() => {
+      const ms = performance.now() - submitted;
+      auto.queueMs = auto.queueMs ? auto.queueMs * 0.9 + ms * 0.1 : ms;
+      (auto.queueLog ??= []).push(ms);
+      if (auto.queueLog.length > 3000) auto.queueLog.shift();
+    }).finally(() => {
+      if (bound) inFlight--;
+    });
+    if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
+    prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
   }

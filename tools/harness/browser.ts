@@ -83,7 +83,9 @@ export async function launchBrowser(): Promise<Browser> {
   const fails: string[] = [];
   for (const channel of ['chromium', 'msedge', 'chrome']) {
     try {
-      return await chromium.launch({ headless: true, channel, args: gpuArgs() });
+      // (HARNESS_HEADED=1: a visible window, so frames are presented and the desktop composites them: frame pacing and
+      // queueing as a person sees them. npm run remote -- --headed starts it on the test PC's desktop)
+      return await chromium.launch({ headless: process.env.HARNESS_HEADED !== '1', channel, args: gpuArgs() });
     } catch (e) {
       fails.push(`${channel}: ${String(e instanceof Error ? e.message : e).split('\n')[0]}`);
     }

@@ -59,9 +59,9 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   // (a smaller map only once it's been wanted for SHRINK_MS: auto quality's resolution steps after a zoom halved it,
   // every shadow twice as coarse for a second or two, the user's "zooming in... changes shadows too much")
   const SHRINK_MS = 10000;
-  let smallerSince = 0, fitted = false;
+  let smallerSince = 0, fitted = false, mapScale = 1;
   function fitShadowMap(pixels: number): void {
-    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * Math.sqrt(pixels / (1920 * 1080))))));
+    const n = smapParam ? Number(smapParam) : 2 ** Math.min(11, Math.max(9, Math.round(Math.log2(2048 * mapScale * Math.sqrt(pixels / (1920 * 1080))))));
     const now = performance.now(), have = sun.shadow.mapSize.x;
     if (n < have && !smapParam && fitted) {
       smallerSince ||= now;
@@ -112,13 +112,16 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
   // altitude, not the map's stepped extent): the coarse map lets light through the crowns, the calibrated average is
   // 6-8/255 darker, a jump as you climbed.
   const FAR_TEXEL = Number(params.get('fartexel') ?? 5);
+  let farForce = 0, farForced = 0; // (auto quality's last tier: the average shadow at any height, eased)
   let agl = 0, half = 110; // (half: the map's half-extent before its steps)
   const RISE = 80; // (m: the tallest above the ground, the Lucy scene's 20x statues; trees ~35 m: the map's height up the sun)
   /** Per frame, after follow(): the average shadow's share everywhere; true when it's all of it (skip the pass). */
   function shadowFarOnly(): boolean {
     const texel = (2 * half) / sun.shadow.mapSize.x;
     const t = Math.min(1, Math.max(0, (texel - FAR_TEXEL / 2) / (FAR_TEXEL / 2)));
-    farEverywhere.value = params.get('farall') === '1' ? 1 : t * t * (3 - 2 * t);
+    farForced += Math.sign(farForce - farForced) * Math.min(Math.abs(farForce - farForced), 1 / 90); // (~1.5 s at 60 fps)
+    const b = t * t * (3 - 2 * t);
+    farEverywhere.value = params.get('farall') === '1' ? 1 : Math.max(b, farForced * farForced * (3 - 2 * farForced));
     return farEverywhere.value >= 1;
   }
   // The biases (follow) are in texels: fixed at 0.6 m and ~0.64 m of depth, sized for metre texels, near the ground
@@ -192,5 +195,7 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
     sun.shadow.updateMatrices(sun);
   }
 
-  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly };
+  return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly, forceFarShadow: (on: boolean): void => void (farForce = on ? 1 : 0),
+    /** The shadow map's side x `s` (auto quality's tier 2: half, 4.5 of 38 ms on the AMD PC at 1080p). */
+    scaleShadowMap: (s: number): void => void (mapScale = s) };
 }

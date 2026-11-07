@@ -55,6 +55,50 @@ planet-curved world (R = 150 km). Smooth (GPU budget 5.5 ms on desktop: 144 Hz o
 and it must *look* right: no popping, flicker, brightness seams or missing trees. Feedback comes from the live site,
 by screenshot and the performance panel's copied report.
 
+**Reference low-end device** (the user's, since 2026-11-06; before it the $700 Intel Xe2 laptop): a PC with an AMD RDNA 2
+iGPU, a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown. Its first report (production, tau 8, 50%
+resolution) was 18.7 fps, 44 ms of GPU time, nearly all of it by pixels: ~27 ms in the TAA and output passes, the scene's
+pixels ~16. Tune the low-end steps and their estimates against it: `--device=amd` (its screen, and for `--probe=autosim`
+its GPU modelled on the dev GPU's, `tools/harness/options.ts`) with the `amdground` view (its report's camera).
+It's reachable over SSH (since 2026-11-07): `npm run remote -- <harness options>` runs the harness on it, at this commit
+(pushed), and copies `tools/out` back to `tools/out/remote/` (`tools/remote/run.ts`; host alias `amd-pc` in the dev
+machine's ~/.ssh/config; set up once with `tools/remote/setup-device.ps1`). Measure there before telling the user what a
+change does on a weak GPU; the PC must be on. Its Profile GPU takes over 300 s: `--timeout=900`.
+
+## Mistakes not to repeat
+
+What went wrong in past sessions (the user: "document all slops, so next time they don't happen"):
+- **Estimates as if measured.** A weak GPU's frame time was predicted by scaling the dev GPU's numbers (x15, then a
+  model): "about 12 ms" came back as a worse report (48 fps against 55), and a x15 model read 40-50 ms after every tier.
+  The dev GPU's split of the frame isn't a weak GPU's (on the AMD PC tree draws were 56% of the frame, on the dev GPU
+  under 20%). Measure on the device (`npm run remote`); label anything else an estimate, with what it rests on.
+- **A saving read off a broken image.** A rewritten impostor shader rendered black and its runs read as faster; a TSL
+  var first assigned in a branch reset in the next. Look at the images (`img.ts mean`, crops) before believing a number.
+- **Floating-point thresholds.** `Math.SQRT1_2 ** 2` is 0.5000000000000001: two resolution steps landed just above
+  `<= 0.5`, and the tiers stalled. Compare with a margin (`<= 0.505`) where a value comes from arithmetic.
+- **A new rule without its exit.** A "don't climb back to the resolution you left" ceiling also held with the GPU far
+  under budget (71% with 40 ms spare). For every hold or ceiling, check the case where the cost has gone away.
+- **Explaining before reading.** A tier "stall" was explained with a guess; the code showed Profile GPU cleared the
+  tiers. Read the code path before telling the user why.
+- **A switch tuned on one GPU.** The leaf prepass's density rule came from the dev GPU; the AMD PC saved 2.4-7 ms with
+  it on where the rule said off (and at 1080p the dev GPU did too). A per-GPU trade-off is measured on the device, or
+  decided at run time by timing both.
+- **Building before checking the picture.** A 4K output-pass upscale was built and wired before seeing that a bilinear
+  upscale looks like the browser's stretch. Mock the visual result (`--ab`, crops) first, then build.
+- **The panel's own guesses.** "display ~30 Hz" was the slow GPU's frame rate read as the screen's. Values derived from
+  what's being measured can't describe the setup.
+- **Scripts the user runs.** A setup script went silent for minutes on one step (Windows' capability install) and read
+  as frozen. Anything the user runs by hand shows numbered, timed steps, each tool's own progress, and stops on an
+  error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
+- **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
+  every argument (`tools/remote/run.ts` does).
+- **An unbounded GPU queue.** Chrome kept submitting frames the AMD PC's iGPU couldn't keep up with: at 1080p each
+  waited a median 5 s from submit to done, and the desktop behind them (the mouse moved in jumps). Found only by the user,
+  on that PC: the dev GPU never queues. The page's loop now keeps at most 2 frames on the GPU (`?gpuqueue=N`; 1 cost 14%
+  of the frames, 2 none: 78 ms), the report shows submit-to-done, `--probe=gpuqueue` measures it (headless queues too).
+- **"Impossible".** Native 4K at 60 fps on the iGPU was called out of reach; the user's target (1080p at 60, upscaled
+  to 4K) was the useful framing. Say what a goal costs and what has to get cheaper, not that it can't be done.
+
 ## Open work: GitHub issues
 
 Open problems and planned work are GitHub issues (`gh issue list`), labelled by priority (`P1` next up, `P2`, `P3`),
@@ -445,8 +489,8 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   already binds 8 storage buffers; ~1.1k chunks). It was a thread per instance, 2.5M, twice: the shadow map covers a
   few hundred metres (-0.4 ms compute on the ground, -0.2..0.4 from above; `?chunks=0` tests every chunk: same image). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
-- Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (default 5.5 ms: 144 Hz on the
-  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
+- Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (80% of the display's frame, `src/refresh.ts`, at least 5.5 ms: 144 Hz on the
+  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices; `?budget=`); past the coarsest tau, the low-end tiers, least seen first, tier 1 before the resolution and the others after it (`--probe=autosim` replays a weak, noisy GPU; the report's `auto steps` is a device's path): 1 impostors at least 4 px wide (`impMinPx`, `?impmin=`: fewer, bigger quads, coverage kept; at half resolution most of their cost is per quad; `laptop` 87k -> 48k, the same image and flicker) and the grass at density 2 (`grass.thin`, `grassShare`: full to 2 m, the share from 40 m, each blade by its own chance and wider, cells rejected before the keep pass's noise; a phone's own density stays; density 1 made the far blades fat triangles and saved little more) and the output within 2x the scene's pixel ratio (`capRatio`, `?outratio=`: nothing at full resolution, the output follows the scene down; an AMD iGPU at DPR 3 upscaled 960x439 to 3840x1755 and its TAA and output passes were ~26 of 44 ms; the dev GPU at that size 1.82 -> 0.93 ms, means within 1/255, softer: the browser stretches the rest; a new output size waits for the next frame's `fit()`), 2 at least 6 px, density 1.5 and the output at one pixel per CSS pixel, 3 the average shadow for the map's (eased; `--probe=lowend`; the user's $700 laptop's Intel Xe2 at the limit: 27 ms in the forest, 14 in the Lucy forest; the forest's split, `--probe=cost` at its settings: main-view impostors dominate, tree geometry ~0.3 ms); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
   after the orbit). At full detail (tau 1) under 55% of the budget it raises the resolution past the base pixel ratio
@@ -478,13 +522,14 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   miss a small statue's wing: use `--lodcheck`, whose reference is the model drawn at high detail. Tau 2 zoomed on
   `oblique` hits the 1M cluster cap (`CAP`), statues missing up to 83% of their shape, so don't refine past the lists.
   Small statues are off whatever the tau (unzoomed, under 16 px: ~25% of the shape lost, +8..12/255 luma against a
-  control's -2): not explained yet. A resolution step down is a trial: if it saved under a third of its share of the pixels
+  control's -2): not explained yet. Twice the budget or more, it hurries: no trials, 0.7 s between steps (the AMD PC took 16 s at 15-17 fps to settle). Where it settled is kept per scene and screen (`auto.remember`, localStorage, written after 8 s still; `?autoremember=0|1`, the harness only with 1) and the next visit starts there. A resolution step down is half the pixels and a trial (a small last one isn't: too little to read), held 10 s before coming back up, and for a minute not back to the resolution it left: if it saved under a fifth of its share of the pixels
   (median raw samples before / after), it goes back and the resolution holds until the cost changes by half (after
   10 s) or for a minute: a phone 8 km up sat at 50%, blurry, for nothing (half the pixels saved 9%: impostors and
   shadows; the user: "with blur, makes it look lame"); `--probe=auto` lists the `trials`. It's off
   under the harness; `?auto=1&touch=1` runs a phone's startup (it starts at 60% resolution) — check it after touching
   `webgpu-start.ts`'s setup order: a phone-only startup crash shipped once.
-- Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): FPS avg / 1% low over 15 s,
+- Performance panel (`src/perf-panel.ts`, wired in `src/hud.ts`, after cape-physics): its display rate is `refreshRate()`'s
+  (from its own fastest frames, an iGPU at 18 fps read as a 30 Hz screen); FPS avg / 1% low over 15 s,
   frame p95, GPU draw + compute; a click copies a text report (the user's way to send numbers from other devices).
   C copies it too, with the mouse still captured (a click releases it, which ends a zoom). The report ends with what changed
   in the 4 s after the last zoom in (`src/zoom-log.ts`): tau, resolution, the shadow map, frames over 50 ms, model fills, and the
@@ -791,6 +836,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   +0.33, `topdown` +0.1, `d1500` +0.04 ms, ground views and `orbit` (splats) +0; at the phone's size `overview`
   +0.55, `slope` +0.33, `topdown` and `phone9k` -0.2. Motion: `--dolly` slope 32 -> 11 flicker events, fogline the
   same, `--sweep=lod` a little fewer jumps.
+- The impostor material's fragment does everything once (`buildImpostorMesh`; `--probe=wgsl` prints what three.js generates): the colour's Fn is built first, so it holds the tile samples and the alpha as vars and the emissive and normals read them. Written plainly, a pixel sampled the colour tile up to 4 times (15 samples in the code, 4 now) and shaded what it then discarded: a select's branches don't share temporaries, and a discard doesn't stop the shader, so the colour, the normals and the shadow's 5 taps (a position off the map skips them) are kept from those pixels by hand. Varyings 13 locations -> 5, most flat. `--probe=cost` old against new in one page, 1422x739 at pr 0.675, tau 8: `laptop` -18% of the frame's GPU time, `slope` -21%, `d1100` -8%, Lucy 0; means within 0.1/255 on 7 views. Trap: a node shared between branches is set only in the first it's built in (the gains read another tile's elevation, some crowns came out dark), so `uvOf` / `elevOf` build new nodes and what's shared is a root `toVar`. A var first assigned in a branch resets to its first value in the next: assign it at the root first (black impostors). Check the image, not just the numbers: both of those read as savings. The hardware leaves likewise (`_buildMesh` in `draw.ts`; 3 samples of the leaf a pixel -> 1, the colour and shadow only for pixels kept): `canopy` -13%, `ground` -5%, `laptop` 0, the same image; the resolves' shadow taps too. Against all that, drawing the chunks nearest first was slower (+0.12 ms on `laptop`).
 - Tiny impostors are splatted in compute (`src/nanite-lib/gpu/splats.ts`, Nanite's way with tiny triangles): from
   `?splatalt=` (2 km) above the ground the instance pass lists an impostor under `?splatpx=` (3) px wide in the
   impostor list from its top down (another buffer would be a 9th in the instance pass), and one thread per splat
@@ -869,7 +915,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   for the old blend): averaged in linear light, the far pines' tips (sub-pixel specks against the bright sky) came
   out as pale ghosts (the user: "ghosted peaks"; `peaks` view, ridge colour vs `taa=0&pr=2` at 800x450); the output adds a light unsharp mask
   (`?sharpen=`). Small real trees shimmered in motion and impostors didn't: that's what made the switch band
-  visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU.
+  visible while moving (`--dolly` on `slope`: 71 flicker events -> 9). Costs ~0.5 ms GPU. The resolve reads the god rays once for its 3x3, dilates the depth over the cross and takes the history's weight from a Catmull-Rom tap (`?taalean=0` the old): 34 reads a pixel -> 21, the same image (`slope`, `sunrays`), 6% of it on the dev GPU at 4K. Its history has its own size (`res.taa`, `taa.size`); `?out4k=1` keeps the canvas at the display's pixels under the caps and the output pass upscales (bilinear: looked like the browser's stretch), `?taapr=` sets the cap.
 - Far shimmer under TAA: distant trees were hard cut-outs (impostor alpha sharpened by `impostorCoverage`, software
   leaves by the a2c smoothstep), so each few-pixel crown was a blob that hit or missed pixels, and TAA's history
   clipping let that through when turning. With TAA on, impostors and software-rasterized leaves instead draw each
@@ -886,6 +932,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
   40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.
 - The output's unsharp mask runs in x/(1+x): in linear HDR it made a black ring round the sun.
+- Frames in flight (`src/webgpu-start.ts`'s loop): at most `?gpuqueue=` (2) frames between submit and GPU done; past that
+  the display frame is skipped. Without it a GPU that can't keep up builds a queue of seconds, and on an iGPU the desktop's
+  compositor waits behind it: input lags system-wide. The report's gpu line ends with the eased submit-to-done time. The WebGL
+  mode has no such limit (no submitted-work callback).
 - Walking (`src/controls.ts`): on the ground at eye height 1.7 m with gravity; Space jumps, Space again in the air
   flies; flying down onto the ground walks again. Off under the harness (views are placed in the air) unless
   `?walk=1`; `--probe=walk --query=walk=1` checks it.

@@ -22,8 +22,8 @@ import {
 import type { ComputeNode } from 'three/webgpu';
 import { ELEVATIONS, IMPOSTOR_CUT, TILE_W, TILE_H, atlasLayout } from '../impostors/atlas.ts';
 import type { ImpostorAtlas } from '../impostors/atlas.ts';
-import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impostorCov, impostorShare, impostorView } from './billboards.ts';
-import { MIN_PX, PHASE2_LAYER, SPLAT, SPLAT_BIT, WG, minU, minI, maxI } from './constants.ts';
+import { GROW, ELEV_STEP, IMP_DITHER, IMP_COV, deg, keepShare, impMinPx, impostorCov, impostorShare, impostorView } from './billboards.ts';
+import { PHASE2_LAYER, SPLAT, SPLAT_BIT, WG, minU, minI, maxI } from './constants.ts';
 import { MAX_PIXELS } from './softraster.ts';
 import { ditherAlt, typeId, mipBias } from './shading.ts';
 import { setEmissive, asReceivedShadow, floatBits } from '../three-gaps.ts';
@@ -123,7 +123,7 @@ export class Splats {
   /** The shape's quad on screen (as the impostor draw places it: its corners through the same camera). */
   quad(sh: Shape): Quad {
     const sw = this.nanite.sw;
-    const enlarge = max(float(MIN_PX).div(max(sh.wPx, 1e-3)), 1);
+    const enlarge = max(impMinPx.div(max(sh.wPx, 1e-3)), 1);
     const g = sh.grow.mul(enlarge);
     const w = sh.w0.mul(g).toVar(), h = sh.h0.mul(g).toVar();
     const right = vec3(sh.dir.z, 0, sh.dir.x.negate()).add(vec3(1e-4, 0, 0)).normalize().toVar();
@@ -134,7 +134,7 @@ export class Splats {
     const o = screen(clip(0, 0)).toVar();
     const ex = screen(clip(1, 0)).sub(o).toVar(), ey = screen(clip(0, 1)).sub(o).toVar();
     const depth = sw.viewProj.mul(vec4(this.nanite.look.curve(sh.pivot), 1)).w.toVar();
-    const keep = sh.shared.and(sh.wPx.greaterThanEqual(MIN_PX).or(hash(sh.inst.add(7)).lessThan(keepShare(sh.wPx))));
+    const keep = sh.shared.and(sh.wPx.greaterThanEqual(impMinPx).or(hash(sh.inst.add(7)).lessThan(keepShare(sh.wPx))));
     return { o, ex, ey, det: ex.x.mul(ey.y).sub(ex.y.mul(ey.x)).toVar(), depth, keep, right, up, rightN: select(flip, right.negate(), right), w, h, flip };
   }
 
@@ -272,7 +272,8 @@ export class Splats {
     mat.normalNode = normalize(cameraViewMatrix.mul(vec4(nWorld.add(sh.dir.mul(1e-3)), 0)).xyz);
     setEmissive(mat, select(u.debug.equal(5), SPLAT_DEBUG, select(u.debug.equal(4), typeId(sh.type), select(u.debug.greaterThan(0), vec3(0.9, 0.2, 0.8), col.mul(0.12)))));
     // (the shadow map on its sun side, past its own caster quad: see vShadowPos)
-    mat.receivedShadowPositionNode = this.nanite.look.curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5))));
+    // (off the map for the pixels it discards, see SoftRaster's)
+    mat.receivedShadowPositionNode = select(id.lessThan(uint(SPLAT_BIT)), vec3(1e7), this.nanite.look.curve(onQuad.add(u.sunDir.mul(q.w.add(q.h).mul(0.5)))));
     mat.receivedShadowNode = asReceivedShadow(shading.shadow(world));
     const clip = sw.viewProj.mul(vec4(world, 1));
     mat.depthNode = clip.z.div(clip.w);

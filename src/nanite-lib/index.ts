@@ -26,6 +26,7 @@ export { workerError } from './worker-error.ts';
 
 // the GPU-driven renderer
 export { NaniteRenderer } from './gpu/renderer.ts';
+export { impMinPx } from './gpu/billboards.ts';
 export { defaultLook, type NaniteLook, type MotionInput } from './gpu/look.ts';
 export type { NaniteType, NaniteInstances, NaniteTextures, NaniteUniforms, NaniteStats, Shading, View, CullSet, Counters, U } from './gpu/types.ts';
 export {

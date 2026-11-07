@@ -19,7 +19,7 @@ import {
 import { curve, viewerPos, detailShift } from './planet.ts';
 import { roadDistanceNode } from './road.ts';
 import {
-  BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, ringInputs, bladeOf, type KeepRing, type RingInputs,
+  BLADE, ARGS, patchAt, ringCapacity, buildKeepPass, makeGrassCounters, countersPasses, ringInputs, bladeOf, bladeSeed, grassShare, grassThin, type KeepRing, type RingInputs,
 } from './grass-keep.ts';
 import { computeBatch, uintAsFloat, unpackHalf, unpackUnorm4 } from './three-gaps.ts';
 import type { Bool, Float, Vec2, Vec3 } from './types.ts';
@@ -57,6 +57,10 @@ export interface GrassContext {
    * shader and the dropped blades collapsed onto their root (the vertex invocations cost, kept or not: hence fewer
    * blades there). */
   webgl?: boolean;
+  /** Blades per m² unless `?grassdense=` says: a weak GPU's last visit settled at a low-end tier (src/auto-quality.ts's
+   * `rememberedTier`), so it's built thin. Thinning a dense grass (`thin`) still tests every cell in the keep pass: on
+   * the AMD PC density 1.5 was 11.6 ms where density 6 thinned to the same blades was 13.1. */
+  dense?: number;
   /** The blades' wind motion for the TAA resolve (default: on WebGPU; the WebGL mode's when it has TAA). */
   motion?: boolean;
 }
@@ -104,9 +108,9 @@ export function createGrass(ctx: GrassContext) {
   const scale = SCALE;
   const group = new THREE.Group();
   group.name = 'grass';
-  if (!(scale > 0)) return { group, update() {}, async stats() { return []; } };
+  if (!(scale > 0)) return { group, update() {}, thin() {}, async stats() { return []; } };
   const webgl = Boolean(ctx.webgl);
-  const dense = denseOf(webgl);
+  const dense = params.has('grassdense') || !ctx.dense ? denseOf(webgl) : Math.min(ctx.dense, denseOf(webgl));
   const motion = ctx.motion ?? !webgl;
 
   // terrain heights as a float texture: the terrain mesh's vertices, read back exactly
@@ -147,7 +151,7 @@ export function createGrass(ctx: GrassContext) {
     const list = keep ? storage(keep.listAttr, 'uvec4', cap * BLADE).toReadOnly() : null;
     const fields = (): BladeFields => {
       if (!list) {
-        const b = bladeOf(keepCtx, spec, inp, instanceIndex);
+        const b = bladeOf(keepCtx, spec, inp, bladeSeed(spec, inp, instanceIndex));
         const on = (v: Float): Float => select(b.drawn, v, float(0));
         return { ...b, height: on(b.height), width: on(b.width), lean2: b.lean };
       }
@@ -247,10 +251,16 @@ export function createGrass(ctx: GrassContext) {
 
   return {
     group,
+    /** Thins the blades down to `density` (as `?grassdense=`; a screen's own density or less stays as it is). */
+    thin(density: number): void {
+      grassThin.target = Math.min(1, density / dense);
+    },
     /** Moves each ring's grid to the viewer (whole cells) and picks the tiles to draw. */
     update(camera: THREE.Camera): void {
       shown.value = group.visible ? 1 : 0;
       if (!group.visible) return;
+      const toThin = grassThin.target - grassShare.value; // (over ~1.5 s at 60 fps: blades grow and sink by their chance, no pop)
+      if (toThin) grassShare.value += Math.sign(toThin) * Math.min(Math.abs(toThin), 1 / 90);
       camera.updateMatrixWorld();
       frustum.setFromProjectionMatrix(viewProj.multiplyMatrices(camera.projectionMatrix, camera.matrixWorldInverse));
       const c = camera.position.clone().add(detailShift); // (detailPos: the grid and the keep test's distances)

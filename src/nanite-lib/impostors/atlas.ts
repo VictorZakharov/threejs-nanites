@@ -56,6 +56,7 @@ export interface ImpostorAtlas {
   coverage: AtlasCoverage;
   /** Tiles per elevation (each type's views in turn); per type its first and how many (see impostorView). */
   views: number;
+  manyViews: boolean;
   viewBase: UniformArrayNode<'float'>;
   viewCount: UniformArrayNode<'float'>;
   frameW: UniformArrayNode<'float'>;
@@ -89,6 +90,7 @@ export function createAtlas(n: number, bytes = false, viewsOf: number[] = Array.
   return {
     texture: rt.texture, normals: rtN.texture, frames, renderTarget: rt, normalsTarget: rtN, coverage: { scales, levels },
     views,
+    manyViews: viewsOf.some((c) => c > 1),
     viewBase: uniformArray<'float'>(bases, 'float'),
     viewCount: uniformArray<'float'>(viewsOf, 'float'),
     frameW: uniformArray<'float'>(frames.map((f) => f.w), 'float'),

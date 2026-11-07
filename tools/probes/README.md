@@ -14,11 +14,13 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 
 | probe | what it returns |
 | --- | --- |
+| `wgsl` | the WGSL three.js generated: every fragment module by size with its texture samples; `?wgsl=` a word its code holds (a varying, `vImpTile`): that module's vertex and fragment code too |
 | `occlusion` | occlusion culling counters: trees and clusters failing phase 1, trees hidden after phase 2, draws per phase |
 | `hzb` | the depth pyramid: levels, and a sparse sample of level 0 and 5 (to see that it holds the scene) |
 | `stillfilm` | the camera still in the page's loop: which pixels change over consecutive frames, pixel by pixel (`?filmyaws=` per direction); the worst tile's frames and the whole screen's range in `png` |
 | `stillcounts` | clusters and triangles of both views frame by frame with the camera still (`?countyaws=`): they should stand still |
 | `zoomsweep` | what's drawn at each zoom level through the zoom (`?zoomms=3000` eases it slowly): triangles, clusters, geometry and impostors |
+| `lowend` | auto quality's low-end tiers on a GPU too fast to need them: the budget out of reach until the last tier, then well above until tier 0; the steps, and the image at each tier in `png` |
 | `caps` | the culling's fixed-size lists over frames with the camera still (work items, bark, leaves, software clusters, retest): which hit their cap, and how far the counts swing (over a cap, what's dropped differs per frame) |
 | `zoomfilm` | the zoom frame by frame in the page's loop (`?filmms=`, `?filmstep=`): zoom, tau, scale and pixels changed against the film's last frame every 100 ms, and a sheet of frames (`--zoomtime`'s screenshots take over a second each) |
 | `zoompan` | frame times and GPU ms zoomed, the camera still and then panning at ?panrate= rad/s (default 0.2), in the page's loop; ?panzoom= (default the maximum) |
@@ -27,6 +29,8 @@ from '../../src/harness-api.ts'` above it; the harness strips the types before t
 | `atlas` | the impostor atlas (albedo) as a PNG, cut-out alpha shown blue |
 | `perf` | the performance panel (`--query=perf=1`): its report text and whether it's on screen |
 | `auto` | auto quality in the real loop for 8 s against `?autobudget=` (default 3 ms): settled tau, resolution scale, GPU ms (use `--timeout=120`) |
+| `autosim` | auto quality against a made-up slow, noisy GPU (`--query="auto=1&autosim=x,noise,pixels,output"`: the real GPU ms x `x`, plus `pixels` ms at full resolution and `output` ms per million canvas pixels; `--device=amd` sets the reference PC's, +-`noise` every 500 ms; `?simbudget=` 13.3, `?simsecs=` 50): a row every 2 s (canvas size too) and its steps, to replay a device's report (use `--timeout=100`) |
+| `gpuqueue` | frames queued on the GPU in the page's loop (`?gpuqueue=0|1`): each frame's submit-to-done ms (median, p95) against its GPU time, fps; headless still queues, so run it on the AMD PC (`npm run remote`) |
 | `autozoom` | auto quality across the 5x zoom: 4 s each unzoomed / zoomed / unzoomed / zoomed at the view (`canopyzoom --zoom=1`), per phase how long it was over the budget, frames over twice it, the longest frame, resolution changes, tau/scale every 250 ms (`--timeout=120`) |
 | `visible` | trees, clusters and triangles drawn vs seen (`--query=ids=1`: debug 6 writes each pixel's tree and cluster to the scene target; hardware geometry only): what occlusion culling leaves on the table |
 | `cullcheck` | why drawn-but-unseen clusters weren't culled (`--query=ids=1`): an exact-rect test on the CPU against HZB level 0 sorts them into "a finer test would get it", "only without the wind margin", "something farther shows in its rect"; triangles of each; and two tighter bounds (#7): an exact box rect (`boxCull`) and bark clusters facing away (`backface`) |

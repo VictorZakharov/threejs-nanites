@@ -2,6 +2,7 @@
 // frame time and its p95, the GPU time split into draw and compute against the auto-quality budget, the resolution
 // and the quality. A click (or tap) copies a plain-text report with everything needed to compare devices: the
 // numbers, the scene counters, the camera, the adapter and the URL.
+import { refreshRate } from './refresh.ts';
 
 const WINDOW_MS = 15000;
 const MAX_SAMPLES = 8192;
@@ -16,9 +17,9 @@ export const short = (v: number): string =>
 
 /** What the panel shows besides the frame times (src/hud.ts fills it in). */
 export interface PerfDetails {
-  gpu: { render: number; compute: number; total: number; budget: number };
-  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number };
-  resolution: { width: number; height: number; outWidth: number; outHeight: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
+  gpu: { render: number; compute: number; total: number; budget: number; queue?: number };
+  quality: { tau: number; auto: boolean; scale: number; limited: boolean; shadows: boolean; guard: number; tier?: number; steps?: string[] };
+  resolution: { width: number; height: number; outWidth: number; outHeight: number; taaWidth?: number; taaHeight?: number; msaa: number; taa: boolean }; // (the scene's pixels, the canvas's)
   scene: {
     trees: number; total: number; bushes: number; statues: number; impostors: number; clusters: number; swClusters: number;
     tris: number; swTris: number; impostorTris: number; shadowTris: number;
@@ -140,9 +141,8 @@ export class PerfPanel {
     // 1% low: the rate of the average of the slowest 1% of frames (not the p99 sample)
     const slow = Math.max(1, Math.ceil(d.length * 0.01));
     const slowMs = d.slice(-slow).reduce((a, b) => a + b, 0) / slow;
-    const fast = pct(0.1);
-    const raw = fast > 0 ? 1000 / fast : 60;
-    const refresh = [30, 60, 75, 90, 100, 120, 144, 165, 240].reduce((a, b) => (Math.abs(b - raw) < Math.abs(a - raw) ? b : a), 60);
+    // (the display's, from the loading's frames: from these, a GPU at 18 fps read as a 30 Hz screen)
+    const refresh = refreshRate();
     return {
       samples: d.length,
       seconds: d.length ? Math.min(WINDOW_MS, total) / 1000 : 0,
@@ -172,7 +172,7 @@ export class PerfPanel {
       : 'GPU TIME UNAVAILABLE';
     const r = det.resolution;
     this.k.res.innerHTML = `<b>${r.width}×${r.height}</b>${r.outWidth !== r.width ? ` → <b>${r.outWidth}×${r.outHeight}</b>` : ''} · ${r.msaa}× MSAA · TAA ${r.taa ? 'ON' : 'OFF'}`;
-    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale !== 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}${det.quality.guard > 1 ? ` · LISTS x<b>${det.quality.guard.toFixed(1)}</b>` : ''}`;
+    this.k.quality.innerHTML = `ERROR <b>${det.quality.tau.toFixed(2)}</b> PX ${det.quality.auto ? '(AUTO)' : '(MANUAL)'}${det.quality.scale !== 1 ? ` · RES <b>${Math.round(det.quality.scale * 100)}</b>%` : ''}${det.quality.limited ? ' · AT LIMIT' : ''}${det.quality.tier ? ` · TIER <b>${det.quality.tier}</b>` : ''}${det.quality.guard > 1 ? ` · LISTS x<b>${det.quality.guard.toFixed(1)}</b>` : ''}`;
     const sc = det.scene;
     this.k.scene.innerHTML = sc
       ? `<b>${count(sc.trees)}</b> PLANTS · <b>${short(sc.tris + sc.swTris + sc.impostorTris)}</b> TRIS · SHADOW <b>${short(sc.shadowTris)}</b>`
@@ -201,19 +201,20 @@ export class PerfPanel {
       `url          ${location.href}`,
       `browser      ${navigator.userAgent}`,
       `adapter      ${det.adapter}`,
-      `screen       ${r.width}x${r.height} rendered, ${r.outWidth}x${r.outHeight} output${r.outWidth !== r.width ? ` (upscaled ${(r.outWidth / r.width).toFixed(2)}x by the TAA)` : ''}, ${innerWidth}x${innerHeight} css (device pixel ratio ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
+      `screen       ${r.width}x${r.height} rendered, ${r.outWidth}x${r.outHeight} output${r.outWidth !== r.width ? ` (upscaled ${(r.outWidth / r.width).toFixed(2)}x${r.taaWidth && r.taaWidth !== r.outWidth ? `: the TAA at ${r.taaWidth}x${r.taaHeight}, then the output pass` : ' by the TAA'})` : ''}, ${innerWidth}x${innerHeight} css (device pixel ratio ${devicePixelRatio}), ${r.msaa}x MSAA, TAA ${r.taa ? 'on' : 'off'}`,
       '',
       `window       ${s.seconds.toFixed(1)} s, ${s.samples} frames, display ~${s.refresh} Hz`,
       `fps          ${fmt(s.avgFps)} avg, ${fmt(s.lowFps)} 1% low`,
       `frame ms     ${fmt(s.avgMs)} avg, ${fmt(s.medianMs)} median, ${fmt(s.p95Ms)} p95, ${fmt(s.p99Ms)} p99, ${fmt(s.longest)} longest, ${s.long} over 50 ms`,
-      `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}`,
-      `quality      error ${det.quality.tau.toFixed(2)} px${det.quality.guard > 1 ? ` x ${det.quality.guard.toFixed(2)} (the cluster lists are full)` : ''}, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
+      `gpu ms       ${g.total > 0 ? `${fmt(g.total)} total = ${fmt(g.render)} render passes + ${fmt(g.compute)} compute passes` : 'unavailable (no timestamp queries)'}, budget ${g.budget}${g.queue ? `, ${fmt(g.queue)} from submit to done (over the GPU time: frames queued, and the desktop behind them)` : ''}`,
+      `quality      error ${det.quality.tau.toFixed(2)} px${det.quality.guard > 1 ? ` x ${det.quality.guard.toFixed(2)} (the cluster lists are full)` : ''}, resolution ${Math.round(det.quality.scale * 100)}%, ${det.quality.auto ? 'auto' : 'manual'}${det.quality.limited ? ' (at its limit)' : ''}${det.quality.tier ? `, low-end tier ${det.quality.tier}` : ''}, shadows ${det.quality.shadows ? 'on' : 'off'}`,
       '',
       `plants       ${count(sc.trees)} visible (${count(sc.impostors)} impostors) of ${count(sc.total)} trees + ${count(sc.bushes)} bushes + ${count(sc.statues)} statues`,
       `clusters     ${count(sc.clusters)} hardware, ${count(sc.swClusters)} software`,
       `triangles    ${count(sc.tris)} hardware, ${count(sc.swTris)} software, ${count(sc.impostorTris)} impostors (2 each), ${count(sc.shadowTris)} shadow casters (impostors' too)`,
       `camera       x ${c.x.toFixed(0)} z ${c.z.toFixed(0)}, ${c.agl.toFixed(0)} m above ground, yaw ${c.yaw.toFixed(1)} pitch ${c.pitch.toFixed(1)} deg, zoom ${c.zoom.toFixed(1)}x`,
     ];
+    if (det.quality.steps?.length) lines.push('', 'auto steps', ...det.quality.steps.map((t) => `  ${t}`));
     if (this.profileText) lines.push('', this.profileText);
     const more = this.extra?.();
     if (more) lines.push('', more);

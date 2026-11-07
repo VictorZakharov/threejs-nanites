@@ -17,6 +17,7 @@ import type { setupGround } from './ground/setup.ts';
 import type { Precompile } from './warmup.ts';
 import type { LoadingScreen } from './loading.ts';
 import type { DemoState } from './harness-api.ts';
+import { rememberedTier } from './auto-quality.ts';
 import type { LayerData } from './texture-pixels.ts';
 import type { SceneName } from './scene.ts';
 import type { Float, Vec3 } from './types.ts';
@@ -28,6 +29,7 @@ export interface ForestSetup {
   ui: LoadingScreen;
   demo: DemoState;
   params: URLSearchParams;
+  harness: boolean;
   TREE_COUNT: number;
   terrainSize: number;
   barkTypes: string[];
@@ -160,6 +162,8 @@ export async function buildForest(o: ForestSetup) {
   const grass = createGrass({
     terrain: terrain.getObjectByName('terrain') as THREE.Mesh, size: terrainSize, segments: TERRAIN_SEGMENTS,
     cover: density, u: forest.u, receivedShadow: asReceivedShadow(makeFadeShadow(groundFar)), sunDir, renderer,
+    // (thin from the start where the last visit needed the low-end tiers: auto quality's thinning still tests every cell)
+    dense: [Infinity, 2, 1.5, 1.5][Math.min(3, rememberedTier(o.params, o.harness))],
   });
   demo.grass = grass;
   scene.add(grass.group);

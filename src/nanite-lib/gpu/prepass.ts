@@ -38,6 +38,12 @@ export class LeafPrepass {
   private shown: boolean | null = null; // (the meshes' state: null, all visible for the precompile)
   /** Hardware leaf triangles per scene pixel, last read back. */
   density = 0;
+  /**
+   * The density it goes on above and off under (`?leafpredensity=`; the demo's src/prepass-trial.ts moves them by timing
+   * both ways on the device: they were set on the dev GPU, and an AMD iGPU saved 6.4 ms of 46 with it on where they said off).
+   */
+  onAt = PREPASS_ON;
+  offAt = PREPASS_OFF;
   private readonly passes: Passes[] = [];
   private lastRead = -Infinity;
   private reading = false;
@@ -101,7 +107,7 @@ export class LeafPrepass {
         this.reading = false;
       }, () => (this.reading = false));
     }
-    const on = this.mode === 'auto' ? this.density > (this.on ? PREPASS_OFF : PREPASS_ON) : this.mode;
+    const on = this.mode === 'auto' ? this.density > (this.on ? this.offAt : this.onAt) : this.mode;
     if (on === this.shown) return; // (only on a change: the harness's cost probe switches the meshes itself)
     this.on = this.shown = on;
     for (const p of this.passes) {

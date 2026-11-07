@@ -99,6 +99,8 @@ npx vite build && npm run harness -- --dist --example           # the library al
 - Is it a regression? Build the last good commit in a worktree under `tools/tmp/` (`git worktree add`, then
   `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
   and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
+- The reference low-end PC (AMD RDNA 2 iGPU at DPR 3, AGENTS.md's Goal): `--device=amd --views=amdground`; with
+  `--probe=autosim --query=auto=1` auto quality runs against its modelled GPU (a row every 2 s, its steps).
 - A phone's screen: `--size=384x832 --dpr=3 --query=touch=1` (screenshots at 1152x2496; the demo renders 576x1248
   and upscales). Compare the upscaling with `--ab="taau=0|taau=1"` (the old stretched canvas) and against rendering
   natively at that density (`pr=3`); judge crops, not pixel counts (dithered foliage differs every run).
@@ -115,3 +117,16 @@ npx vite build && npm run harness -- --dist --example           # the library al
 - Debug URL parameters worth knowing (see `src/main.ts`, `src/lighting.ts`, `src/nanite-lib/gpu/`): `imppx` (impostor size threshold, 0 = no impostors),
   `occ=0` (no occlusion culling), `farall=1` (far-field shading everywhere, to calibrate it), `tau`, `shadows=0`,
   `debug=1|2|3` (cluster / DAG level / tree colours), `wind=0`, `trees=N`.
+
+## Remote test PC
+
+`npm run remote -- <harness options>` runs the harness on the reference low-end AMD PC over SSH (`tools/remote/run.ts`;
+`--host=`, `--dir=`, `--no-sync`): it checks out this commit there (push first), quotes each option for its cmd shell,
+streams the output and copies `tools/out` back to `tools/out/remote/`. Without `--url` it serves the remote checkout;
+for a PR use `--url=.../pr-preview/pr-N/`. Use `--device=amd --views=amdground`; Profile GPU there needs `--timeout=900`.
+`--headed` runs it in a visible window on the test PC's desktop (a scheduled task in the signed-in user's session: SSH has
+no desktop; a batch file there must `call npm`, or it never returns): frames are presented, so the page's fps, frame
+pacing and the GPU queue are real. A window opens on that screen while it runs.
+Headless Chrome doesn't present its frames: the page's own loop runs at a flat 60 fps whatever the GPU takes, and
+nothing queues behind the desktop's compositor. Frame pacing, queued frames and input lag (`?gpuqueue=`) need
+`npm run remote -- --headed` (or a person at the screen).

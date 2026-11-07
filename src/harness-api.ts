@@ -8,6 +8,9 @@ import type { NaniteForest } from './forest/forest.ts';
 import type { TAA } from './taa.ts';
 import type { TreeInstances } from './placement.ts';
 import { gpuBackend } from './three-gaps.ts';
+import { impMinPx } from './nanite-lib/index.ts';
+import { reliefSteps } from './ground/relief.ts';
+import { grassShare, grassThin } from './grass-keep.ts';
 import type { CoverMap } from './placement.ts';
 import type { createLitterMap } from './ground/litter-map.ts';
 import type { createGrass } from './grass.ts';
@@ -155,6 +158,9 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   const { renderer, scene, camera, forest, controls, adapter, instances, buildMs, size, auto, frame, loop, setShadows, updateHud, sceneRT, taa } = ctx;
   return {
     auto, // (--probe=zoompan: its raw GPU samples)
+    impMinPx, // (--probe=cost)
+    reliefSteps, // (--probe=cost: reliefSteps.value=0/32)
+    grassShare, grassThin, // (--probe=cost)
   renderer, scene, camera, forest, controls, instances, sceneRT, taa,
   info: () => ({
     adapter: `${adapter.info?.vendor} ${adapter.info?.architecture} ${adapter.info?.description ?? ''}`.trim(),
@@ -245,6 +251,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   async autoZoomTest(ms = 4000, budget = auto.budget) {
     auto.on = true;
     auto.budget = budget;
+    auto.tuning = true;
     auto.gpuMs = 0;
     auto.trials = [];
     const out = [];
@@ -275,6 +282,7 @@ function harnessApi(demo: DemoState, ctx: HarnessContext) {
   async autoTest(ms = 5000, budget = auto.budget, speed = 10) {
     auto.on = true;
     auto.budget = budget;
+    auto.tuning = true;
     auto.gpuMs = 0;
     auto.trials = [];
     auto.forget?.(); // (a new view: what the last one learned about the resolution doesn't hold)

@@ -13,16 +13,22 @@ export interface AutoQuality {
   on: boolean;
   budget: number; // GPU ms
   maxTau: number;
+  remember?: string; // (the storage key for where auto quality settled; unset: it starts at full quality every time)
+  holding?: boolean; // (Profile GPU: off, but the low-end tiers stay)
+  tuning?: boolean; // (a probe set its own budget: it stays)
+  tier?: number; // past its limit: what has been given up (src/auto-quality.ts)
   minTau?: number; // the finest tau it goes to (1): past that, room in the budget stays unspent (src/webgpu-start.ts)
   scale: number; // resolution scale (of the base pixel ratio)
   gpuMs: number;
+  queueMs?: number; // eased: from a frame's submit to its GPU work done (src/webgpu-start.ts's loop)
+  queueLog?: number[]; // the last 3000 of them (--probe=gpuqueue)
   renderMs?: number;
   computeMs?: number;
   frameMs?: number; // eased frame time
   busy: boolean;
   busySince?: number; // (when the pending timestamp readback started)
   onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)
-  trials?: string[]; // resolution steps tried and what they saved (src/auto-quality.ts; the harness's autoTest)
+  trials?: string[]; // its tier changes and the resolution steps tried, what they saved (src/auto-quality.ts; the report; the harness's autoTest)
   forget?: () => void; // drops the controller's resolution trial state (the harness, between views)
 }
 
@@ -35,6 +41,7 @@ export interface HudContext {
   auto: AutoQuality;
   size: THREE.Vector2; // the scene's pixels
   output: THREE.Vector2; // the canvas's (the TAA upscales to it)
+  taaSize?: THREE.Vector2; // the TAA history's (under the output's, past auto quality's tier 1: the output pass upscales it)
   samples: number;
   adapterName: string;
   harness: boolean;
@@ -53,9 +60,9 @@ export function createHud(ctx: HudContext) {
   const agl = () => camera.position.y - heightAt(camera.position.x, camera.position.z);
 
   const perf = ctx.harness ? null : new PerfPanel(() => ({
-    gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget },
-    quality: { tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale },
-    resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, msaa: samples, taa: taa.enabled },
+    gpu: { render: auto.renderMs ?? 0, compute: auto.computeMs ?? 0, total: auto.gpuMs, budget: auto.budget, queue: auto.queueMs },
+    quality: { steps: auto.trials, tau: forest.u.tau.value, auto: auto.on, scale: auto.scale, limited: auto.on && forest.u.tau.value >= auto.maxTau && auto.scale <= 0.5, shadows: ctx.shadowsOn(), guard: forest.mainGuard.scale, tier: auto.tier ?? 0 },
+    resolution: { width: size.x, height: size.y, outWidth: ctx.output.x, outHeight: ctx.output.y, taaWidth: ctx.taaSize?.x, taaHeight: ctx.taaSize?.y, msaa: samples, taa: taa.enabled },
     scene: gs && {
       trees: gs.instances + gs.impostors, total: forest.treeCount, bushes: forest.instanceCount - forest.treeCount - forest.statueCount, statues: forest.statueCount, impostors: gs.impostors,
       clusters: gs.barkClusters + gs.leafClusters, swClusters: gs.swClusters ?? 0,
