@@ -202,6 +202,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
   const startScale = auto.on && isTouchDevice(params) ? 0.6 : 1;
+  const GRASS_TIER3 = Number(params.get('grasstier3') ?? 1.5); // (blades per m² at the last tier)
   const setScale = (s: number): void => {
     auto.scale = s;
     res.setScale(s);
@@ -209,7 +210,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
   const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
     impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
-    grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
+    grass.thin(tier >= 3 ? GRASS_TIER3 : tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
     res.capOutput(tier >= 2 ? OUT_TIER2 : Infinity);
     res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
     // (textures half a mip level finer than the scene's pixels at most, not log2 of the upscale: on the AMD PC the finer
