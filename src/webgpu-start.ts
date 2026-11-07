@@ -208,12 +208,12 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const typeMasks = typeMaskMode({ renderer, hide: [terrain, grass.group], rays, fogNear, fogFar });
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
   const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
-  if (params.has('tier')) autoQuality.hold(Number(params.get('tier'))); // (a test: src/auto-quality.ts)
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.occlusionOn = params.get('occ') !== '0';
 
   // the canvas at the display's resolution, the scene at auto quality's (src/resolution.ts; the TAA upscales)
   const res = createResolution(renderer, camera, sceneRT, params);
+  if (params.has('tier')) autoQuality.hold(Number(params.get('tier'))); // (a test: src/auto-quality.ts)
   taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
   if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
   if (params.get('shadowtauscale')) forest.shadowTauScale = Number(params.get('shadowtauscale')); // (a tier's: the harness's A/B)
