@@ -92,6 +92,10 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
 - **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
   every argument (`tools/remote/run.ts` does).
+- **An unbounded GPU queue.** Chrome kept submitting frames the AMD PC's iGPU couldn't keep up with: at 1080p each
+  waited a median 5 s from submit to done, and the desktop behind them (the mouse moved in jumps). Found only by the user,
+  on that PC: the dev GPU never queues. The page's loop now keeps at most 2 frames on the GPU (`?gpuqueue=N`; 1 cost 14%
+  of the frames, 2 none: 78 ms), the report shows submit-to-done, `--probe=gpuqueue` measures it (headless queues too).
 - **"Impossible".** Native 4K at 60 fps on the iGPU was called out of reach; the user's target (1080p at 60, upscaled
   to 4K) was the useful framing. Say what a goal costs and what has to get cheaper, not that it can't be done.
 
@@ -928,6 +932,10 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   the TAA resolve (`TAA`'s `extra`), so its per-pixel jittered march start is averaged: added after TAA, the
   40-sample march left stair-steps along the shafts. `sunrays` view (sun behind the canopy). Clouds don't block it.
 - The output's unsharp mask runs in x/(1+x): in linear HDR it made a black ring round the sun.
+- Frames in flight (`src/webgpu-start.ts`'s loop): at most `?gpuqueue=` (2) frames between submit and GPU done; past that
+  the display frame is skipped. Without it a GPU that can't keep up builds a queue of seconds, and on an iGPU the desktop's
+  compositor waits behind it: input lags system-wide. The report's gpu line ends with the eased submit-to-done time. The WebGL
+  mode has no such limit (no submitted-work callback).
 - Walking (`src/controls.ts`): on the ground at eye height 1.7 m with gravity; Space jumps, Space again in the air
   flies; flying down onto the ground walks again. Off under the harness (views are placed in the air) unless
   `?walk=1`; `--probe=walk --query=walk=1` checks it.

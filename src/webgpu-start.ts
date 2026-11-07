@@ -262,15 +262,14 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // settings menu + keyboard shortcuts (src/menu.ts)
   createMenu({ controls, u: forest.u, forest, taa, rays, clouds: clouds.group, grass: grass.group, auto, perf: hud.perf, music, shadowsOn: () => shadowsOn, setShadows, setScale, profile, touch: Boolean(touch) });
 
-  // One frame on the GPU at a time where the GPU is what limits the frame rate (?gpuqueue=0 never, 1 always): Chrome queued
+  // At most a few frames on the GPU (?gpuqueue=N, below): Chrome queued
   // several 40 ms frames on the AMD PC's iGPU, which it shares with Windows' compositor, and the whole PC lagged behind them
-  // (the user: the mouse moved in jumps, a button click was skipped). Waiting costs up to a vsync per frame there; on a GPU
-  // that keeps up the work is done long before the next frame and nothing changes.
+  // (the user: the mouse moved in jumps, a button click was skipped).
   // (?gpuqueue=N: at most N frames on the GPU, 0 no limit; default 2: one drawn, one waiting, so the GPU never idles to the
   // next vsync. The AMD PC at 1080p: no limit, frames waited a median 5 s in the queue; 1, 45 ms but 14% fewer frames)
   const maxQueue = Number(params.get('gpuqueue') ?? 2);
   let inFlight = 0;
-  const gpuBound = (): boolean => maxQueue > 0 && (params.has('gpuqueue') || auto.gpuMs > 0.75 * (1000 / refreshRate()));
+  const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
   function loop() {
     if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
