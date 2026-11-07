@@ -55,8 +55,9 @@ planet-curved world (R = 150 km). Smooth (GPU budget 5.5 ms on desktop: 144 Hz o
 and it must *look* right: no popping, flicker, brightness seams or missing trees. Feedback comes from the live site,
 by screenshot and the performance panel's copied report.
 
-**Reference low-end device** (the user's, since 2026-11-06; before it the $700 Intel Xe2 laptop): a PC with an AMD RDNA 2
-iGPU, a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown. Its first report (production, tau 8, 50%
+**Reference low-end device** (the user's, since 2026-11-06; before it the $700 Intel Xe2 laptop): a Beelink SER5 Pro, Ryzen 7 5825U
+with Vega 8 graphics (GCN 5, ~2 TFLOPS, sharing dual-channel DDR4; Chrome's adapter info says "rdna-2", wrongly: ask the
+user for a device's specs), a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown. Its first report (production, tau 8, 50%
 resolution) was 18.7 fps, 44 ms of GPU time, nearly all of it by pixels: ~27 ms in the TAA and output passes, the scene's
 pixels ~16. Tune the low-end steps and their estimates against it: `--device=amd` (its screen, and for `--probe=autosim`
 its GPU modelled on the dev GPU's, `tools/harness/options.ts`) with the `amdground` view (its report's camera).
