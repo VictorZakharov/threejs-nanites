@@ -85,7 +85,18 @@ function steps(ctx: ProfileContext): Step[] {
       },
     },
   ];
-  return list.filter((x): x is Step => Boolean(x));
+  const kept = list.filter((x): x is Step => Boolean(x));
+  // (all the scene's parts off at once: what's left is the pipeline, the TAA, the output and the browser's compositing; on the
+  // AMD PC at FullHD the trees off still left 32 ms from submit to done)
+  const parts = kept.filter((x) => /^(shadow map|god rays|grass|clouds|terrain\+sky|tree draws) off$/.test(x.label));
+  kept.push({
+    label: 'scene empty',
+    off: () => {
+      const undo = parts.map((x) => x.off()).filter((u): u is () => void => Boolean(u));
+      return undo.length ? () => undo.reverse().forEach((u) => u()) : null;
+    },
+  });
+  return kept;
 }
 
 /**
