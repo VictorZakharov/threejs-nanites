@@ -101,6 +101,13 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   the timers read 14, auto quality had climbed back to 69% on them, and the frames queued (the user: "enormous input
   lags"). Auto quality now also steers by the frames themselves (`behindMs` in auto-quality.ts: slower than the display
   by `?behind=` 1.2 with the main thread idle; on 60-80 Hz displays or once on a low-end tier); `?simskip=N` fakes it.
+- **Testing one scene, from a clean start.** Flights of the Lucy forest in a fresh browser profile looked fine while the
+  user's own Chrome sat at the floor in both scenes ("no quality, blurry", the forest at 30 fps): it had started where
+  stalled visits had left it (tier 3, tau 16, `auto.remember`) and the queue was compared with the budget (13.3 ms), so
+  14.75 ms from submit to done, under a 60 Hz frame and mostly the browser's compositing, held it there for good. The
+  queue now steers by the display's frame; a tier's saving from submit to done is learned both ways (a step down that
+  fills the frame goes straight back up and is held, `cameDown`). Fly both scenes, and think about where a real visit
+  starts (`?autoremember=1`).
 - **An unbounded GPU queue.** Chrome kept submitting frames the AMD PC's iGPU couldn't keep up with: at 1080p each
   waited a median 5 s from submit to done, and the desktop behind them (the mouse moved in jumps). Found only by the user,
   on that PC: the dev GPU never queues. The page's loop now keeps at most 2 frames on the GPU (`?gpuqueue=N`; 1 cost 14%
