@@ -57,9 +57,11 @@ if (!headed) {
 } else {
   // (a .cmd file run by a scheduled task in the user's desktop session; it writes a log and, last, a done marker)
   const log = `${winDir}\\tools\\tmp\\remote-run.log`, done = `${winDir}\\tools\\tmp\\remote-run.done`;
-  steps.push('set HARNESS_HEADED=1', `${harness}`);
+  // (in a batch file, npm (npm.cmd) without call never returns: the done marker was never written)
+  const batch = steps.map((x) => (x.startsWith('npm ') ? `call ${x}` : x));
+  batch.push('set HARNESS_HEADED=1', `call ${harness}`);
   const script = ['@echo off', `if not exist "${winDir}\\tools\\tmp" mkdir "${winDir}\\tools\\tmp"`, `del /q "${done}" 2>nul`,
-    `(${steps.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`].join('\r\n');
+    `(${batch.join(' && ')}) > "${log}" 2>&1`, `echo %errorlevel% > "${done}"`].join('\r\n');
   mkdirSync('tools/tmp', { recursive: true });
   writeFileSync('tools/tmp/remote-run.cmd', script);
   ssh(`if not exist "${winDir}\\tools\\tmp" mkdir "${winDir}\\tools\\tmp"`);
