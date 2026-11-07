@@ -220,6 +220,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     // looked nearly alike: softer dapples. ?farshadowtier=3: the old)
     lighting.forceFarShadow(tier >= FAR_SHADOW_TIER);
     lighting.scaleShadowMap(tier >= 3 ? 0.25 : tier >= 2 ? 0.5 : 1);
+    forest.shadowTauScale = tier >= 3 ? 4 : tier >= 2 ? 2 : 1; // (casters as coarse as the map: src/nanite-lib/gpu/renderer.ts)
     // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
     reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
   });
@@ -243,6 +244,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const res = createResolution(renderer, camera, sceneRT, params);
   taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
   if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
+  if (params.get('shadowtauscale')) forest.shadowTauScale = Number(params.get('shadowtauscale')); // (a tier's: the harness's A/B)
   const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
   const fitToWindow = (): void => res.fit();
   fitToWindow();
