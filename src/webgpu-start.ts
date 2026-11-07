@@ -266,12 +266,14 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // several 40 ms frames on the AMD PC's iGPU, which it shares with Windows' compositor, and the whole PC lagged behind them
   // (the user: the mouse moved in jumps, a button click was skipped). Waiting costs up to a vsync per frame there; on a GPU
   // that keeps up the work is done long before the next frame and nothing changes.
-  const queueMode = params.get('gpuqueue');
-  let inFlight = false;
-  const gpuBound = (): boolean => (queueMode === '1' ? true : queueMode === '0' ? false : auto.gpuMs > 0.75 * (1000 / refreshRate()));
+  // (?gpuqueue=N: at most N frames on the GPU, 0 no limit; default 2: one drawn, one waiting, so the GPU never idles to the
+  // next vsync. The AMD PC at 1080p: no limit, frames waited a median 5 s in the queue; 1, 45 ms but 14% fewer frames)
+  const maxQueue = Number(params.get('gpuqueue') ?? 2);
+  let inFlight = 0;
+  const gpuBound = (): boolean => maxQueue > 0 && (params.has('gpuqueue') || auto.gpuMs > 0.75 * (1000 / refreshRate()));
   let prev = performance.now();
   function loop() {
-    if (inFlight) return; // (the last frame's GPU work isn't done: this display frame is skipped)
+    if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
     const now = performance.now();
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
@@ -280,14 +282,14 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     // (from the frame's submit to its GPU work done: past a frame's own GPU time, frames are waiting in the queue, and so is
     // the desktop's compositor behind them. The report's 'gpu queue'; --probe=gpuqueue on the AMD PC)
     const submitted = performance.now(), bound = gpuBound();
-    if (bound) inFlight = true;
+    if (bound) inFlight++;
     gpuBackend(renderer).device.queue.onSubmittedWorkDone().then(() => {
       const ms = performance.now() - submitted;
       auto.queueMs = auto.queueMs ? auto.queueMs * 0.9 + ms * 0.1 : ms;
       (auto.queueLog ??= []).push(ms);
       if (auto.queueLog.length > 3000) auto.queueLog.shift();
     }).finally(() => {
-      if (bound) inFlight = false;
+      if (bound) inFlight--;
     });
     if (!fixedBudget && !auto.tuning) auto.budget = budgetFor(refreshRate());
     autoQuality.step(dt);
