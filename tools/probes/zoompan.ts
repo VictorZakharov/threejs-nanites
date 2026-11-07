@@ -1,6 +1,6 @@
 // Panning while zoomed against holding still, in the page's loop (auto quality as ?auto= says; the user: "panning drops
 // FPS"): ?pansec= (default 4) seconds of each. For each: frames, frame ms median / p95 / p99 / longest, frames over 25 and
-// 50 ms, GPU ms render and compute (medians), clusters and triangles at the end. `tau` and the lists' guard at the end.
+// 50 ms (?panzoom=1: turning unzoomed, ?panrate= rad/s, ?panback=0 one way), GPU ms render and compute (medians), clusters and triangles at the end. `tau` and the lists' guard at the end.
 import type { Demo } from '../../src/harness-api.ts';
 
 async (demo: Demo) => {
@@ -9,7 +9,7 @@ async (demo: Demo) => {
   const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
   const med = (v: number[]): number => +(([...v].sort((a, b) => a - b)[v.length >> 1] ?? 0).toFixed(2));
   await demo.live(true);
-  await sleep(3000);
+  await sleep(Number(q.get('panwait') ?? 3) * 1000); // (?panwait= s: auto quality settles first)
   c.zoomTarget = Number(q.get('panzoom') ?? c.zoomMax);
   await sleep(3000);
   const render: number[] = [], compute: number[] = [];

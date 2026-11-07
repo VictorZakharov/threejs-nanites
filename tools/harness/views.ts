@@ -54,6 +54,10 @@ export const VIEWS: Record<string, HarnessView> = {
   // the Lucy scene (--scene=lucy): a 2.9 x statue's face from 3 m (the user: "is it supposed to be that non-detailed?")
   // the Lucy scene from 60 m: statues and their shadows (the user: "zoomed out, they drop shadow in another direction")
   lucyshadow: { x: 20, z: 40, agl: 60, yaw: 30, pitch: -40 },
+  // the Lucy forest's costliest spots on the AMD PC's --play route (ground level among the statues, turning round: 15-16 ms of
+  // GPU timers and 33-35 ms from submit to done at its lowest settings; from 50 m up 5-10 ms)
+  lucyturn1: { x: -1793, z: -2231, agl: 2, yaw: 274, pitch: 3 },
+  lucyturn2: { x: -890, z: -1097, agl: 2, yaw: 196, pitch: 3 },
   lucyface: { x: 48.1, z: 38.5, y: 4.6, yaw: 29.3, pitch: 0 },
   // straight down over a 79 m statue (scale 19.8), climbing: its shadow by altitude (the user: "look directly down,
   // and move up... see how shadows change"; a gap at its base, the shadow changing with the zoom)
@@ -76,6 +80,8 @@ export const VIEWS: Record<string, HarnessView> = {
   userstill: { x: 20, z: 40, agl: 239, yaw: 110, pitch: -6.5 }, // (the user's report: zoomed, held still, side-on to the sun, statues flicker: T stops it)
   userzoomin: { x: 0, z: 8, agl: 368, yaw: 34.2, pitch: -13.6 }, // (the user's report: triangles spike mid-zoom)
   laptop: { x: 20, z: 40, agl: 193, yaw: 14.2, pitch: -38.6 }, // (the user's $700 laptop, Intel Xe2-LPG: 39 fps in the forest, 27 ms GPU at half resolution)
+  amdhover: { x: 28, z: 35, agl: 23, yaw: 62.2, pitch: 2.7 }, // (the user's Chrome on the AMD PC, 2026-11-07: 9.2 ms of timers, frames every 38-42 ms)
+  amdabove: { x: 20, z: 40, agl: 102, yaw: 40, pitch: 1.7 }, // (the AMD PC in the user's Chrome, 2026-11-07: 30 fps, 15 ms of render timers at tier 3)
   amdground: { x: 20, z: 40, agl: 2, yaw: 31.8, pitch: 2.7 }, // (the reference low-end PC's report, AMD RDNA 2 iGPU at DPR 3: --device=amd; 18.7 fps, 44 ms on production)
   laptopground: { x: 20, z: 40, agl: 2, yaw: 30, pitch: 4 }, // (the same laptop on the ground in the Lucy forest: 55 fps, 5.1 of 17.4 ms on grass)
   laptoplucy: { x: 20, z: 40, agl: 227, yaw: -8.6, pitch: -34.8 }, // (and 51 fps in the Lucy forest, 14 ms)

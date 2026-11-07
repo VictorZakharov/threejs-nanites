@@ -79,6 +79,11 @@ function terrainMaterial(): THREE.MeshStandardNodeMaterial {
  */
 const HIGH: [number, number][] = [[350, TERRAIN_SEGMENTS], [1000, 512], [3000, 256], [6000, 128]];
 const HIGH_ON = new URLSearchParams(location.search).get('terrainhigh') !== '0';
+/**
+ * The plain ground near the camera too (the lite tier, `?plainground=1`): the high ground's mesh at the detailed grid, shaded
+ * as from 350 m up (no litter, relief or cobbles). On the AMD PC at FullHD the floor was ~11 of the spawn's 57 ms.
+ */
+export const plainGround = { on: new URLSearchParams(location.search).get('plainground') === '1' };
 
 /**
  * Detailed square terrain of `size` (covers the forest) plus a coarse skirt out to ~65 km, so the curved horizon
@@ -142,6 +147,7 @@ export function terrainForAltitude(group: THREE.Group, altitude: number, all = f
   const t = group.userData.high as { near: THREE.Mesh; high: THREE.Mesh; levels: THREE.BufferGeometry[]; level: number };
   let k = -1;
   if (HIGH_ON) for (let i = 0; i < HIGH.length; i++) if (altitude >= HIGH[i][0] * (t.level >= i ? 0.85 : 1)) k = i;
+  if (plainGround.on && k < 0) k = 0;
   t.level = k;
   t.near.visible = all || k < 0;
   t.high.visible = all || k >= 0;

@@ -17,7 +17,7 @@
 import * as THREE from 'three/webgpu';
 import {
   Fn, uniform, texture, textureLoad, ivec2, int, vec2, vec3, vec4, float, max, min, select, clamp, dot, sqrt, exp,
-  screenUV, screenSize, abs, length,
+  screenUV, screenSize, abs, length, If,
 } from 'three/tsl';
 import { PLANET_RADIUS } from './planet.ts';
 import { ditherShift } from './nanite-lib/index.ts';
@@ -68,6 +68,10 @@ const PERCEPTUAL = params.get('taaspace') !== 'linear';
 // million pixels). Lean: the god rays (smooth, half resolution) read once for the 3x3, not 9 times; the depth's dilation over
 // the cross (5), not the square; the history's weight from a Catmull-Rom tap, not its own read. 34 reads a pixel -> 21.
 const LEAN = params.get('taalean') !== '0';
+// (test switches, the AMD PC's TAA split: ?taataps=5 the scene's samples over the cross, not the square; ?taahist=bilinear
+// one history tap, not Catmull-Rom's 5)
+const TAPS5 = params.get('taataps') === '5';
+const HIST_BILINEAR = params.get('taahist') === 'bilinear';
 const enc = (c: Vec3): Vec3 => (PERCEPTUAL ? sqrt(max(c, vec3(0))) : c);
 const dec = (c: Vec3): Vec3 => (PERCEPTUAL ? c.mul(c) : c);
 
@@ -128,6 +132,9 @@ export class TAA {
       sharpen: uniform(Number(params.get('sharpen') ?? 0.25)), // the output's unsharp mask (TAA softens a little)
       off: uniform(enabled ? 0 : 1), // (TAA off: the output adds `extra` itself)
       histSize: uniform(new THREE.Vector2(1, 1)), // the history's pixels (the output pass's texel)
+      // (1: the scene's samples over the cross, not the square: the lite tiers, src/low-tiers.ts; ~0.4-0.5 ms on the AMD PC at
+      // a FullHD output; ?taataps=5 always)
+      taps5: uniform(TAPS5 ? 1 : 0),
     };
     this.historyTex = texture(this.history[0].texture);
     const mat = new THREE.NodeMaterial();
@@ -174,22 +181,27 @@ export class TAA {
       const sum = vec3(0).toVar(), w = float(0).toVar();
       const m1 = vec3(0).toVar(), m2 = vec3(0).toVar();
       const zMin = float(1).toVar();
-      for (let dy = -1; dy <= 1; dy++)
-        for (let dx = -1; dx <= 1; dx++) {
-          const q = ivec2(clamp(vec2(p).add(vec2(dx, dy)), vec2(0), R.sub(1)));
-          const e = enc(sceneAt(q));
-          const dq = vec2(q).add(0.5).sub(at).mul(u.ratio); // (output pixels)
-          const wq = exp(dot(dq, dq).mul(u.kernel));
-          sum.addAssign(e.mul(wq));
-          w.addAssign(wq);
-          const c = toYCoCg(e);
-          m1.addAssign(c);
-          m2.addAssign(c.mul(c));
-          if (!LEAN || dx === 0 || dy === 0) zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
-        }
+      const tap = (dx: number, dy: number): void => {
+        const q = ivec2(clamp(vec2(p).add(vec2(dx, dy)), vec2(0), R.sub(1)));
+        const e = enc(sceneAt(q));
+        const dq = vec2(q).add(0.5).sub(at).mul(u.ratio); // (output pixels)
+        const wq = exp(dot(dq, dq).mul(u.kernel));
+        sum.addAssign(e.mul(wq));
+        w.addAssign(wq);
+        const c = toYCoCg(e);
+        m1.addAssign(c);
+        m2.addAssign(c.mul(c));
+        if (!LEAN || dx === 0 || dy === 0) zMin.assign(min(zMin, textureLoad(depth, q, int(0)).x));
+      };
+      // (the corners only without `taps5`: a uniform branch, the same for every pixel)
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++) if (dx === 0 || dy === 0) tap(dx, dy);
+      If(u.taps5.lessThan(0.5), () => {
+        for (const [dx, dy] of [[-1, -1], [1, -1], [-1, 1], [1, 1]]) tap(dx, dy);
+      });
       for (let k = 1; k < samples; k++) zMin.assign(min(zMin, textureLoad(depth, p, int(k)).x));
-      const mean = m1.div(9);
-      const sigma = sqrt(max(m2.div(9).sub(mean.mul(mean)), vec3(0)));
+      const n = select(u.taps5.greaterThan(0.5), float(5), float(9));
+      const mean = m1.div(n);
+      const sigma = sqrt(max(m2.div(n).sub(mean.mul(mean)), vec3(0)));
       // where this pixel was last frame: one matrix from this frame's clip space to last frame's, multiplied on
       // the CPU in double precision (rebuilding the world position in float32 from a depth near 1 was off by up to
       // half a pixel with the camera standing still: 3 km away through the 5x zoom, every frame blurred the
@@ -213,7 +225,7 @@ export class TAA {
         .sub(wind ? textureLoad(wind, p).xy : vec2(0)); // (none in the WebGL mode: src/webgl/output.ts)
       const onScreen = prevUv.x.greaterThanEqual(0).and(prevUv.x.lessThanEqual(1)).and(prevUv.y.greaterThanEqual(0)).and(prevUv.y.lessThanEqual(1));
       // history, clipped towards the mean into the box (clipping, not clamping: no colour shift at the box corners)
-      const histTaps = this._catmullRom(prevUv);
+      const histTaps = HIST_BILINEAR ? this.historyTex.sample(prevUv) : this._catmullRom(prevUv);
       const hist = toYCoCg(enc(histTaps.rgb));
       const d = hist.sub(mean);
       const moved = clamp(length(prevUv.sub(screenUV).mul(screenSize)).mul(4), 0, 1);

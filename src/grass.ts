@@ -58,7 +58,7 @@ export interface GrassContext {
    * blades there). */
   webgl?: boolean;
   /** Blades per m² unless `?grassdense=` says: a weak GPU's last visit settled at a low-end tier (src/auto-quality.ts's
-   * `rememberedTier`), so it's built thin. Thinning a dense grass (`thin`) still tests every cell in the keep pass: on
+   * `rememberedTier` in auto-remember.ts), so it's built thin. Thinning a dense grass (`thin`) still tests every cell in the keep pass: on
    * the AMD PC density 1.5 was 11.6 ms where density 6 thinned to the same blades was 13.1. */
   dense?: number;
   /** The blades' wind motion for the TAA resolve (default: on WebGPU; the WebGL mode's when it has TAA). */

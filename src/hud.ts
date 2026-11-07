@@ -25,6 +25,10 @@ export interface AutoQuality {
   renderMs?: number;
   computeMs?: number;
   frameMs?: number; // eased frame time
+  mainMs?: number; // eased: the page's own main-thread time per frame (src/webgpu-start.ts's loop)
+  underRead?: number; // how much the GPU timers under-read the frames, learned when they fell behind (src/auto-quality.ts)
+  behindMs?: number;
+  steer?: number[]; // what the last step went by: GPU timers' median, frames behind, submit to done (ms; src/auto-quality.ts) // the GPU cost auto quality took from the frame rate when frames fell behind the display (src/auto-quality.ts)
   busy: boolean;
   busySince?: number; // (when the pending timestamp readback started)
   onSample?: (renderMs: number, computeMs: number) => void; // each raw timestamp sample (src/profile.ts)

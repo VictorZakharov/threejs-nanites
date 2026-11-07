@@ -12,7 +12,6 @@ import { createClouds } from './clouds.ts';
 import { FlyControls } from './controls.ts';
 import { createAutoQuality } from './auto-quality.ts';
 import { budgetFor, refreshRate } from './refresh.ts';
-import { impMinPx, MIN_PX } from './nanite-lib/index.ts';
 import { TouchControls, isTouchDevice } from './touch.ts';
 import { forestRadius, type TreeInstances } from './placement.ts';
 import { createLighting } from './lighting.ts';
@@ -29,8 +28,10 @@ import { GodRays } from './godrays.ts';
 import { typeMaskMode } from './type-masks.ts';
 import { createMusic } from './music.ts';
 import { createResolution } from './resolution.ts';
+import { createSlowFrames } from './slow-frames.ts';
 import { createPrepassTrial } from './prepass-trial.ts';
-import { reliefSteps } from './ground/relief.ts';
+import { createTierSwitches } from './low-tiers.ts';
+import { REMEMBER_PREFIX } from './auto-remember.ts';
 import { Precompile, warmUp } from './warmup.ts';
 import { buildForest } from './webgpu-forest.ts';
 import { createFrame } from './webgpu-frame.ts';
@@ -176,11 +177,6 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   // Auto quality (src/auto-quality.ts): steers tau so the GPU time stays within the budget
   // (a desktop's 5.5 ms leaves ~1.2 ms of the rest of the frame inside a 144 Hz frame: at 8 the user's 4070 Ti sat at
   // ~115 fps; a phone's budget is a 60 fps frame: its GPU is far from a desktop one)
-  // (?outratio=) From tier 1 the output stays within this many pixels per scene pixel, along each axis: an AMD iGPU on a DPR 3
-  // screen upscaled 960x439 to 3840x1755, 4x, and its TAA and output passes were ~26 of its 44 ms. Past 2x a TAA at 18 fps
-  // can't fill the output's pixels anyway (each gets a near sample every ratio^2 frames)
-  const OUT_RATIO = Number(params.get('outratio') ?? 2);
-  const RELIEF_STEPS = reliefSteps.value; // (its own: ?relief=, 0 on touch)
   const fixedBudget = params.get('budget') ?? (isTouchDevice(params) ? '14' : null);
   const budget = fixedBudget ? Number(fixedBudget) : budgetFor(refreshRate());
   // (?automin=) In the Lucy forest there's no point in spending the budget on detail past tau 3: 15M triangles on a 2M pixel
@@ -189,7 +185,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const auto: AutoQuality = { on: params.get('auto') === '1' || (params.get('auto') !== '0' && !HARNESS), budget, maxTau: 8, scale: 1, gpuMs: 0, busy: false };
   // (where it settled on this screen and scene: the next visit starts there; ?autoremember=0 never, the harness only with =1)
   if (params.get('autoremember') === '1' || (!HARNESS && params.get('autoremember') !== '0')) {
-    void sceneName.then((name) => (auto.remember = `nanite-auto ${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
+    void sceneName.then((name) => (auto.remember = `${REMEMBER_PREFIX}${name} ${screen.width}x${screen.height}@${devicePixelRatio} ${budget}`));
   }
   void sceneName.then((name) => (auto.minTau = Number(params.get('automin') ?? (name === 'lucy' ? 3 : 1))));
   // (phones start lower: each step down reallocates the targets and restarts TAA, a hitch the first seconds were full of)
@@ -199,19 +195,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     res.setScale(s);
   };
   // (?autozoom=0: one setting for the zoomed and unzoomed view, as before)
-  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, (tier) => {
-    impMinPx.value = tier >= 2 ? 6 : tier >= 1 ? 4 : MIN_PX;
-    grass.thin(tier >= 2 ? 1.5 : tier >= 1 ? 2 : Infinity);
-    res.capOutput(tier >= 2 ? 1 : Infinity);
-    res.capRatio(tier >= 1 ? OUT_RATIO : Infinity);
-    lighting.forceFarShadow(tier >= 3);
-    lighting.scaleShadowMap(tier >= 2 ? 0.5 : 1);
-    // (the floor's parallax relief in 8 steps, not 32: 2.2 of 39 ms on the AMD PC at 1080p; it only shows up close)
-    reliefSteps.value = tier >= 1 ? Math.min(RELIEF_STEPS, 8) : RELIEF_STEPS;
-  });
+  const autoQuality = createAutoQuality(renderer, auto, forest.u.tau, setScale, () => res.maxScale(), params.get('autozoom') === '0' ? null : controls, createTierSwitches({ params, forest, grass, res: () => res, lighting, rays: () => rays, taa: () => taa }));
   controls.onZoom = autoQuality.followZoom;
   // (the leaves' prepass timed both ways on this GPU: src/prepass-trial.ts)
-  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log);
+  const prepassTrial = createPrepassTrial(auto, forest.leafPrepass, () => controls.zoomTarget > 1, autoQuality.log, () => `${forest.u.tau.value} ${auto.scale} ${auto.tier ?? 0}`);
 
   // Follow the window size. Checked every frame rather than only on 'resize': a resize that happens while loading
   // (e.g. F11 / fullscreen during the shader compile) fires before any listener exists and left a gap at the bottom.
@@ -227,8 +214,10 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
 
   // the canvas at the display's resolution, the scene at auto quality's (src/resolution.ts; the TAA upscales)
   const res = createResolution(renderer, camera, sceneRT, params);
+  if (params.has('tier')) autoQuality.hold(Number(params.get('tier'))); // (a test: src/auto-quality.ts)
   taa.size = res.taa; // (the history at the TAA's size, the output pass upscales it to the canvas)
   if (params.get('taapr')) res.capOutput(Number(params.get('taapr'))); // (the TAA's pixel ratio, as tier 2 sets it: the harness's A/B)
+  if (params.get('shadowtauscale')) forest.shadowTauScale = Number(params.get('shadowtauscale')); // (a tier's: the harness's A/B)
   const size = res.render; // (the scene's pixels: what everything but the TAA resolve and the output works in)
   const fitToWindow = (): void => res.fit();
   fitToWindow();
@@ -257,7 +246,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     tau: forest.u.tau, scale: () => auto.scale, zoom: controls, forest,
     shadow: () => ({ size: sun.shadow.mapSize.x, half: (sun.shadow.camera as THREE.OrthographicCamera).right }),
   });
-  if (hud.perf) hud.perf.extra = zoomLog.report;
+  // (the report's slow frames by cause: src/slow-frames.ts)
+  const slowFrames = createSlowFrames();
+  if (hud.perf) hud.perf.extra = () => [slowFrames.report(), zoomLog.report()].filter(Boolean).join('\n\n');
   demo.hud = hud;
   // GPU profile (src/profile.ts): the panel's PROFILE button, demo.profile() for the harness
   const profile = (progress?: ProfileProgress): Promise<string> => runProfile(
@@ -280,9 +271,16 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   let inFlight = 0;
   const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
+  // (?simskip=N: skips N of every N+1 display frames, as a GPU behind the display whose timers read low: the harness's test of
+  // auto quality's frame-rate signal, src/auto-quality.ts behindMs)
+  const SIM_SKIP = Number(params.get('simskip') ?? 0);
+  let rafs = 0;
   function loop() {
-    if (inFlight >= maxQueue && maxQueue > 0) return; // (the GPU has its frames: this display frame is skipped)
+    if (SIM_SKIP && rafs++ % (SIM_SKIP + 1) !== 0) return;
     const now = performance.now();
+    const skip = inFlight >= maxQueue && maxQueue > 0;
+    slowFrames.begin(now, skip, auto.queueMs ?? 0);
+    if (skip) return; // (the GPU has its frames: this display frame is skipped)
     const dt = Math.min(0.1, (now - prev) / 1000);
     prev = now;
     if (pre.pending) pre.apart(() => frame(dt)); // (a compile in flight reads the renderer's target: Precompile.after)
@@ -304,6 +302,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
+    const end = performance.now();
+    slowFrames.end(end);
+    auto.mainMs = auto.mainMs ? auto.mainMs * 0.9 + (end - now) * 0.1 : end - now;
   }
 
   // ---------------------------------------------------------------- harness API

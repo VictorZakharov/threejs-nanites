@@ -55,8 +55,9 @@ planet-curved world (R = 150 km). Smooth (GPU budget 5.5 ms on desktop: 144 Hz o
 and it must *look* right: no popping, flicker, brightness seams or missing trees. Feedback comes from the live site,
 by screenshot and the performance panel's copied report.
 
-**Reference low-end device** (the user's, since 2026-11-06; before it the $700 Intel Xe2 laptop): a PC with an AMD RDNA 2
-iGPU, a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown. Its first report (production, tau 8, 50%
+**Reference low-end device** (the user's, since 2026-11-06; before it the $700 Intel Xe2 laptop): a Beelink SER5 Pro, Ryzen 7 5825U
+with Vega 8 graphics (GCN 5, ~2 TFLOPS, sharing dual-channel DDR4; Chrome's adapter info says "rdna-2", wrongly: ask the
+user for a device's specs), a 1280x585 CSS window at DPR 3 (a 3840x1755 output), display rate unknown. Its first report (production, tau 8, 50%
 resolution) was 18.7 fps, 44 ms of GPU time, nearly all of it by pixels: ~27 ms in the TAA and output passes, the scene's
 pixels ~16. Tune the low-end steps and their estimates against it: `--device=amd` (its screen, and for `--probe=autosim`
 its GPU modelled on the dev GPU's, `tools/harness/options.ts`) with the `amdground` view (its report's camera).
@@ -92,12 +93,33 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
 - **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
   every argument (`tools/remote/run.ts` does).
+- **Trusting a mode without seeing it.** `npm run remote -- --headed` wrote `set HARNESS_HEADED=1 && ...` into a batch file:
+  cmd keeps the space before `&&`, the value was "1 ", the harness wanted "1", and every "headed" run on the AMD PC for a
+  day was headless: its smooth 60 fps "with real input" were never what a person sees, and the user's lag never showed.
+  The harness now prints which it launched (`browser: ..., headed`); check that line before believing a run.
+- **Steering by GPU timers alone.** The timers cover the render and compute passes, not the browser's compositing of the
+  canvas or a hot iGPU's clocks: after 2-3 minutes' flying the AMD PC ran at 42 fps with 40 ms from submit to done while
+  the timers read 14, auto quality had climbed back to 69% on them, and the frames queued (the user: "enormous input
+  lags"). Auto quality now also steers by the frames themselves (`behindMs` in auto-quality.ts: slower than the display
+  by `?behind=` 1.2 with the main thread idle; on 60-80 Hz displays or once on a low-end tier); `?simskip=N` fakes it.
+- **Testing one scene, from a clean start.** Flights of the Lucy forest in a fresh browser profile looked fine while the
+  user's own Chrome sat at the floor in both scenes ("no quality, blurry", the forest at 30 fps): it had started where
+  stalled visits had left it (tier 3, tau 16, `auto.remember`) and the queue was compared with the budget (13.3 ms), so
+  14.75 ms from submit to done, under a 60 Hz frame and mostly the browser's compositing, held it there for good. The
+  queue now steers by the display's frame; a tier's saving from submit to done is learned both ways (a step down that
+  fills the frame goes straight back up and is held, `cameDown`). Fly both scenes, and think about where a real visit
+  starts (`?autoremember=1`).
 - **An unbounded GPU queue.** Chrome kept submitting frames the AMD PC's iGPU couldn't keep up with: at 1080p each
   waited a median 5 s from submit to done, and the desktop behind them (the mouse moved in jumps). Found only by the user,
   on that PC: the dev GPU never queues. The page's loop now keeps at most 2 frames on the GPU (`?gpuqueue=N`; 1 cost 14%
   of the frames, 2 none: 78 ms), the report shows submit-to-done, `--probe=gpuqueue` measures it (headless queues too).
 - **"Impossible".** Native 4K at 60 fps on the iGPU was called out of reach; the user's target (1080p at 60, upscaled
   to 4K) was the useful framing. Say what a goal costs and what has to get cheaper, not that it can't be done.
+- **Taking the user's mouse.** A headless browser's pointer lock still confines the real cursor (Windows' ClipCursor) to
+  its hidden window: `--play` (real input, harness/play.ts) run on the dev machine held the user's mouse in a small part
+  of their screen, four times ("my mouse gets locked to a small portion of my screen"). Anything that captures the
+  pointer or sends real input runs only as `npm run remote -- --headed` on the test PC (`--play` refuses otherwise),
+  and only after asking whoever is at that PC.
 
 ## Open work: GitHub issues
 
@@ -490,7 +512,7 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
   few hundred metres (-0.4 ms compute on the ground, -0.2..0.4 from above; `?chunks=0` tests every chunk: same image). Shadow-caster
   meshes are on layer 1, which only the shadow camera renders.
 - Auto quality (`src/auto-quality.ts`) steers the pixel error `tau` so GPU time stays under a budget (80% of the display's frame, `src/refresh.ts`, at least 5.5 ms: 144 Hz on the
-  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices; `?budget=`); past the coarsest tau, the low-end tiers, least seen first, tier 1 before the resolution and the others after it (`--probe=autosim` replays a weak, noisy GPU; the report's `auto steps` is a device's path): 1 impostors at least 4 px wide (`impMinPx`, `?impmin=`: fewer, bigger quads, coverage kept; at half resolution most of their cost is per quad; `laptop` 87k -> 48k, the same image and flicker) and the grass at density 2 (`grass.thin`, `grassShare`: full to 2 m, the share from 40 m, each blade by its own chance and wider, cells rejected before the keep pass's noise; a phone's own density stays; density 1 made the far blades fat triangles and saved little more) and the output within 2x the scene's pixel ratio (`capRatio`, `?outratio=`: nothing at full resolution, the output follows the scene down; an AMD iGPU at DPR 3 upscaled 960x439 to 3840x1755 and its TAA and output passes were ~26 of 44 ms; the dev GPU at that size 1.82 -> 0.93 ms, means within 1/255, softer: the browser stretches the rest; a new output size waits for the next frame's `fit()`), 2 at least 6 px, density 1.5 and the output at one pixel per CSS pixel, 3 the average shadow for the map's (eased; `--probe=lowend`; the user's $700 laptop's Intel Xe2 at the limit: 27 ms in the forest, 14 in the Lucy forest; the forest's split, `--probe=cost` at its settings: main-view impostors dominate, tree geometry ~0.3 ms); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
+  user's 4070 Ti, where 8 sat at ~115 fps; 14 on touch devices; `?budget=`); past the coarsest tau, the low-end tiers, least seen first, tier 1 before the resolution and the others after it (`--probe=autosim` replays a weak, noisy GPU; the report's `auto steps` is a device's path): 1 impostors at least 4 px wide (`impMinPx`, `?impmin=`: fewer, bigger quads, coverage kept; at half resolution most of their cost is per quad; `laptop` 87k -> 48k, the same image and flicker) and the grass at density 2 (`grass.thin`, `grassShare`: full to 2 m, the share from 40 m, each blade by its own chance and wider, cells rejected before the keep pass's noise; a phone's own density stays; density 1 made the far blades fat triangles and saved little more) and the output within 2x the scene's pixel ratio (`capRatio`, `?outratio=`: nothing at full resolution, the output follows the scene down; an AMD iGPU at DPR 3 upscaled 960x439 to 3840x1755 and its TAA and output passes were ~26 of 44 ms; the dev GPU at that size 1.82 -> 0.93 ms, means within 1/255, softer: the browser stretches the rest; a new output size waits for the next frame's `fit()`) and the textures at most half a mip level finer than the scene's pixels (`capMipBias`, `?miptier=`, `?mipbiasmax=`: the TAA's upscale sets the mip bias to -log2 of its ratio, and on the AMD iGPU the finer mips were most of upscaling's cost, the hidden term behind its non-additive profiles: 960x439 into 1920x877 18.1 -> 15.6 ms, 53 -> 60 fps, the crops alike; 480x220 into 1920x877 22.6 -> 10.4 at 0), 2 at least 6 px and density 1.5, the output at most 1.5 per CSS pixel (`?outtier2=`: FullHD at the AMD PC's window, the user's ask; at 1 it was 1280x585 stretched 3x, "blurry"; FullHD costs that PC ~1.7 ms of timers), 3 the shadow map at a quarter of its size, down to 256 at once (`scaleShadowMap`: a shrink otherwise waits 10 s, and the lite start drew a 2048 map at 13 ms a frame meanwhile; it was the average shadow for the map's, `?farshadowtier=3`: the forest flat and evenly lit, the user's "no quality"; on the AMD PC 256 cost +0.3..0.5 ms, 512 +0.8..1.1, softer dapples), 4 the lite tier (`src/low-tiers.ts`): no grass or god rays, no parallax relief, impostors from 4x the size (`?implite=`), no finer mips (back to 3 only under 45% of the budget: it brings all that back at once), 5 it with the plain ground near the camera too (`plainGround` in `terrain.ts`: 0.6-0.8 ms at the spawn, 57.6 -> 60 fps, but a lawn: only past tau 16 at half the resolution, and back to 4 under 75%; `?liteground=plain` at 4 too). From 4 the TAA's neighbourhood is the 5-tap cross (`taa.u.taps5`, ~0.4-0.5 ms at FullHD there). From 4 on the resolution comes back before the tier, and nothing comes back while a tier's step is measured (4 s: a resolution step inside it was once put down to the tier, and held it at 5 and 50% for a flight). A first visit on a 60-80 Hz display starts at 5 at half the resolution and tau 8 (`createRemember` in `auto-remember.ts`, `?autostart=full` as before) and comes back up, the resolution first at tier 4: on the AMD PC the forest's spawn is 60 fps from ~10 s (it was 28 fps for 11 s), and 4-minute flights in Chrome end at a 1839x840 and 1920x877 render (forest, Lucy forest), 1% lows 58-59. Each tier's saving from submit to done is learned both ways (`tier-costs.ts`); `?tier=N` with `auto=0` holds one (a test); `--probe=timers` lists what the live loop's timers cover (all a frame's passes: submit-to-done reads ~2x the GPU's time once the frames wait behind each other, it isn't the timers missing work) (eased; `--probe=lowend`; the user's $700 laptop's Intel Xe2 at the limit: 27 ms in the forest, 14 in the Lucy forest; the forest's split, `--probe=cost` at its settings: main-view impostors dominate, tree geometry ~0.3 ms); past tau 8 it lowers the resolution (down to half the pixel ratio): phones (user's Samsung S25: 68 ms GPU
   at tau 8) pay mostly for what tau doesn't touch. `--probe=auto` runs it with a 3 ms budget on the dev GPU. Coming back up it restores the resolution first (under 85% of
   the budget), then the detail; `?autostart=low` starts the probe at the bottom ("under 60%" left it stuck blurry
   after the orbit). At full detail (tau 1) under 55% of the budget it raises the resolution past the base pixel ratio
@@ -748,6 +770,9 @@ only erasable syntax, `.ts` in imports). A probe is one expression typed against
 - Each tree switches to its impostor at its own size (`switchPx` in `src/nanite-lib/gpu/shading.ts`: impostorPx x a
   per-tree factor in [1/1.6, 1.6], `?impspread=`). With one threshold the switch was a line at a fixed distance
   that slid along with the camera (`--dolly` shows why: small real trees flicker in motion, impostors don't).
+- Impostors have a depth prepass (`impostor-prepass.ts`, `?imppre=0` none): their alpha alone first, then lit only where
+  their depth equals it. A shader that discards loses early depth testing, and from above the crowns overlap many deep:
+  the AMD PC's `slope` 12.8 -> 9.3 ms, `canopy` 14.9 -> 13.2; the dev GPU -0.15..0.5 ms, the ground views the same.
 - Impostors cast shadows: the shadow view flags the trees it leaves as impostors, and `buildImpostorShadowMesh`
   draws their billboards turned to the sun into the shadow map. So the real map is used wherever it reaches; an
   average shadow where trees were impostors changed visibly at the switch and with the zoom. An impostor looks the

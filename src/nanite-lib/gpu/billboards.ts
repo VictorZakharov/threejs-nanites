@@ -15,6 +15,7 @@ import type { View } from './types.ts';
 import type { ImpostorAtlas } from '../impostors/atlas.ts';
 import type { Bool, Float, Uint, Vec2, Vec3, Vec4 } from '../types.ts';
 import { setEmissive } from '../three-gaps.ts';
+import { IMP_PRE, impostorPrepass } from './impostor-prepass.ts';
 
 /** A billboard's shader pieces (see _impostorQuad). */
 interface ImpostorQuad {
@@ -308,14 +309,18 @@ export const billboardMethods = {
     // worked out for pixels about to be discarded. So the colour's Fn, built first, does it all once, the alpha first, and the
     // rest reads its vars. A discard doesn't stop the shader, so what's left is kept from them by hand: the normals, and the
     // shadow's 5 taps (a position off the map skips them).
+    // (the pixel's alpha, from the sampled tiles: the same nodes in the prepass, so the same pixels pass)
+    const alphaOf = (t: Vec4[], lod: Float, a: Float[]): Float => {
+      const plain = q.plainAlpha(t);
+      const shown = impDither ? select(min(max(plain[0], plain[1]), 1).mul(mix(float(IMP_COV), float(1), this.solidOf.element(tile))).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : min(max(a[0], a[1]), 1);
+      return select(q.holes(q.vCov, lod).and(dither().greaterThanEqual(vFade)), shown, float(0));
+    };
     mat.colorNode = Fn(() => {
       lodV.assign(q.lod);
       const t = q.sample(lodV);
-      const plain = q.plainAlpha(t);
       const a = q.cutAlpha(t, lodV).map((ak) => ak.toVar());
       weight = a;
-      const shown = impDither ? select(min(max(plain[0], plain[1]), 1).mul(mix(float(IMP_COV), float(1), this.solidOf.element(tile))).greaterThan(ditherAlt(screenCoordinate.xy)), float(1), float(0)) : min(max(a[0], a[1]), 1);
-      alphaV.assign(select(q.holes(q.vCov, lodV).and(dither().greaterThanEqual(vFade)), shown, float(0)));
+      alphaV.assign(alphaOf(t, lodV, a));
       colV.assign(vec3(0)); // (here: first built in a branch, three.js sets it to its first value again in the next branch that reads it)
       If(alphaV.greaterThan(0), () => {
         const wSum = max(a[0].add(a[1]), 1e-4);
@@ -350,6 +355,11 @@ export const billboardMethods = {
     mesh.name = 'nanite-impostors';
     // drawn in phase 2, after occlusion() has dropped the hidden ones (with occlusion off, all flagged ones)
     mesh.layers.set(PHASE2_LAYER);
+    if (IMP_PRE) impostorPrepass(mesh, Fn(() => {
+      const l = q.lod.toVar();
+      const t = q.sample(l);
+      return vec4(1, 1, 1, alphaOf(t, l, q.cutAlpha(t, l).map((ak) => ak.toVar())));
+    })(), q.position);
     return mesh;
   },
 

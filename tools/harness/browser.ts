@@ -73,19 +73,31 @@ export async function startStatic(dir: string): Promise<{ url: string; close: ()
 
 function gpuArgs(): string[] {
   // (autoplay: --probe=music starts the track from a synthetic event; nothing else plays sound)
-  const a = ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-features=WebGPU', '--autoplay-policy=no-user-gesture-required'];
-  if (process.platform === 'win32') a.push('--use-angle=d3d11');
+  // (HARNESS_PLAIN=1: none of the GPU flags, the browser as a person has it: the AMD PC's frames in the user's Chrome waited
+  // 38-42 ms with 9 ms of GPU timers where the harness's Chrome, with --ignore-gpu-blocklist, never did)
+  const plain = process.env.HARNESS_PLAIN?.trim() === '1';
+  const a = plain ? ['--autoplay-policy=no-user-gesture-required'] : ['--enable-gpu', '--ignore-gpu-blocklist', '--enable-unsafe-webgpu', '--enable-features=WebGPU', '--autoplay-policy=no-user-gesture-required'];
+  if (process.platform === 'win32' && !plain) a.push('--use-angle=d3d11');
+  // (HARNESS_ARGS: extra flags, space-separated; npm run remote -- --browserargs=)
+  a.push(...(process.env.HARNESS_ARGS?.trim().split(/\s+/).filter(Boolean) ?? []));
   return a;
 }
 
 /** A headless browser with WebGPU: Playwright's Chromium, else the installed Edge, else Chrome. */
 export async function launchBrowser(): Promise<Browser> {
   const fails: string[] = [];
-  for (const channel of ['chromium', 'msedge', 'chrome']) {
+  // (HARNESS_CHANNEL=chrome|msedge|chromium, `--channel=` in npm run remote: the browser the user has. The AMD PC took msedge,
+  // the user's Chrome stalled where it didn't)
+  const want = process.env.HARNESS_CHANNEL?.trim();
+  for (const channel of want ? [want] : ['chromium', 'msedge', 'chrome']) {
     try {
       // (HARNESS_HEADED=1: a visible window, so frames are presented and the desktop composites them: frame pacing and
       // queueing as a person sees them. npm run remote -- --headed starts it on the test PC's desktop)
-      return await chromium.launch({ headless: process.env.HARNESS_HEADED !== '1', channel, args: gpuArgs() });
+      // (trimmed: cmd's `set X=1 && ...` keeps the space before the &&, and every --headed run was headless for a day)
+      const headless = process.env.HARNESS_HEADED?.trim() !== '1';
+      const b = await chromium.launch({ headless, channel, args: gpuArgs() });
+      console.log(`browser: ${channel}, ${headless ? 'headless' : 'headed (a visible window)'}${process.env.HARNESS_PLAIN?.trim() === '1' ? ', no GPU flags' : ''}`);
+      return b;
     } catch (e) {
       fails.push(`${channel}: ${String(e instanceof Error ? e.message : e).split('\n')[0]}`);
     }

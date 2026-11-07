@@ -9,9 +9,9 @@ import type { AutoQuality } from './hud.ts';
 const ENABLED = new URLSearchParams(location.search).get('prepasstrial') !== '0';
 const BEFORE_MS = 1500, SETTLE_MS = 1000, AFTER_MS = 1500, EVERY_MS = 20000, KEEP = 0.93;
 
-export function createPrepassTrial(auto: AutoQuality, prepass: LeafPrepass, zoomed: () => boolean, log: (text: string) => void) {
+export function createPrepassTrial(auto: AutoQuality, prepass: LeafPrepass, zoomed: () => boolean, log: (text: string) => void, quality: () => string = () => '') {
   const samples: [number, number][] = []; // (time, eased GPU ms)
-  let trial: { at: number; before: number; was: boolean; density: number } | null = null;
+  let trial: { at: number; before: number; was: boolean; density: number; quality: string } | null = null;
   let next = performance.now() + 6000, lastDensity = 0;
   const mean = (from: number, to: number): number => {
     const v = samples.filter(([t]) => t >= from && t <= to).map(([, m]) => m);
@@ -26,6 +26,9 @@ export function createPrepassTrial(auto: AutoQuality, prepass: LeafPrepass, zoom
       while (samples.length && samples[0][0] < now - 5000) samples.shift();
       if (trial) {
         if (zoomed()) { prepass.mode = 'auto'; trial = null; return; } // (the view changed under it)
+        // (and auto quality changed under it: the AMD PC's lite start read "66 -> 13.5 ms, kept" from tau 2.6 -> 16, set the switch
+        // for full-detail density, and the prepass was off at the low end, where it saves 1.4-2.7 ms, for 20 s)
+        if (quality() !== trial.quality) { prepass.mode = 'auto'; trial = null; next = now + 2000; return; }
         if (now - trial.at < SETTLE_MS + AFTER_MS) return;
         const after = mean(trial.at + SETTLE_MS, now), d = trial.density;
         const better = after < trial.before * KEEP;
@@ -43,7 +46,7 @@ export function createPrepassTrial(auto: AutoQuality, prepass: LeafPrepass, zoom
       const before = mean(now - BEFORE_MS, now);
       if (!(before > 0)) return;
       lastDensity = d;
-      trial = { at: now, before, was: prepass.on, density: d };
+      trial = { at: now, before, was: prepass.on, density: d, quality: quality() };
       prepass.mode = !prepass.on;
     },
   };

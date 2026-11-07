@@ -41,6 +41,14 @@ export interface Resolution {
   setUpscale(on: boolean): void;
   /** Output pixels per scene pixel, along each axis (1: none). */
   ratio(): number;
+  /**
+   * The textures' mip bias for the output's pixels: -log2(ratio()), at most `capMipBias`'s levels finer. Sampling finer mips
+   * for an upscaled scene cost an AMD iGPU (the reference low-end PC) most of its frame: 960x439 into 1920x877, 18.1 ms
+   * uncapped, 15.6 at 0.5 (60 fps), 14.5 at 0, the image at 0.5 like uncapped; 480x220 into 1920x877, 22.6 -> 10.4 at 0.
+   */
+  mipBias(): number;
+  /** Caps how many mip levels finer than the scene's pixels the textures sample (auto quality's tiers; `?mipbiasmax=`). */
+  capMipBias(levels: number): void;
   /** Follows the window (every frame: a resize while loading fired before any listener existed). */
   fit(toOutput?: boolean): void;
   /** The scene's resolution scale (auto quality: of `basePR`). */
@@ -54,7 +62,9 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
   let upscale = params.get('taau') !== '0' && params.get('taa') !== '0';
   const outPR = Number(params.get('outpr') ?? Math.max(basePR, Math.min(window.devicePixelRatio, OUT_MAX)));
   const render = new THREE.Vector2(), output = new THREE.Vector2(), taa = new THREE.Vector2(), view = new THREE.Vector2();
-  let scale = 1, cap = Infinity, ratioCap = Infinity;
+  let scale = 1, cap = Infinity, ratioCap = Infinity, mipCap = Infinity;
+  const MIP_MAX = Number(params.get('mipbiasmax') ?? Infinity); // (a fixed cap: the harness's A/B)
+  const MIP_ADD = Number(params.get('mipbiasadd') ?? 0); // (coarser by this many levels: a test on the AMD PC's bandwidth)
   const outNow = (): number => Math.min(outPR, cap, Math.max(1, ratioCap * basePR * scale));
   renderer.setPixelRatio(upscale ? outPR : basePR);
   const res: Resolution = {
@@ -77,6 +87,10 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
       res.fit();
     },
     ratio: () => taa.x / render.x,
+    mipBias: () => MIP_ADD - Math.min(mipCap, MIP_MAX, Math.log2(res.ratio())),
+    capMipBias(levels) {
+      mipCap = levels;
+    },
     maxScale: () => (upscale ? Math.max(1, outNow() / basePR) : 1),
     fit(toOutput = true) {
       const canvasPR = FULL_OUT ? outPR : outNow();

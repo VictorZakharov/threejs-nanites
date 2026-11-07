@@ -9,6 +9,16 @@ async (demo: Demo) => {
   const secs = Number(q.get('queuesecs') ?? 10);
   auto.tuning = true;
   await demo.live(true);
+  // (?queuetrace=1: a line a second from the start, gpu / submit-to-done / tier / tau / scale, to see the first seconds after load:
+  // the user's reports from the AMD PC came from them, 25-30 fps with 25 ms of timers at tier 3)
+  const trace: string[] = [], t0 = performance.now();
+  // (and what's drawn: the forest's triangles and impostors, and whether the leaves' prepass is on)
+  const tick = q.get('queuetrace') === '1'
+    ? setInterval(() => {
+        const head = `${((performance.now() - t0) / 1000).toFixed(0)}s gpu ${auto.gpuMs.toFixed(1)} queue ${(auto.queueMs ?? 0).toFixed(1)} frame ${(auto.frameMs ?? 0).toFixed(1)} tier ${auto.tier ?? 0} tau ${demo.forest.u.tau.value.toFixed(1)} scale ${auto.scale.toFixed(2)}`;
+        void demo.stats().then((st) => trace.push(`${head} tris ${((st.barkTris + st.leafTris) / 1000).toFixed(0)}k imp ${(st.impostors / 1000).toFixed(1)}k pre ${demo.forest.leafPrepass.on ? 1 : 0}`));
+      }, 1000)
+    : 0;
   await new Promise((r) => setTimeout(r, Number(q.get('queuewait') ?? 3) * 1000)); // (settled: ?queuewait= s, 25 with auto quality)
   auto.queueLog = [];
   let frames = 0, run = true;
@@ -19,8 +29,15 @@ async (demo: Demo) => {
   requestAnimationFrame(count);
   await new Promise((r) => setTimeout(r, secs * 1000));
   run = false;
+  clearInterval(tick);
   await demo.live(false);
   const v = [...(auto.queueLog ?? [])].sort((a, b) => a - b);
   const at = (p: number): number => +(v[Math.min(v.length - 1, Math.floor(p * v.length))] ?? 0).toFixed(1);
-  return { frames: v.length, fps: +(v.length / secs).toFixed(1), raf: +(frames / secs).toFixed(1), median: at(0.5), p95: at(0.95), gpu: +auto.gpuMs.toFixed(1) };
+  return { frames: v.length, fps: +(v.length / secs).toFixed(1), raf: +(frames / secs).toFixed(1), median: at(0.5), p95: at(0.95), gpu: +auto.gpuMs.toFixed(1),
+    // (where auto quality settled: its tier, resolution scale and tau, the scene's and the TAA's sizes, the steps it took)
+    behind: +(auto.behindMs ?? 0).toFixed(1), underRead: +(auto.underRead ?? 1).toFixed(2), steer: auto.steer?.map((x) => +x.toFixed(1)), mainMs: +(auto.mainMs ?? 0).toFixed(1), frameMs: +(auto.frameMs ?? 0).toFixed(1),
+    tier: auto.tier ?? 0, scale: +auto.scale.toFixed(3), tau: +demo.forest.u.tau.value.toFixed(2), scene: `${demo.sceneRT.width}x${demo.sceneRT.height}`,
+    taa: demo.taa.size?.toArray().join('x'), steps: auto.trials, trace,
+    // (with --query=perf=1: the report's slow frames by cause, src/slow-frames.ts)
+    slow: demo.perfReport()?.split('\n\n').find((b) => b.startsWith('slow frames')) };
 }
