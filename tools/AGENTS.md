@@ -99,6 +99,8 @@ npx vite build && npm run harness -- --dist --example           # the library al
 - Is it a regression? Build the last good commit in a worktree under `tools/tmp/` (`git worktree add`, then
   `npx vite build` there: it resolves the main checkout's node_modules), serve it with `npx vite preview --port N`
   and run the same harness command with `--url=http://localhost:N/`. Compare like with like in one sitting.
+- The reference low-end PC (AMD RDNA 2 iGPU at DPR 3, AGENTS.md's Goal): `--device=amd --views=amdground`; with
+  `--probe=autosim --query=auto=1` auto quality runs against its modelled GPU (a row every 2 s, its steps).
 - A phone's screen: `--size=384x832 --dpr=3 --query=touch=1` (screenshots at 1152x2496; the demo renders 576x1248
   and upscales). Compare the upscaling with `--ab="taau=0|taau=1"` (the old stretched canvas) and against rendering
   natively at that density (`pr=3`); judge crops, not pixel counts (dithered foliage differs every run).

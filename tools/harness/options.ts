@@ -1,6 +1,18 @@
 // Command line of tools/harness.ts: `--name=value` or `--flag`, nothing positional.
 import { VIEWS, DEFAULT_VIEWS } from './views.ts';
 
+/**
+ * `--device=`: a device's screen, and for --probe=autosim its GPU modelled on the dev GPU (`?autosim=x,noise,pixels`, see
+ * src/auto-quality.ts). `amd`, the reference low-end PC (the user's, 2026-11-06): an AMD RDNA 2 iGPU, 1280x585 CSS at DPR 3,
+ * display rate unknown. Its production report at tau 8 and 50% resolution, a 3840x1755 output (6.74M pixels): 44.4 ms; TAA or
+ * upscaling off -26..28, half the scene's pixels -8.5; the dev GPU there (`amdground`) 1.82 ms. So nearly all of it goes by pixels:
+ * 1 x 1.82 + 64 x 0.5^2 + 4 x 6.74 = 44.8. (x 15 of the dev GPU, its fixed floor included, read 40-50 ms after every tier.) The
+ * shadow map's 7.6 ms isn't in it: tier 3 saves nothing here, so it's pessimistic past tier 2.
+ */
+const DEVICES: Record<string, { size: string; dpr: number; autosim: string }> = {
+  amd: { size: '1280x585', dpr: 3, autosim: '1,0.3,64,4' },
+};
+
 export const HELP = `Nanite Forest harness: headless benchmark, screenshots and probes (results in tools/out/)
 
   npm run harness                                  the default views, default settings
@@ -17,6 +29,7 @@ views and settings
   --dist[=dir]       the production build in dist/ (npx vite build first), served gzipped as GitHub Pages does; another
                      build's folder (a baseline's worktree: --dist=tools/tmp/base/dist)
   --size=1600x900    viewport;  --frames=120 benchmark frames per view;  --no-shots  skip screenshots
+  --device=amd       the reference low-end PC: its screen (--size, --dpr), and its GPU's model for --probe=autosim
   --dpr=3            device pixel ratio (a phone's screen: screenshots at size x dpr; the demo upscales to it)
 
 measuring
@@ -72,7 +85,10 @@ export function parseOptions(argv: string[]) {
       return m ? [m[1], m[2] ?? true] : [a, true];
     }),
   );
-  const [width, height] = String(args.size ?? '1600x900').split('x').map(Number);
+  const device = args.device ? DEVICES[String(args.device)] : undefined;
+  if (args.device && !device) throw new Error(`unknown device ${String(args.device)} (${Object.keys(DEVICES).join(', ')})`);
+  const [width, height] = String(args.size ?? device?.size ?? '1600x900').split('x').map(Number);
+  const simQuery = device && String(args.probe ?? '').split(',').includes('autosim') && !String(args.query ?? '').includes('autosim=') ? `autosim=${device.autosim}` : null;
   const views = args.views ? String(args.views).split(',') : DEFAULT_VIEWS;
   const unknown = views.filter((v) => !VIEWS[v]);
   if (unknown.length) throw new Error(`unknown view(s): ${unknown.join(', ')} (see tools/harness/views.ts)`);
@@ -80,10 +96,10 @@ export function parseOptions(argv: string[]) {
     help: Boolean(args.help || args.h),
     width,
     height,
-    dpr: Number(args.dpr ?? 1),
+    dpr: Number(args.dpr ?? device?.dpr ?? 1),
     frames: Number(args.frames ?? 120),
     // (--scene and --choose are URL parameters too, see src/scene.ts)
-    query: [args.query, args.scene && `scene=${args.scene}`, args.choose && 'choose=1'].filter((q) => typeof q === 'string' && q).join('&'),
+    query: [args.query, simQuery, args.scene && `scene=${args.scene}`, args.choose && 'choose=1'].filter((q) => typeof q === 'string' && q).join('&'),
     choose: args.choose ? String(args.choose) : null,
     views,
     zoom: args.zoom === undefined ? undefined : Number(args.zoom), // (unset: the view's own zoom, else 1)

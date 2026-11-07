@@ -25,9 +25,10 @@ const MAX_TIER = 3, TIER_MS = 2500, TIER_BACK = 0.6;
 /** A resolution step's trial: how long it's measured before and after (ms), and the share of its share of the pixels it must save. */
 const SETTLE = 2000, PAYS = 5;
 /**
- * `?autosim=x,noise,pixels` (--probe=autosim), a weak GPU's controller on the dev GPU: its GPU samples x x, plus `pixels` ms at full
- * resolution (by the square of the scale; the dev GPU's cost hardly follows the pixels where the laptop's does), +- noise re-rolled
- * every half second (a real GPU's drift: per sample, the medians cancel it).
+ * `?autosim=x,noise,pixels,output` (--probe=autosim), a weak GPU's controller on the dev GPU: its GPU samples x x, plus `pixels` ms at full
+ * resolution (by the square of the scale; the dev GPU's cost hardly follows the pixels where the laptop's does), plus `output` ms per
+ * million canvas pixels (the TAA and the output pass), +- noise re-rolled every half second (a real GPU's drift: per sample, the
+ * medians cancel it).
  */
 const SIM = new URLSearchParams(location.search).get('autosim')?.split(',').map(Number);
 let simAt = 0, simRoll = 1;
@@ -223,7 +224,7 @@ export function createAutoQuality(
         simAt = performance.now();
         simRoll = 1 + (SIM[1] ?? 0) * (Math.random() * 2 - 1);
       }
-      const g = SIM ? ((r + (c || 0)) * SIM[0] + (SIM[2] ?? 0) * auto.scale ** 2) * simRoll : r + (c || 0), ease = (a: number | undefined, b: number): number => (a ? a * 0.9 + b * 0.1 : b);
+      const g = SIM ? ((r + (c || 0)) * SIM[0] + (SIM[2] ?? 0) * auto.scale ** 2 + ((SIM[3] ?? 0) * renderer.domElement.width * renderer.domElement.height) / 1e6) * simRoll : r + (c || 0), ease = (a: number | undefined, b: number): number => (a ? a * 0.9 + b * 0.1 : b);
       auto.gpuMs = ease(auto.gpuMs, g);
       auto.renderMs = ease(auto.renderMs, r);
       auto.computeMs = ease(auto.computeMs, c || 0);
