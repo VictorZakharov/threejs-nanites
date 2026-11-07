@@ -197,5 +197,10 @@ export function createLighting(scene: THREE.Scene, { harness, floatTargets = tru
 
   return { sky, sun, sunDir, hemi, fogNear, fogFar, fogColour, skyCapture, cubeCam, makeFadeShadow, treeFarShadow, farShadowOn, follow, fitShadowMap, shadowFarOnly, forceFarShadow: (on: boolean): void => void (farForce = on ? 1 : 0),
     /** The shadow map's side x `s` (auto quality's tier 2: half, 4.5 of 38 ms on the AMD PC at 1080p). */
-    scaleShadowMap: (s: number): void => void (mapScale = s) };
+    // (a tier's smaller map at once, not after SHRINK_MS: the lite start at the AMD PC's spawn drew a 2048 map for its first 10 s,
+    // 13 ms of 24 a frame, where 256 took 0.2)
+    scaleShadowMap: (s: number): void => {
+      if (s < mapScale) fitted = false;
+      mapScale = s;
+    } };
 }
