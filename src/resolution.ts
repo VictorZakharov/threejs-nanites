@@ -64,6 +64,7 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
   const render = new THREE.Vector2(), output = new THREE.Vector2(), taa = new THREE.Vector2(), view = new THREE.Vector2();
   let scale = 1, cap = Infinity, ratioCap = Infinity, mipCap = Infinity;
   const MIP_MAX = Number(params.get('mipbiasmax') ?? Infinity); // (a fixed cap: the harness's A/B)
+  const MIP_ADD = Number(params.get('mipbiasadd') ?? 0); // (coarser by this many levels: a test on the AMD PC's bandwidth)
   const outNow = (): number => Math.min(outPR, cap, Math.max(1, ratioCap * basePR * scale));
   renderer.setPixelRatio(upscale ? outPR : basePR);
   const res: Resolution = {
@@ -86,7 +87,7 @@ export function createResolution(renderer: THREE.WebGPURenderer, camera: THREE.P
       res.fit();
     },
     ratio: () => taa.x / render.x,
-    mipBias: () => -Math.min(mipCap, MIP_MAX, Math.log2(res.ratio())),
+    mipBias: () => MIP_ADD - Math.min(mipCap, MIP_MAX, Math.log2(res.ratio())),
     capMipBias(levels) {
       mipCap = levels;
     },
