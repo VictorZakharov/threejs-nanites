@@ -20,6 +20,8 @@ import { gpuBackend } from './three-gaps.ts';
 /** While zoomed, `step`'s `over` is the frame time over this (ms): past 1.5 it coarsens, past ZOOM_RES the resolution drops. */
 const ZOOM_FLOOR = 50;
 const ZOOM_RES = 2.5;
+/** Frames this much slower than the display, the main thread idle: the GPU is behind (`?behind=`, see behindMs). */
+const BEHIND = Number(new URLSearchParams(location.search).get('behind') ?? 1.2);
 /** The zoom's coarsest tau on the low-end tiers (`?zoomlowtau=`; see zoomTau). */
 const ZOOM_LOW_TAU = Number(new URLSearchParams(location.search).get('zoomlowtau') ?? 16);
 /** The low-end tiers (see `tier`): how many, the least time on one before the next (ms), how far under the budget to come back. */
@@ -259,8 +261,24 @@ export function createAutoQuality(
     }
   };
 
+  // Frames behind the display with the main thread idle: the GPU is behind, whatever its timers say. The AMD PC after 2-3
+  // minutes' flying: 42 fps, 40 ms from submit to done, while the timers read 14 ms (the browser's compositing of the canvas
+  // and the iGPU's clocks aren't in them): auto quality had climbed back to 69% on the timers, and the frames queued (the
+  // user: "enormous input lags and FPS drops"). Then the frame time stands in for the GPU's: budget x frame / display frame.
+  const paces: [number, number][] = []; // (time, ms since the frame before) over the last second
+  const behindMs = (now: number): number => {
+    while (paces.length && paces[0][0] < now - 1000) paces.shift();
+    if (paces.length < 20) return 0;
+    const v = paces.map(([, d]) => d).sort((a, b) => a - b), paced = v[v.length >> 1], display = auto.budget / 0.8;
+    // (only on a 60-80 Hz display or a low-end device: a fast GPU on a 144 Hz screen can be held back by the browser's own
+    // presenting, which no quality step fixes)
+    if (display < 12 && tier < 1) return 0;
+    return paced > display * BEHIND && (auto.mainMs ?? 0) < display * 0.5 ? (auto.budget * paced) / display : 0;
+  };
+  let behindLogged = 0;
   const perFrame = (dt: number): void => {
     remember(performance.now());
+    paces.push([performance.now(), dt * 1000]);
     // (a preset or a manual tau: they're auto quality's to give up; Profile GPU only holds it still, and measures what's on)
     if (!auto.on && !auto.holding && tier > 0) setTierTo(0);
     if (auto.on && !saved && tau.value < minTau()) tau.value = minTau(); // (switched on from a finer preset)
@@ -308,7 +326,13 @@ export function createAutoQuality(
       // GPU timings drift by 30% on their own)
       if (futile && ((m > 0 && Math.abs(m / futile.gpu - 1) > 0.5 && t - futile.at > 10000) || t - futile.at > 60000)) futile = null;
       // (the median of the last second: a single low sample after a change took a tier back, eased from nothing)
-      if (auto.on && !zoomState && m > 0) step(m / auto.budget, true);
+      const behind = behindMs(t);
+      if (behind > m && t - behindLogged > 10000 && auto.on && !zoomState) {
+        behindLogged = t;
+        logStep(`frames behind the display: ${(behind / 0.8).toFixed(1)} ms paced, GPU timers ${m.toFixed(1)} ms: steering by the frames`);
+      }
+      auto.behindMs = behind;
+      if (auto.on && !zoomState && m > 0) step(Math.max(m, behind) / auto.budget, true);
     }, (err) => {
       auto.busy = false;
       console.warn('GPU timestamp readback failed', err);

@@ -92,6 +92,11 @@ What went wrong in past sessions (the user: "document all slops, so next time th
   error with where the log is. In PowerShell strings `"$x:"` is a drive-qualified variable: write `${x}:`.
 - **Shells across SSH.** The remote shell is Windows' cmd: an unquoted `&` in `--query` split the command. Quote
   every argument (`tools/remote/run.ts` does).
+- **Steering by GPU timers alone.** The timers cover the render and compute passes, not the browser's compositing of the
+  canvas or a hot iGPU's clocks: after 2-3 minutes' flying the AMD PC ran at 42 fps with 40 ms from submit to done while
+  the timers read 14, auto quality had climbed back to 69% on them, and the frames queued (the user: "enormous input
+  lags"). Auto quality now also steers by the frames themselves (`behindMs` in auto-quality.ts: slower than the display
+  by `?behind=` 1.2 with the main thread idle; on 60-80 Hz displays or once on a low-end tier); `?simskip=N` fakes it.
 - **An unbounded GPU queue.** Chrome kept submitting frames the AMD PC's iGPU couldn't keep up with: at 1080p each
   waited a median 5 s from submit to done, and the desktop behind them (the mouse moved in jumps). Found only by the user,
   on that PC: the dev GPU never queues. The page's loop now keeps at most 2 frames on the GPU (`?gpuqueue=N`; 1 cost 14%

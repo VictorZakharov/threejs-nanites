@@ -294,7 +294,12 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   let inFlight = 0;
   const gpuBound = (): boolean => maxQueue > 0; // (always: a GPU that keeps up never has 2 waiting)
   let prev = performance.now();
+  // (?simskip=N: skips N of every N+1 display frames, as a GPU behind the display whose timers read low: the harness's test of
+  // auto quality's frame-rate signal, src/auto-quality.ts behindMs)
+  const SIM_SKIP = Number(params.get('simskip') ?? 0);
+  let rafs = 0;
   function loop() {
+    if (SIM_SKIP && rafs++ % (SIM_SKIP + 1) !== 0) return;
     const now = performance.now();
     const skip = inFlight >= maxQueue && maxQueue > 0;
     slowFrames.begin(now, skip, auto.queueMs ?? 0);
@@ -320,7 +325,9 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
     prepassTrial.step(now);
     zoomLog.frame(now, dt);
     hud.frame(now, dt);
-    slowFrames.end(performance.now());
+    const end = performance.now();
+    slowFrames.end(end);
+    auto.mainMs = auto.mainMs ? auto.mainMs * 0.9 + (end - now) * 0.1 : end - now;
   }
 
   // ---------------------------------------------------------------- harness API
