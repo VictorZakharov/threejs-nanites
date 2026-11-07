@@ -62,7 +62,7 @@ export function createAutoQuality(
   maxScale: () => number,
   zoom: { zoom: number; zoomTarget: number } | null,
   setTier: (tier: number) => void = () => {},
-): { step: (dt: number) => void; followZoom: () => void; log: (text: string) => void } {
+): { step: (dt: number) => void; followZoom: () => void; log: (text: string) => void; hold: (tier: number) => void } {
   let lastAdjust = 0;
   // the unzoomed (tau, scale) while zoomed
   let saved: [number, number] | null = null;
@@ -376,17 +376,14 @@ export function createAutoQuality(
       console.warn('GPU timestamp readback failed', err);
     });
   };
-  // (?tier=N with auto quality off: held at that low-end tier, a test: `--query=auto=0&tier=3&pr=1.5` is FullHD's cost at the
-  // last tier)
-  // (at the first frame: the tier's switches need what's built after this)
-  let held = new URLSearchParams(location.search).get('tier');
-  const frameStep = (dt: number): void => {
-    if (held !== null && !auto.on) {
-      auto.holding = true;
-      setTierTo(Number(held));
-    }
-    held = null;
-    perFrame(dt);
+  /**
+   * Holds a low-end tier with auto quality off (`?tier=N`, a test: `--query=auto=0&tier=4&pr=1.5` is FullHD's cost at the lite
+   * tier; called once the setup is done, so still shots have it too).
+   */
+  const hold = (t: number): void => {
+    if (auto.on) return;
+    auto.holding = true;
+    setTierTo(t);
   };
-  return { step: frameStep, followZoom, log: logStep };
+  return { step: perFrame, followZoom, log: logStep, hold };
 }

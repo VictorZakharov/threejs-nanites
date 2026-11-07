@@ -208,6 +208,7 @@ export async function startWebGPU(o: WebGPUStart): Promise<void> {
   const typeMasks = typeMaskMode({ renderer, hide: [terrain, grass.group], rays, fogNear, fogFar });
   // (alpha 1: alpha-to-coverage leaves leave alpha < 1 in the target, and the canvas would show the page through)
   const output = new THREE.RenderPipeline(renderer, vec4(taa.displayNode, 1));
+  if (params.has('tier')) autoQuality.hold(Number(params.get('tier'))); // (a test: src/auto-quality.ts)
   forest.setDepthSource(sceneRT.depthTexture, samples);
   forest.occlusionOn = params.get('occ') !== '0';
 
